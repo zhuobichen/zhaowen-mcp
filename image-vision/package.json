@@ -1,0 +1,12 @@
+{
+  "name": "image-vision-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for image recognition via vision API",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}

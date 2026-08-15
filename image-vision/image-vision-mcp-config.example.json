@@ -1,0 +1,19 @@
+{
+  "image-vision": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "tsx",
+      "image-vision/index.ts"
+    ],
+    "cwd": "<本仓库路径>",
+    "env": {
+      "VISION_API_KEY": "<你的识图 API Key>",
+      "VISION_API_URL": "<你的识图 API 端点，如 https://api.anthropic.com/v1/messages 或 OpenAI 兼容地址>",
+      "VISION_MODEL": "<识图模型，如 gpt-5.6-sol>",
+      "IMAGE_API_KEY": "<你的生图 API Key>",
+      "IMAGE_BASE_URL": "<你的生图 API 端点，如 https://api.openai.com/v1>",
+      "IMAGE_MODEL": "<生图模型，如 gpt-image-2-ca>"
+    }
+  }
+}
