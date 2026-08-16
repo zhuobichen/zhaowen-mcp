@@ -9,6 +9,7 @@
  *
  * 通过 stdio 与 MCP 客户端通信。日志一律走 stderr，stdout 只用于 MCP 协议。
  */
+import 'dotenv/config'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'

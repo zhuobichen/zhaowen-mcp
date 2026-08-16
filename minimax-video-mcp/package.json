@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
