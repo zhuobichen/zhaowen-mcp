@@ -1,0 +1,33 @@
+{
+  "name": "file-manager-skill",
+  "version": "2.4.0",
+  "description": "文件管理 Skill:本地文件管理 + SSH 远程文件管理,通过 MCP 协议适配多 agent;v2.4 起共享自动处理父链 traverse,被分享人开箱可用",
+  "main": "scripts/ssh-ops.js",
+  "bin": {
+    "fm": "scripts/ssh-ops.js"
+  },
+  "scripts": {
+    "install:lib": "node scripts/install.js",
+    "doctor": "node scripts/ssh-ops.js doctor",
+    "init": "node scripts/ssh-ops.js init",
+    "bind": "node scripts/ssh-ops.js bind",
+    "exec": "node scripts/ssh-ops.js exec"
+  },
+  "keywords": [
+    "claude-code",
+    "skill",
+    "file-manager",
+    "ssh",
+    "sftp",
+    "mcp"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ssh2": "^1.17.0"
+  },
+  "private": true
+}

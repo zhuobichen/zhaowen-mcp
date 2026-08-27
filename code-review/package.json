@@ -1,0 +1,12 @@
+{
+  "name": "code-review-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for code review via glm-5.2 (one-hub)",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}

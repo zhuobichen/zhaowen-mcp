@@ -1,0 +1,24 @@
+[
+  {
+    "server": "prod",
+    "host": "1.2.3.4",
+    "port": 22,
+    "admin_user": "root",
+    "admin_password_env": "PROD_ADMIN_PWD",
+    "create_agent": true,
+    "agent_user": "claude_agent",
+    "agent_password_env": "PROD_AGENT_PWD",
+    "lock_sudo": true,
+    "install_acl": true
+  },
+  {
+    "server": "staging",
+    "host": "5.6.7.8",
+    "port": 22,
+    "admin_user": "root",
+    "admin_password_env": "STAGING_ADMIN_PWD",
+    "create_agent": false,
+    "agent_user": "deploy",
+    "agent_password_env": "STAGING_DEPLOY_PWD"
+  }
+]

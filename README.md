@@ -9,6 +9,8 @@
 | [`image-vision/`](./image-vision) | 识图 + 生图 | `describe_image` 识图 · `generate_image` 生图 · `check_vision_status` |
 | [`minimax-video-mcp/`](./minimax-video-mcp) | 生视频 | `submit_video` 提交 · `query_video` 查询 · `download_video` 下载 |
 | [`skill-manager/`](./skill-manager) | skill 盘点 + 一键发布 GitHub | `list_skills` 盘点 · `check_sensitive` 敏感检测 · `publish_skill` 发布 · `get_config` |
+| [`code-review/`](./code-review) | 代码审阅 | `review_file` 审阅文件 · `review_diff` 审阅 diff · `check_review_status` |
+| [`file-manager/`](./file-manager) | 本地 + SSH 文件管理 | `exec` 执行 · `upload/download` 传输 · `bind` 绑服务器 · 共享/审计等 25 工具 |
 
 ## 隐私说明
 
@@ -29,6 +31,12 @@ cd minimax-video-mcp && npm install && npm run build
 
 # skill 盘点 + 一键发布 GitHub
 cd skill-manager && npm install
+
+# 代码审阅
+cd code-review && npm install
+
+# 文件管理（本地 + SSH）
+cd file-manager && npm install
 ```
 
 ## License
