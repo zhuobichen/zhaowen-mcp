@@ -14,6 +14,12 @@ export interface SkillManagerConfig {
   /** 命名前缀（命名规范 ylx_用途_名称） */
   namespace: string;
   gitBin: string;
+  /** MCP 自身源目录（sync_self 用） */
+  selfSrcDir: string;
+  /** MCP 集合仓库远程地址（sync_self 用） */
+  mcpRepoUrl: string;
+  /** MCP 集合仓库工作副本（sync_self 用） */
+  mcpRepoDir: string;
 }
 
 const DEFAULT_ROOTS = [
@@ -40,5 +46,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): SkillManagerCo
       "C:\\Users\\chenlizhuo\\.claude\\skills\\INDEX.md",
     namespace: env.SKILL_NAMESPACE || "ylx",
     gitBin: env.GIT_BIN || "git",
+    selfSrcDir: env.SKILL_MANAGER_SRC || "E:\\CodeProject\\mcp-server\\skill-manager",
+    mcpRepoUrl: env.MCP_REPO_URL || "git@github.com:zhuobichen/zhaowen-mcp.git",
+    mcpRepoDir: env.MCP_REPO_DIR || "E:\\CodeProject\\mcp-server\\zhaowen-mcp",
   };
 }

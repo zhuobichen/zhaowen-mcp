@@ -21,6 +21,7 @@ import { loadConfig } from "./lib/config.js";
 import { scanAll } from "./lib/skills.js";
 import { scanPath } from "./lib/sensitive.js";
 import { publishSkill } from "./lib/publish.js";
+import { syncSelf } from "./lib/syncself.js";
 
 async function main() {
   const server = new Server(
@@ -92,6 +93,12 @@ async function main() {
           },
           required: ["skill_dir"],
         },
+      },
+      {
+        name: "sync_self",
+        description:
+          "把 skill-manager MCP 自身源码同步到 zhaowen-mcp 集合仓库工作副本（复制排除 node_modules/dist）→ 更新 README → git add/commit/push。只有显式调用本工具才会执行 push。",
+        inputSchema: { type: "object", properties: {} },
       },
       {
         name: "get_config",
@@ -214,6 +221,16 @@ async function main() {
           return { content: [{ type: "text", text: lines.join("\n") }] };
         }
 
+        case "sync_self": {
+          const result = await syncSelf(config);
+          const lines = [result.message];
+          if (result.commitHash && result.commitMessage === undefined) {
+            lines.push(`commit: ${result.commitHash.slice(0, 7)}`);
+          }
+          if (result.warnings?.length) lines.push(`⚠️ 警告:\n${result.warnings.join("\n")}`);
+          return { content: [{ type: "text", text: lines.join("\n") }] };
+        }
+
         case "get_config": {
           return {
             content: [
@@ -222,8 +239,11 @@ async function main() {
                 text: [
                   `skill-manager 配置:`,
                   `- 命名前缀: ${config.namespace}`,
-                  `- 仓库: ${config.repoUrl}`,
-                  `- 仓库工作副本: ${config.repoDir}`,
+                  `- skill 仓库: ${config.repoUrl}`,
+                  `- skill 仓库工作副本: ${config.repoDir}`,
+                  `- MCP 集合仓库: ${config.mcpRepoUrl}`,
+                  `- MCP 集合仓库工作副本: ${config.mcpRepoDir}`,
+                  `- 自身源码目录: ${config.selfSrcDir}`,
                   `- INDEX.md: ${config.indexPath}`,
                   `- 扫描根目录 (${config.roots.length}):`,
                   ...config.roots.map((r) => `  - ${r}`),
