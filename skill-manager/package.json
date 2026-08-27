@@ -1,0 +1,12 @@
+{
+  "name": "skill-manager-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server: skill 盘点 + 一键发布到 GitHub",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}

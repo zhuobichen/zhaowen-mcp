@@ -8,6 +8,7 @@
 |------|------|------|
 | [`image-vision/`](./image-vision) | 识图 + 生图 | `describe_image` 识图 · `generate_image` 生图 · `check_vision_status` |
 | [`minimax-video-mcp/`](./minimax-video-mcp) | 生视频 | `submit_video` 提交 · `query_video` 查询 · `download_video` 下载 |
+| [`skill-manager/`](./skill-manager) | skill 盘点 + 一键发布 GitHub | `list_skills` 盘点 · `check_sensitive` 敏感检测 · `publish_skill` 发布 · `get_config` |
 
 ## 隐私说明
 
@@ -25,6 +26,9 @@ cd image-vision && npm install
 
 # 生视频（MiniMax H3）
 cd minimax-video-mcp && npm install && npm run build
+
+# skill 盘点 + 一键发布 GitHub
+cd skill-manager && npm install
 ```
 
 ## License
