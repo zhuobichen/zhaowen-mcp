@@ -1,0 +1,12 @@
+{
+  "name": "onehub-monitor-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for monitoring one-hub API usage (total/daily/monthly)",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}
