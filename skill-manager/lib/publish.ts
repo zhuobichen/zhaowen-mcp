@@ -127,7 +127,12 @@ export async function publishSkill(
   const rawName = path.basename(skillDir);
 
   // 2. 命名规范化
-  const nm = resolveTargetName(rawName, args.new_name, config.namespace);
+  const nm = resolveTargetName(
+    rawName,
+    args.new_name,
+    config.namespace,
+    config.namePrefixes
+  );
   if (!nm.ok) return { ok: false, message: nm.reason! };
   const targetName = nm.name;
 

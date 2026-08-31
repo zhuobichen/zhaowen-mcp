@@ -11,8 +11,10 @@ export interface SkillManagerConfig {
   repoDir: string;
   /** 本地 INDEX.md 路径 */
   indexPath: string;
-  /** 命名前缀（命名规范 ylx_用途_名称） */
+  /** 命名前缀（命名规范 <namespace>_用途_名称） */
   namespace: string;
+  /** 已知来源前缀列表（发布时 new_name 带其中任一前缀则保留，不再强补 namespace） */
+  namePrefixes: string[];
   gitBin: string;
   /** MCP 自身源目录（sync_self 用） */
   selfSrcDir: string;
@@ -45,6 +47,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): SkillManagerCo
       env.SKILL_INDEX_PATH ||
       "C:\\Users\\chenlizhuo\\.claude\\skills\\INDEX.md",
     namespace: env.SKILL_NAMESPACE || "ylx",
+    namePrefixes: (env.SKILL_NAME_PREFIXES || "ylx,clz")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
     gitBin: env.GIT_BIN || "git",
     selfSrcDir: env.SKILL_MANAGER_SRC || "E:\\CodeProject\\mcp-server\\skill-manager",
     mcpRepoUrl: env.MCP_REPO_URL || "git@github.com:zhuobichen/zhaowen-mcp.git",
