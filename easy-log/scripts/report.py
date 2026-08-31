@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""easy-log 工作日志报告生成器
+"""easy-log 工作日志报告生成器（综合版）
 
-拉取 easy-log MCP 的工作日志数据，生成可视化 HTML 报告（月度投入天数条形图 + 各月工作内容 + 年度汇总）。
+拉取 easy-log MCP 的工作日志数据，生成一份可视化 HTML 报告：
+概览卡片 + 月度投入天数条形图 + 自己 vs 被加堆叠图 + 年度汇总 + 各月工作内容 + 统计要点。
+自动过滤"穿越"（work_on 晚于今天）的错填记录。
 
 用法:
-  python report.py --api-key sk-xxx                    # 生成 report.html（当前目录）
+  python report.py --api-key sk-xxx                    # 生成 report.html
   python report.py --api-key sk-xxx --output out.html   # 指定输出路径
   python report.py                                       # 从 scripts/.env 读 WORK_MANAGEMENT_API_KEY
 
-依赖: 仅 Python 标准库，无需第三方包。
+依赖: 仅 Python 标准库。
 """
 import argparse
 import datetime
@@ -54,7 +56,7 @@ class EasyLogClient:
     def connect(self) -> None:
         self._rpc("initialize", {
             "protocolVersion": "2024-11-05", "capabilities": {},
-            "clientInfo": {"name": "easy-log-report", "version": "1.0"},
+            "clientInfo": {"name": "easy-log-report", "version": "2.0"},
         })
 
     def list_all_logs(self) -> list[dict]:
@@ -94,13 +96,25 @@ def filter_future(logs: list[dict]) -> list[dict]:
     return out
 
 
+def is_added(l: dict) -> bool:
+    """识别"被加"记录：task 为项目奖励等非本人填写的批量添加。"""
+    return "项目奖励" in str(l.get("task", ""))
+
+
 def build_report(logs: list[dict], output: str, username: str) -> str:
-    monthly = defaultdict(lambda: {"duration": 0.0, "days": 0.0, "count": 0, "tasks": []})
+    today = datetime.date.today()
+    monthly = defaultdict(lambda: {"duration": 0.0, "days": 0.0, "count": 0,
+                                   "tasks": [], "self": 0.0, "added": 0.0})
     for l in logs:
         w = str(l.get("work_on", ""))[:7] or f"{l.get('year')}-{l.get('month'):02d}"
+        d = l.get("days") or 0
         monthly[w]["duration"] += l.get("duration") or 0
-        monthly[w]["days"] += l.get("days") or 0
+        monthly[w]["days"] += d
         monthly[w]["count"] += 1
+        if is_added(l):
+            monthly[w]["added"] += d
+        else:
+            monthly[w]["self"] += d
         t = f"{l.get('task') or ''}（{l.get('project_name') or ''}）"
         if t not in monthly[w]["tasks"]:
             monthly[w]["tasks"].append(t)
@@ -109,6 +123,7 @@ def build_report(logs: list[dict], output: str, username: str) -> str:
     maxdays = max(monthly[m]["days"] for m in months) or 1
     total_days = sum(monthly[m]["days"] for m in months)
     total_dur = sum(monthly[m]["duration"] for m in months)
+    total_added = sum(monthly[m]["added"] for m in months)
     peak = max(months, key=lambda m: monthly[m]["days"])
 
     yearly = defaultdict(lambda: {"days": 0.0, "dur": 0.0})
@@ -116,6 +131,7 @@ def build_report(logs: list[dict], output: str, username: str) -> str:
         yearly[m[:4]]["days"] += monthly[m]["days"]
         yearly[m[:4]]["dur"] += monthly[m]["duration"]
 
+    # 横向条形图（月度投入天数）
     bars = ""
     for m in months:
         v = monthly[m]
@@ -124,6 +140,24 @@ def build_report(logs: list[dict], output: str, username: str) -> str:
                  f'<div class="bar-track"><div class="bar" style="width:{pct:.1f}%">'
                  f'<span class="bar-inner">{v["days"]:.0f}天</span></div></div></div>')
 
+    # 垂直堆叠柱（自己 vs 被加）
+    max_total = max(monthly[m]["days"] for m in months) or 1
+    stack_cols = ""
+    for m in months:
+        v = monthly[m]
+        h = v["days"] / max_total * 100
+        hself = v["self"] / v["days"] * 100 if v["days"] else 0
+        hadd = v["added"] / v["days"] * 100 if v["days"] else 0
+        seg_added = (f'<div class="seg seg-added" style="height:{hadd:.1f}%" '
+                     f'title="被加 {v["added"]:.0f}天"></div>') if v["added"] > 0 else ""
+        seg_self = (f'<div class="seg seg-self" style="height:{hself:.1f}%" '
+                    f'title="自己 {v["self"]:.0f}天"></div>')
+        stack_cols += (f'<div class="col" style="height:{h:.1f}%">'
+                       f'<div class="col-val">{v["days"]:.0f}</div>'
+                       f'<div class="col-stack">{seg_added}{seg_self}</div>'
+                       f'<div class="col-label">{m}</div></div>')
+
+    # 各月工作内容
     tbl = ""
     for m in months:
         v = monthly[m]
@@ -139,8 +173,8 @@ def build_report(logs: list[dict], output: str, username: str) -> str:
     comment = f"""
     <p><b>① 成长轨迹。</b>跨度 {months[0]} ~ {months[-1]}，从执行性任务逐步走向方法校正与跨项目协调。</p>
     <p><b>② 工作强度。</b>总投入 {total_days:.0f} 天 / {total_dur:.0f} 工时，最忙月 {peak}（{monthly[peak]['days']:.0f} 天），长期高位。</p>
-    <p><b>③ 节奏。</b>呈「起步 → 高峰 → 多元 → 放缓」阶段变化；部分月份无记录，建议补齐口径。</p>
-    <p><b>④ 建议。</b>多线并行的工作建议沉淀为项目文档；核对单月超 30 天的记录是否含补录/叠加。</p>
+    <p><b>③ 被加情况。</b>可识别的被加（项目奖励）共 {total_added:.0f} 天，集中在 2026 年 1-7 月；其余月份的"静默修改"因 API 无创建者字段无法区分。</p>
+    <p><b>④ 建议。</b>多线并行工作建议沉淀为项目文档；核对单月超 30 天的记录是否含补录/叠加。</p>
     """
 
     doc = f"""<!DOCTYPE html>
@@ -165,6 +199,16 @@ h2{{font-size:17px;margin-bottom:16px}}
 .bar-track{{flex:1;background:#f1f5f9;border-radius:6px;height:26px;overflow:hidden}}
 .bar{{background:linear-gradient(90deg,#38bdf8,#6366f1);height:100%;border-radius:6px;display:flex;align-items:center;min-width:34px}}
 .bar-inner{{font-size:11px;color:#fff;padding-left:8px;white-space:nowrap;font-weight:600}}
+.chart{{display:flex;align-items:flex-end;gap:6px;height:300px;padding:16px 10px 0;background:#fafbfc;border:1px solid #e2e8f0;border-radius:10px}}
+.col{{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:0}}
+.col-val{{font-size:11px;color:#475569;margin-bottom:2px;font-weight:600}}
+.col-stack{{width:70%;max-width:38px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;border-radius:5px 5px 0 0;overflow:hidden}}
+.seg{{width:100%}}
+.seg-self{{background:linear-gradient(180deg,#3b82f6,#60a5fa)}}
+.seg-added{{background:linear-gradient(180deg,#f59e0b,#fbbf24)}}
+.col-label{{font-size:10px;color:#64748b;margin-top:4px}}
+.legend{{display:flex;gap:20px;margin-bottom:10px;font-size:13px}}
+.legend .dot{{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:middle}}
 table{{width:100%;border-collapse:collapse;font-size:14px}}
 th{{text-align:left;color:#64748b;font-weight:500;padding:8px 10px;border-bottom:2px solid #e2e8f0}}
 td{{padding:9px 10px;border-bottom:1px solid #f1f5f9}}
@@ -179,7 +223,7 @@ summary .meta{{color:#94a3b8;font-weight:400;font-size:12px;margin-left:auto}}
 .comment b{{color:#6366f1}}
 </style></head><body><div class="container">
 <div class="hero"><h1>📊 {esc(username)} · 工作日志分析</h1>
-<div class="sub">数据源：easy-log MCP ｜ {months[0]} ~ {months[-1]} ｜ 共 {len(logs)} 条 ｜ 单位：天</div></div>
+<div class="sub">数据源：easy-log MCP ｜ {months[0]} ~ {months[-1]} ｜ 共 {len(logs)} 条 ｜ 截至 {today}（已过滤未来记录）</div></div>
 <div class="cards">
 <div class="card"><div class="num">{total_days:.0f}</div><div class="lbl">总投入天数</div></div>
 <div class="card"><div class="num">{total_dur:.0f}</div><div class="lbl">总工时 (h)</div></div>
@@ -190,6 +234,10 @@ summary .meta{{color:#94a3b8;font-weight:400;font-size:12px;margin-left:auto}}
 <section><h2>📈 月度投入天数</h2>{bars}
 <h2 style="margin-top:22px">📆 年度汇总</h2>
 <table><tr><th>年份</th><th>投入天数</th><th>总工时</th></tr>{yearly_rows}</table></section>
+<section><h2>🧱 工作量构成：自己 vs 被加</h2>
+<div class="legend"><span><span class="dot" style="background:#3b82f6"></span>自己写的工作</span><span><span class="dot" style="background:#f59e0b"></span>被加（项目奖励）</span></div>
+<div class="chart">{stack_cols}</div>
+<p style="font-size:12px;color:#94a3b8;margin-top:8px">被加（项目奖励）共 {total_added:.0f} 天，集中在 2026 年 1-7 月；其他静默修改因 API 无创建者字段无法区分。</p></section>
 <section><h2>🗂 各月工作内容</h2>{tbl}</section>
 <section class="comment"><h2>📝 统计要点</h2>{comment}</section>
 </div></body></html>"""
@@ -210,7 +258,7 @@ def load_key_from_env() -> str:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="easy-log 工作日志报告生成器")
+    ap = argparse.ArgumentParser(description="easy-log 工作日志报告生成器（综合版）")
     ap.add_argument("--api-key", help="MCP API Key（默认从 scripts/.env 或环境变量读取）")
     ap.add_argument("--output", default="report.html", help="输出 HTML 路径（默认 report.html）")
     args = ap.parse_args()
@@ -230,7 +278,7 @@ def main() -> int:
 
     username = logs[0].get("user_name", "用户") if logs else "用户"
     out = build_report(logs, args.output, username)
-    print(f"✅ 已生成报告: {out}（{len(logs)} 条日志）")
+    print(f"✅ 已生成报告: {out}（{len(logs)} 条日志，已过滤未来记录）")
     return 0
 
 
