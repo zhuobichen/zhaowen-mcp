@@ -12,6 +12,7 @@
 | [`code-review/`](./code-review) | 代码审阅 | `review_file` 审阅文件 · `review_diff` 审阅 diff · `check_review_status` |
 | [`file-manager/`](./file-manager) | 本地 + SSH 文件管理 | `exec` 执行 · `upload/download` 传输 · `bind` 绑服务器 · 共享/审计等 25 工具 |
 | [`onehub-monitor/`](./onehub-monitor) | one-hub 用量监测 | `check_usage` 用量 · `daily_snapshot` 每日记账 · `usage_history` 历史 |
+| [`easy-log/`](./easy-log) | 工作日志 + 发票填报 | 远程 MCP 工具 · `scenarios/` 场景手册 · `scripts/invoice_api.py` CLI |
 
 ## 隐私说明
 
