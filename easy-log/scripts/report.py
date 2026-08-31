@@ -11,6 +11,7 @@
 依赖: 仅 Python 标准库，无需第三方包。
 """
 import argparse
+import datetime
 import html
 import json
 import os
@@ -76,6 +77,21 @@ class EasyLogClient:
 
 def esc(s: object) -> str:
     return html.escape(str(s))
+
+
+def filter_future(logs: list[dict]) -> list[dict]:
+    """按当前日期过滤"穿越"记录：work_on 晚于今天（未来日期）的排除。"""
+    today = datetime.date.today()
+    out = []
+    for l in logs:
+        w = str(l.get("work_on", ""))[:10]
+        try:
+            if w and datetime.date.fromisoformat(w) > today:
+                continue
+        except ValueError:
+            pass
+        out.append(l)
+    return out
 
 
 def build_report(logs: list[dict], output: str, username: str) -> str:
@@ -207,7 +223,7 @@ def main() -> int:
     try:
         client = EasyLogClient(key)
         client.connect()
-        logs = client.list_all_logs()
+        logs = filter_future(client.list_all_logs())
     except Exception as e:
         print(f"错误: 拉取日志失败（{e}）", file=sys.stderr)
         return 1
