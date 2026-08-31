@@ -11,6 +11,7 @@
 | `SKILL.md` | 使用指南：MCP 工具清单、CLI 用法、统计/盘点流程 |
 | `scenarios/` | 场景手册：快速开始 / 自动工作日志 / 自动发票批量 / 月度提醒 |
 | `scripts/invoice_api.py` | 发票处理 Python CLI（上传/解析/补附件），无需第三方依赖 |
+| `scripts/report.py` | 工作日志报告生成器：拉全量日志 → 生成可视化 HTML（月度投入天数 + 各月内容 + 年度汇总） |
 
 ## 配置
 
@@ -28,6 +29,17 @@
 ```
 
 3. **CLI**：复制 `scripts/.env.example` 为 `scripts/.env`，填 `WORK_MANAGEMENT_API_KEY`
+
+## 生成工作日志报告
+
+```sh
+cd easy-log/scripts
+python report.py --api-key "$APIKEY" --output 我的工作量.html
+# 或从 scripts/.env 读取 WORK_MANAGEMENT_API_KEY，直接：
+python report.py --output 我的工作量.html
+```
+
+生成的可视化 HTML 包含：总投入天数/工时概览、月度投入天数条形图、年度汇总、各月工作内容明细（可折叠）、统计要点。仅需 Python 标准库。
 
 ## 注意
 
