@@ -109,7 +109,9 @@ export async function dailySnapshot(): Promise<{
   totalCents: number;
 }> {
   const u = await checkUsage();
-  const today = new Date().toISOString().slice(0, 10);
+  // 用本地时区日期（toISOString 是 UTC，中国凌晨会记到前一天）
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const h = loadHistory();
   h[today] = Math.round(u.totalCents * 10000) / 10000;
   saveHistory(h);
