@@ -26,6 +26,8 @@ import {
   readMessages,
   readDetailed,
   formatDetailed,
+  tokenUsageStats,
+  fmtTokenStat,
   AgentSession,
   AgentKind,
 } from "./sessions.js";
@@ -113,6 +115,48 @@ async function readTool(args: Record<string, any>) {
   });
   const tail = msgs.length >= maxMsgs ? `\n… （已达上限 ${maxMsgs} 条，用 max_messages 调大）` : "";
   return head + "\n" + body.join("\n") + tail;
+}
+
+function fmtCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+async function usageTool(args: Record<string, any>) {
+  const agent = parseAgent(args.agent);
+  const stats = await tokenUsageStats(agent);
+  const limit = Number(args.limit) || 0;
+  const withUsage = stats.filter((s) => s.hasUsage);
+  const noUsage = stats.filter((s) => !s.hasUsage);
+  if (!withUsage.length) {
+    return `未找到带 token 记录的${agent === "all" ? "" : " " + agent}会话。`;
+  }
+  const rows = limit > 0 ? withUsage.slice(0, limit) : withUsage;
+  const total = withUsage.reduce((a, s) => a + s.total_tokens, 0);
+  const scope =
+    agent === "claude" ? "Claude Code" :
+    agent === "codex" ? "Codex" : "Claude Code + Codex";
+  const lines = rows.map((s, i) => {
+    const base = `[${i + 1}] [${s.session.agent === "claude" ? "C" : "X"}] ${s.session.id.slice(0, 8)} ${s.session.time} ${s.session.project || ""}\n` +
+      `     total=${fmtCount(s.total_tokens)}  input=${fmtCount(s.input_tokens)}  ` +
+      `cache=${fmtCount(s.cached_input_tokens)}  output=${fmtCount(s.output_tokens)}`;
+    const extra =
+      s.session.agent === "codex"
+        ? `  reasoning=${fmtCount(s.reasoning_output_tokens)}`
+        : s.models.length
+          ? `  [${s.models.map((mm) => `${mm.model}=${fmtCount(mm.usage.total_tokens)}`).join(", ")}]`
+          : "";
+    return base + extra;
+  });
+  const head = `${scope} 会话 token 用量（共 ${withUsage.length} 个带记录）:\n` +
+    `全体 total 合计 ${fmtCount(total)} tokens\n` +
+    `注: input 含缓存命中; 仅 token 数, 无金额字段(价格需另算)\n`;
+  const tail = limit > 0 && withUsage.length > limit
+    ? `\n… （共 ${withUsage.length} 个带记录，展示前 ${limit}，去掉 limit 看全部）`
+    : "";
+  const foot = noUsage.length
+    ? `\n\n无 token 记录会话 ${noUsage.length} 个（旧版/归档/纯测试，token 均为 0）`
+    : "";
+  return head + "\n" + lines.join("\n") + tail + foot;
 }
 
 async function searchTool(args: Record<string, any>) {
@@ -226,6 +270,24 @@ async function main() {
           required: ["query"],
         },
       },
+      {
+        name: "agent_token_usage",
+        description:
+          "统计各智能体会话花费的 token 用量。Codex 取自 rollout 的 token_usage_record（同会话多文件自动合并，仅新版有记录）；Claude 累加各条 assistant 的 message.usage 并按 model 细分（deepseek-v4-flash/pro 等）。返回 total/input/cache/output/reasoning tokens，按 total 降序。可传 agent 过滤。注：只含 token 数，无金额字段（金额需按模型单价另算）。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            limit: {
+              type: "integer",
+              description: "可选：只显示 token 最多的前 N 个会话（缺省全部）",
+            },
+            agent: {
+              type: "string",
+              description: "可选：claude / codex，缺省统计两者",
+            },
+          },
+        },
+      },
     ],
   }));
 
@@ -242,6 +304,9 @@ async function main() {
           break;
         case "search_agent_sessions":
           text = await searchTool(args);
+          break;
+        case "agent_token_usage":
+          text = await usageTool(args);
           break;
         default:
           text = `未知工具: ${name}`;

@@ -710,3 +710,201 @@ export function formatDetailed(items: DetailItem[], maxMsgLen: number): string {
 function truncateSafe(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + "…";
 }
+
+// ---------------------------------------------------------------------------
+// 会话 token 用量统计（Codex thread_token_usage / Claude assistant usage）
+// ---------------------------------------------------------------------------
+
+export interface TokenUsage {
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  reasoning_output_tokens: number;
+  total_tokens: number;
+}
+
+function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    input_tokens: a.input_tokens + b.input_tokens,
+    cached_input_tokens: a.cached_input_tokens + b.cached_input_tokens,
+    output_tokens: a.output_tokens + b.output_tokens,
+    reasoning_output_tokens: a.reasoning_output_tokens + b.reasoning_output_tokens,
+    total_tokens: a.total_tokens + b.total_tokens,
+  };
+}
+
+/** 读取单个 rollout 文件最后一条 token_usage_record 的 thread_token_usage（会话累计） */
+export function readCodexFileTokenUsage(file: string): Promise<TokenUsage | null> {
+  return new Promise((resolve) => {
+    let latest: Record<string, any> | null = null;
+    const rl = createInterface({
+      input: createReadStream(file, { encoding: "utf-8" }),
+      crlfDelay: Infinity,
+    });
+    rl.on("line", (line) => {
+      const d = parseLine(line);
+      if (!d) return;
+      if (d.type !== "token_usage_record") return;
+      const p = d.payload || {};
+      const t = p.thread_token_usage || p.usage;
+      if (t && typeof t === "object") latest = t;
+    });
+    rl.on("error", () => resolve(null));
+    rl.on("close", () => {
+      if (!latest) return resolve(null);
+      resolve({
+        input_tokens: latest.input_tokens || 0,
+        cached_input_tokens: latest.cached_input_tokens || 0,
+        output_tokens: latest.output_tokens || 0,
+        reasoning_output_tokens: latest.reasoning_output_tokens || 0,
+        total_tokens: latest.total_tokens || 0,
+      });
+    });
+  });
+}
+
+/**
+ * Claude：逐条 assistant message.usage 累加。
+ * 返回 { usage, models }，models 按 message.model 归组。
+ */
+export function readClaudeFileTokenUsage(file: string): Promise<{
+  usage: TokenUsage | null;
+  models: Record<string, TokenUsage>;
+}> {
+  return new Promise((resolve) => {
+    let sum: TokenUsage | null = null;
+    const models: Record<string, TokenUsage> = {};
+    const add = (a: TokenUsage | null, b: TokenUsage) =>
+      a
+        ? {
+            input_tokens: a.input_tokens + b.input_tokens,
+            cached_input_tokens: a.cached_input_tokens + b.cached_input_tokens,
+            output_tokens: a.output_tokens + b.output_tokens,
+            reasoning_output_tokens: a.reasoning_output_tokens + b.reasoning_output_tokens,
+            total_tokens: a.total_tokens + b.total_tokens,
+          }
+        : b;
+    const rl = createInterface({
+      input: createReadStream(file, { encoding: "utf-8" }),
+      crlfDelay: Infinity,
+    });
+    rl.on("line", (line) => {
+      const d = parseLine(line);
+      if (!d) return;
+      if (d.type !== "assistant") return;
+      const m = d.message;
+      const u = m && typeof m === "object" ? (m as any).usage : null;
+      if (!u || typeof u !== "object") return;
+      const cached = (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+      const tu: TokenUsage = {
+        input_tokens: (u.input_tokens || 0) + cached, // 总输入(含缓存)
+        cached_input_tokens: cached,
+        output_tokens: u.output_tokens || 0,
+        reasoning_output_tokens: 0, // Claude usage 无 reasoning 细分
+        total_tokens: (u.input_tokens || 0) + cached + (u.output_tokens || 0),
+      };
+      sum = add(sum, tu);
+      const model = String((m as any).model || "unknown");
+      models[model] = add(models[model] || null, tu);
+    });
+    rl.on("error", () => resolve({ usage: sum, models }));
+    rl.on("close", () => resolve({ usage: sum, models }));
+  });
+}
+
+export interface ModelUsage {
+  model: string;
+  usage: TokenUsage;
+}
+
+export interface SessionTokenStat {
+  session: AgentSession;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  reasoning_output_tokens: number;
+  total_tokens: number;
+  models: ModelUsage[]; // Claude 按模型细分；Codex 为空
+  hasUsage: boolean; // 是否有 token 记录
+}
+
+/**
+ * 统计会话 token 用量，agent 可过滤 claude/codex。
+ * - Codex：同一 session 可能跨多 rollout 文件，按 session_id 合并相加。
+ * - Claude：累加每条 assistant usage（input 口径含 cache_read+cache_creation），并细分 model。
+ */
+export async function tokenUsageStats(agent?: AgentKind | "all"): Promise<SessionTokenStat[]> {
+  const wantClaude = !agent || agent === "all" || agent === "claude";
+  const wantCodex = !agent || agent === "all" || agent === "codex";
+  const out: SessionTokenStat[] = [];
+
+  if (wantCodex) {
+    const sessions = await listSessions("codex");
+    const perId = new Map<string, { rec: AgentSession; sum: TokenUsage | null }>();
+    for (const s of sessions) {
+      const u = await readCodexFileTokenUsage(s.file);
+      const existing = perId.get(s.id);
+      if (existing) {
+        if (u) existing.sum = existing.sum ? addUsage(existing.sum, u) : u;
+      } else {
+        perId.set(s.id, { rec: s, sum: u });
+      }
+    }
+    for (const { rec, sum } of perId.values()) {
+      out.push({
+        session: rec,
+        input_tokens: sum?.input_tokens || 0,
+        cached_input_tokens: sum?.cached_input_tokens || 0,
+        output_tokens: sum?.output_tokens || 0,
+        reasoning_output_tokens: sum?.reasoning_output_tokens || 0,
+        total_tokens: sum?.total_tokens || 0,
+        models: [],
+        hasUsage: !!sum,
+      });
+    }
+  }
+
+  if (wantClaude) {
+    const sessions = await listSessions("claude");
+    for (const s of sessions) {
+      const { usage, models } = await readClaudeFileTokenUsage(s.file);
+      const ms: ModelUsage[] = Object.entries(models)
+        .filter(([k]) => k !== "<synthetic>") // 跳过合成占位
+        .map(([model, u]) => ({ model, usage: u }));
+      out.push({
+        session: s,
+        input_tokens: usage?.input_tokens || 0,
+        cached_input_tokens: usage?.cached_input_tokens || 0,
+        output_tokens: usage?.output_tokens || 0,
+        reasoning_output_tokens: usage?.reasoning_output_tokens || 0,
+        total_tokens: usage?.total_tokens || 0,
+        models: ms,
+        hasUsage: !!usage,
+      });
+    }
+  }
+
+  out.sort((a, b) => b.total_tokens - a.total_tokens);
+  return out;
+}
+
+/** 格式化一行 token 用量（Claude 含 model 细分；Codex 含 reasoning） */
+export function fmtTokenStat(s: SessionTokenStat): string {
+  const src = s.session.agent === "claude" ? "C" : "X";
+  const inp = s.input_tokens;
+  const out = s.output_tokens;
+  const cac = s.cached_input_tokens;
+  const rea = s.reasoning_output_tokens;
+  let line =
+    `[${src}] ${s.session.id.slice(0, 8)} total=${s.total_tokens} ` +
+    `in=${inp} cache=${cac} out=${out}`;
+  if (s.session.agent === "codex") line += ` reasoning=${rea}`;
+  line += ` ${s.session.time} ${s.session.project || ""}`;
+  if (s.models.length) {
+    const parts = s.models.map(
+      (mm) => `${mm.model}=${mm.usage.total_tokens}`
+    );
+    line += `  [${parts.join(", ")}]`;
+  }
+  return line;
+}

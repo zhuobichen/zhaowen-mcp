@@ -10,6 +10,13 @@
 | `list_agent_sessions` | 列出全部会话（来源 C/X · 短ID · 标题 · 时间 · 项目路径 · 归档状态），可 `agent` 过滤 |
 | `read_agent_session` | 按会话 ID（支持短前缀）查看对话；`detail=true` 追加 AI 的工具动作摘要（改了哪些文件/跑了什么命令及输出），`agent`/`max_messages`/`max_msg_len` 可配 |
 | `search_agent_sessions` | 按关键词/正则搜索会话标题与内容，返回命中片段，可 `agent` 限定 |
+| `agent_token_usage` | 各会话 token 用量（total/input/cache/output），可 `agent`/`limit`。Claude 按 model 细分；Codex 仅新版有记录。注：仅 token 数，无金额 |
+
+### token 用量口径说明
+
+- **Codex**：取 rollout 内 `token_usage_record` 的 `thread_token_usage`（会话累计，同 session 多文件自动合并相加）；仅新版会话写入（旧版/归档多无记录）。
+- **Claude**：累加每条 `assistant` 消息的 `message.usage`；`input` 含 cache_read + cache_creation，并可按 `message.model`（如 deepseek-v4-flash / deepseek-v4-pro）细分。
+- 无金额字段（rollout/会话文件只存 token 数）；如需美元费用需按各模型单价 × token 另算。
 
 - **只读**：绝不修改任何会话文件。
 - **自动跳过系统注入**：Claude 的 system 上下文、Codex 的 `<environment_context>` / `<permissions>` / AGENTS.md 注入均不呈现，只保留真实 user ↔ assistant 对话。
