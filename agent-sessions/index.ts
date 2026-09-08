@@ -121,8 +121,39 @@ function fmtCount(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+/**
+ * Codex 成本估算单价（$/百万 token）。
+ * 用户指定 Codex 按 gpt-5.6-sol（one-hub 加价档）计费：
+ *   - output $62.1 为 one-hub 实测
+ *   - input $31.1  = output × 0.5（估）
+ *   - cache-read $7.8 = input × 0.25（估）
+ * 注意：仅 output 为实测，input/cache 为按比例估算。
+ */
+const GPT56SOL = {
+  output_usd_per_m: 62.1,
+  input_usd_per_m: 31.1,
+  cache_usd_per_m: 7.8,
+};
+
+interface CostParts {
+  cacheUsd: number;
+  inputUsd: number; // 非缓存输入
+  outputUsd: number;
+  totalUsd: number;
+}
+
+/** 仅对 Codex 算钱（Claude 不算）：非缓存 input = input_tokens - cached */
+function codexCost(input: number, cached: number, output: number): CostParts {
+  const nonCacheInput = Math.max(0, input - cached);
+  const cacheUsd = (cached / 1e6) * GPT56SOL.cache_usd_per_m;
+  const inputUsd = (nonCacheInput / 1e6) * GPT56SOL.input_usd_per_m;
+  const outputUsd = (output / 1e6) * GPT56SOL.output_usd_per_m;
+  return { cacheUsd, inputUsd, outputUsd, totalUsd: cacheUsd + inputUsd + outputUsd };
+}
+
 async function usageTool(args: Record<string, any>) {
   const agent = parseAgent(args.agent);
+  const withMoney = args.money === true || args.money === "true" || args.money === 1;
   const stats = await tokenUsageStats(agent);
   const limit = Number(args.limit) || 0;
   const withUsage = stats.filter((s) => s.hasUsage);
@@ -135,6 +166,8 @@ async function usageTool(args: Record<string, any>) {
   const scope =
     agent === "claude" ? "Claude Code" :
     agent === "codex" ? "Codex" : "Claude Code + Codex";
+  // 金额仅 Codex 口径
+  const showMoney = withMoney && agent !== "claude";
   const lines = rows.map((s, i) => {
     const base = `[${i + 1}] [${s.session.agent === "claude" ? "C" : "X"}] ${s.session.id.slice(0, 8)} ${s.session.time} ${s.session.project || ""}\n` +
       `     total=${fmtCount(s.total_tokens)}  input=${fmtCount(s.input_tokens)}  ` +
@@ -145,11 +178,34 @@ async function usageTool(args: Record<string, any>) {
         : s.models.length
           ? `  [${s.models.map((mm) => `${mm.model}=${fmtCount(mm.usage.total_tokens)}`).join(", ")}]`
           : "";
-    return base + extra;
+    let line = base + extra;
+    if (showMoney && s.session.agent === "codex") {
+      const c = codexCost(s.input_tokens, s.cached_input_tokens, s.output_tokens);
+      const nonCache = fmtCount(Math.max(0, s.input_tokens - s.cached_input_tokens));
+      line +=
+        `\n     ≈费用 $${c.totalUsd.toFixed(2)}  ` +
+        `(非缓存输入 ${nonCache}×$31.1 + cache ${fmtCount(s.cached_input_tokens)}×$7.8 + output ${fmtCount(s.output_tokens)}×$62.1)`;
+    }
+    return line;
   });
+  let moneyNote = "";
+  if (showMoney) {
+    let tot = 0;
+    for (const s of rows) {
+      if (s.session.agent === "codex") {
+        tot += codexCost(s.input_tokens, s.cached_input_tokens, s.output_tokens).totalUsd;
+      }
+    }
+    moneyNote = `金额口径: gpt-5.6-sol（output 实测 $62.1/M；input $31.1、cache $7.8 为按比例估，非实测）\n展示会话费用合计 ≈ $${tot.toFixed(2)}`;
+  }
   const head = `${scope} 会话 token 用量（共 ${withUsage.length} 个带记录）:\n` +
     `全体 total 合计 ${fmtCount(total)} tokens\n` +
-    `注: input 含缓存命中; 仅 token 数, 无金额字段(价格需另算)\n`;
+    `注: input 含缓存命中（计费时已拆出非缓存部分）\n` +
+    (agent === "claude"
+      ? "Claude 不计金额（你指定只算 Codex）\n"
+      : showMoney
+        ? `${moneyNote}\n`
+        : `查金额: 加 money=true 按 gpt-5.6-sol 估算 Codex 费用\n`);
   const tail = limit > 0 && withUsage.length > limit
     ? `\n… （共 ${withUsage.length} 个带记录，展示前 ${limit}，去掉 limit 看全部）`
     : "";
@@ -273,7 +329,7 @@ async function main() {
       {
         name: "agent_token_usage",
         description:
-          "统计各智能体会话花费的 token 用量。Codex 取自 rollout 的 token_usage_record（同会话多文件自动合并，仅新版有记录）；Claude 累加各条 assistant 的 message.usage 并按 model 细分（deepseek-v4-flash/pro 等）。返回 total/input/cache/output/reasoning tokens，按 total 降序。可传 agent 过滤。注：只含 token 数，无金额字段（金额需按模型单价另算）。",
+          "统计各智能体会话的 token 用量（total/input/cache/output）。Codex 取自 rollout token_usage_record（同会话多文件合并，仅新版有记录，input 含缓存命中）；Claude 累加 assistant usage 并按 model 细分。加 money=true 时对 Codex 按 gpt-5.6-sol 估算费用（output 实测 $62.1/M；input/cache 为按比例估，非实测）；Claude 不计钱。可传 agent/limit。",
         inputSchema: {
           type: "object",
           properties: {
@@ -284,6 +340,10 @@ async function main() {
             agent: {
               type: "string",
               description: "可选：claude / codex，缺省统计两者",
+            },
+            money: {
+              type: "boolean",
+              description: "可选：true 时对 Codex 按 gpt-5.6-sol 估算费用（美元）",
             },
           },
         },
