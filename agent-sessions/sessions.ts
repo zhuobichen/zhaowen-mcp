@@ -733,7 +733,12 @@ function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   };
 }
 
-/** 读取单个 rollout 文件最后一条 token_usage_record 的 thread_token_usage（会话累计） */
+/**
+ * 读取单个 rollout 文件的会话 token 累计（取文件内最后一条累计记录）。
+ * 兼容两种格式：
+ *   - 新会话(2026-08下旬起): type=token_usage_record → payload.thread_token_usage
+ *   - 老会话(含 compact / 归档): type=event_msg → payload.info.total_token_usage
+ */
 export function readCodexFileTokenUsage(file: string): Promise<TokenUsage | null> {
   return new Promise((resolve) => {
     let latest: Record<string, any> | null = null;
@@ -744,9 +749,16 @@ export function readCodexFileTokenUsage(file: string): Promise<TokenUsage | null
     rl.on("line", (line) => {
       const d = parseLine(line);
       if (!d) return;
-      if (d.type !== "token_usage_record") return;
-      const p = d.payload || {};
-      const t = p.thread_token_usage || p.usage;
+      let t: any = null;
+      if (d.type === "token_usage_record") {
+        const p = d.payload || {};
+        t = p.thread_token_usage || p.usage;
+      } else if (d.type === "event_msg") {
+        const info = (d.payload || {}).info;
+        if (info && typeof info === "object") {
+          t = (info as any).total_token_usage;
+        }
+      }
       if (t && typeof t === "object") latest = t;
     });
     rl.on("error", () => resolve(null));

@@ -14,9 +14,10 @@
 
 ### token 用量口径说明
 
-- **Codex**：取 rollout 内 `token_usage_record` 的 `thread_token_usage`（会话累计，同 session 多文件自动合并相加）；仅新版会话写入（旧版/归档多无记录）。`input_tokens` 已含缓存命中，计费时「非缓存 input = input − cache」。
+- **Codex**：每会话取 rollout 内**最后一条累计**，兼容两种格式（新会话 `token_usage_record` 的 `thread_token_usage`；老会话/compact 的 `event_msg` → `payload.info.total_token_usage`）。同 session 多 rollout 文件自动合并。`input_tokens` 已含缓存命中，计费时「非缓存 input = input − cache」。
 - **Claude**：累加每条 `assistant` 消息的 `message.usage`，可按 `message.model`（deepseek-v4-flash / deepseek-v4-pro）细分。
 - **费用（`money=true`，仅 Codex）**：按 gpt-5.6-sol 估算 —— output $62.1/M（one-hub 实测）；input $31.1、cache-read $7.8 为按比例估（非实测）。Claude 不计钱（用户指定只算 Codex）。
+- 官方全量估算结论：46/60 会话有 token 记录，合计 ~44.6 亿 token，按官方公开价约 $1,178 / ¥8,600（主要成本在 gpt-5.6-terra；vision-exp 虽 token 最多但 96% 为缓存、成本低）。
 - 示例：`agent_token_usage agent=codex money=true limit=10`
 
 - **只读**：绝不修改任何会话文件。
