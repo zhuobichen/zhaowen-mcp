@@ -13,7 +13,7 @@
 | [`file-manager/`](./file-manager) | 本地 + SSH 文件管理 | `exec` 执行 · `upload/download` 传输 · `bind` 绑服务器 · 共享/审计等 25 工具 |
 | [`onehub-monitor/`](./onehub-monitor) | one-hub 用量监测 | `check_usage` 用量 · `daily_snapshot` 每日记账 · `usage_history` 历史 |
 | [`easy-log/`](./easy-log) | 工作日志 + 发票填报 | 远程 MCP 工具 · `scenarios/` 场景手册 · `scripts/invoice_api.py` CLI |
-| [`agent-sessions/`](./agent-sessions) | 查看本机智能体会话(Claude Code + Codex) | `list_agent_sessions` 列出 · `read_agent_session` 查看(`detail=true` 含代码改动/命令摘要) · `search_agent_sessions` 搜索 |
+| [`agent-sessions/`](./agent-sessions) | 查看本机智能体会话(Claude Code + Codex) | `list_agent_sessions` 列出 · `read_agent_session` 查看(`detail=true` 含代码改动/命令摘要) · `search_agent_sessions` 搜索 · `agent_token_usage` token/费用统计(`money=true` 按 gpt-5.6-sol) · `session_insights` 会话洞察 · `gen_report` 生成 /insights 同款 HTML |
 
 ## 隐私说明
 
