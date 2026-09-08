@@ -89,3 +89,20 @@ agent-sessions/
 cd E:/CodeProject/mcp-server/agent-sessions
 node E:/CodeProject/node_modules/tsx/dist/cli.mjs index.ts   # 起 stdio server
 ```
+
+## 生成 /insights 同款的 Codex 复盘报告
+
+数据层 → LLM 标注 → HTML 报告两段式（源码 `insights.ts` / `annotate.ts` / `gen_report.ts`）：
+
+```bash
+# 1. 逐会话语义标注（调 one-hub deepseek-v4-flash，输出 reports/facets/*.json，已存在则跳过=可缓存）
+node E:/CodeProject/node_modules/tsx/dist/cli.mjs annotate.ts
+
+# 2. 生成报告（复用官方 /insights 浅色版式；数据 + facets 自动聚合，非手写文案）
+node E:/CodeProject/node_modules/tsx/dist/cli.mjs gen_report.ts
+#    → 输出 reports/codex_report.html
+```
+
+- `annotate.ts` 标注约 20+ 个主要 Codex 会话：目标/会话类型/满意度/摩擦点/总结，key 从 `~/.claude.json` 的 code-review env 自动读取（或环境变量 `REVIEW_API_KEY`）。成本 ≈ 几分钱级（flash 档）。
+- `gen_report.ts` 含：硬统计图（token/语言/文件/命令失败/工具）+ facets 图（会话类型/Outcome/满意度/摩擦）+ 亮点/问题/可复制建议（friction 与 brief_summary 驱动）。
+- 生成物 `reports/` 不入 git。

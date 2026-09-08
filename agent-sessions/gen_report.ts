@@ -4,11 +4,14 @@
  * 数据层 = insights.ts（真实 Codex 会话/token/工具统计）；叙事文案基于真实会话归纳。
  * 用法: node <tsx> gen_report.ts [输出路径]
  */
-import { writeFileSync, mkdirSync } from "fs";
+import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { homedir } from "os";
 import { buildInsightReport } from "./insights.js";
+import { deepStats } from "./deep_insights.js";
 
 const outPath = process.argv[2] || join(process.cwd(), "reports", "codex_report.html");
+const FACETS_DIR = join(process.cwd(), "reports", "facets");
 
 const esc = (s: string) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\r/g, " ");
@@ -57,6 +60,7 @@ h2 { font-size: 20px; font-weight: 600; color: #0f172a; margin-top: 48px; margin
 .friction-examples li { margin-bottom: 4px; }
 .horizon-section { display: flex; flex-direction: column; gap: 16px; }
 .horizon-card { background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%); border: 1px solid #c4b5fd; border-radius: 8px; padding: 16px; }
+.example-code { background: #f8fafc; padding: 12px; border-radius: 6px; margin-top: 12px; border: 1px solid #e2e8f0; font-family: Consolas, monospace; font-size: 12px; color: #334155; white-space: pre-wrap; word-break: break-word; line-height: 1.5; user-select: all; }
 .horizon-title { font-weight: 600; font-size: 15px; color: #5b21b6; margin-bottom: 8px; }
 .horizon-possible { font-size: 14px; color: #334155; margin-bottom: 10px; line-height: 1.5; }
 .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 24px 0; }
@@ -73,6 +77,90 @@ h2 { font-size: 20px; font-weight: 600; color: #0f172a; margin-top: 48px; margin
 .footer-note { color: #94a3b8; font-size: 12px; text-align: center; margin-top: 40px; }
 @media (max-width: 640px) { .charts-row { grid-template-columns: 1fr; } .stats-row { justify-content: center; } }
 `;
+
+// —— facets（LLM 逐会话语义标注）读取与聚合 ——
+interface Facet {
+  session_id: string;
+  underlying_goal: string;
+  goal_categories: Record<string, number>;
+  outcome: string;
+  session_type: string;
+  user_satisfaction_counts: Record<string, number>;
+  claude_helpfulness: string;
+  friction_counts: Record<string, number>;
+  friction_detail: string;
+  primary_success: string;
+  brief_summary: string;
+}
+
+/** 读取 reports/facets/*.json */
+function loadFacets(): Facet[] {
+  if (!existsSync(FACETS_DIR)) return [];
+  const out: Facet[] = [];
+  for (const f of readdirSync(FACETS_DIR)) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      out.push(JSON.parse(readFileSync(join(FACETS_DIR, f), "utf-8")));
+    } catch {
+      // skip
+    }
+  }
+  return out;
+}
+
+interface FacetAgg {
+  sessionType: [string, number][];
+  satisfaction: [string, number][];
+  outcome: [string, number][];
+  friction: [string, number][];
+  wins: Facet[]; // 可作亮点的会话
+  frictionExamples: { title: string; desc: string; examples: string[] }[];
+}
+
+/** 聚合 facets 为报告数据 */
+function aggregateFacets(facets: Facet[]): FacetAgg {
+  const cnt = (f: (x: Facet) => Record<string, number>, agg: Record<string, number>) =>
+    facets.forEach((x) => {
+      const m = f(x) || {};
+      Object.entries(m).forEach(([k, v]) => (agg[k] = (agg[k] || 0) + v));
+    });
+  const st: Record<string, number> = {};
+  const sat: Record<string, number> = {};
+  const out: Record<string, number> = {};
+  const fr: Record<string, number> = {};
+  cnt((x) => ({ [x.session_type]: 1 }), st);
+  cnt((x) => x.user_satisfaction_counts, sat);
+  cnt((x) => ({ [x.outcome]: 1 }), out);
+  cnt((x) => x.friction_counts, fr);
+  const toArr = (o: Record<string, number>) => Object.entries(o).sort((a, b) => b[1] - a[1]);
+
+  // 亮点:primary_success 有值或 outcome 好的会话
+  const wins = facets
+    .filter((x) => x.primary_success && x.primary_success !== "none" && x.brief_summary)
+    .concat(facets.filter((x) => (x.outcome === "mostly_achieved" || x.outcome === "fully_achieved") && !(x.primary_success && x.primary_success !== "none")))
+    .slice(0, 3);
+
+  // 摩擦分组:取每条 friction_detail 有内容、friction_counts 非空
+  const frictionExamples = Object.entries(fr)
+    .map(([k]) => {
+      const hits = facets.filter((x) => (x.friction_counts || {})[k] && x.friction_detail);
+      return {
+        title: k,
+        desc: hits.length ? `共 ${hits.length} 个会话出现「${k}」。` : "",
+        examples: hits.slice(0, 2).map((x) => x.friction_detail),
+      };
+    })
+    .filter((x) => x.examples.length);
+
+  return {
+    sessionType: toArr(st),
+    satisfaction: toArr(sat),
+    outcome: toArr(out),
+    friction: toArr(fr),
+    wins,
+    frictionExamples,
+  };
+}
 
 function bars(data: [string, number][], color: string): string {
   const max = Math.max(1, ...data.map(([, v]) => v));
@@ -124,7 +212,116 @@ function workLines(r: R) {
 async function main() {
   const rr = await buildInsightReport({ agent: "codex", days: 9999, limit: 300 });
   const r: R = rr as R;
+  const deep = await deepStats("codex");
+  const deepBy = new Map(deep.map((d) => [d.id, d]));
+  // 聚合语言分布
+  const langAgg: Record<string, number> = {};
+  for (const d of deep)
+    for (const [k, v] of Object.entries(d.languages)) langAgg[k] = (langAgg[k] || 0) + v;
+  const langTop = Object.entries(langAgg).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const deepAgg = deep.reduce(
+    (a, d) => {
+      a.commands += d.commands;
+      a.fails += d.commandFails;
+      a.files += d.filesChanged;
+      a.add += d.fileOps.add;
+      a.upd += d.fileOps.update;
+      a.del += d.fileOps.del;
+      return a;
+    },
+    { commands: 0, fails: 0, files: 0, add: 0, upd: 0, del: 0 }
+  );
   const fmt = (n: number) => (n || 0).toLocaleString("en-US");
+
+  // —— facets 语义层 ——
+  const facets = loadFacets();
+  const fa = aggregateFacets(facets);
+  const hasFacets = facets.length > 0;
+
+  // 亮点卡片(取自 brief_summary)
+  const winsHtml = fa.wins.length
+    ? fa.wins
+        .map(
+          (w, i) =>
+            `<div class="big-win"><div class="big-win-title">${esc(w.brief_summary.split(/[。；;]/)[0].slice(0, 40) || "亮点 " + (i + 1))}</div>` +
+            `<div class="big-win-desc">${esc(w.brief_summary)}</div></div>`
+        )
+        .join("")
+    : '<div class="empty">（无 facets 数据）</div>';
+
+  // 摩擦卡片
+  const frictionHtml = fa.frictionExamples.length
+    ? fa.frictionExamples
+        .map(
+          (f) => `<div class="friction-category">
+            <div class="friction-title">${esc(f.title)}</div>
+            <div class="friction-desc">${esc(f.desc)}</div>
+            <ul class="friction-examples">${f.examples.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>
+          </div>`
+        )
+        .join("")
+    : '<div class="empty">（无明显摩擦）</div>';
+
+  // Fun ending:挑一个最有人情味的 brief_summary
+  const funFacet =
+    facets.find((x) => /焦虑|担心|不好意思|有趣|感慨/.test(x.brief_summary || "")) ||
+    facets.find((x) => x.outcome === "fully_achieved") ||
+    facets[0];
+  const funHtml = funFacet
+    ? `<div class="fun-ending"><div class="fun-headline">${esc((funFacet.underlying_goal || "").slice(0, 60))}</div>
+       <div class="fun-detail">${esc((funFacet.brief_summary || "").slice(0, 160))}</div></div>`
+    : "";
+
+  // 会话类型/满意度/结果/摩擦 分布图
+  const typeChartsHtml = hasFacets
+    ? `<div class="charts-row">
+        <div class="chart-card"><div class="chart-title">Session Types</div>${bars(fa.sessionType, "#8b5cf6")}</div>
+        <div class="chart-card"><div class="chart-title">Outcome · 结果</div>${bars(fa.outcome, "#4da3ff")}</div>
+      </div>
+      <div class="charts-row">
+        <div class="chart-card"><div class="chart-title">User Satisfaction · 满意度</div>${bars(fa.satisfaction, "#eab308")}</div>
+        <div class="chart-card"><div class="chart-title">Friction · 摩擦类型</div>${bars(fa.friction, "#dc2626")}</div>
+      </div>`
+    : "";
+
+  // 可复制的建议片段(基于摩擦/高 token 会话)
+  const suggestion = (title: string, why: string, code: string) =>
+    `<div class="horizon-card"><div class="horizon-title">${esc(title)}</div>
+     <div class="horizon-possible">${esc(why)}</div>
+     <div class="example-code">${esc(code)}</div></div>`;
+  const hasScopeDrift = facets.some((x) => (x.friction_counts || {}).scope_drift);
+  const hasBug = facets.some((x) => (x.friction_counts || {}).buggy_code);
+  const topSessions = r.sessions.sort((a: any, b: any) => (b.totalTokens || 0) - (a.totalTokens || 0)).slice(0, 3);
+  const suggestionHtml = `<div class="horizon-section">
+    ${suggestion(
+      "给超长会话设边界 · 控制 token 黑洞",
+      hasScopeDrift ? "多个会话被标注出现 scope_drift（目标漂移），且 token 以亿计的会话多为跨周续写。改为『一个目标一个新会话』。" : "token 最大的会话多为跨周续写，重读历史占大量消耗。",
+      "# 在 Codex 会话开始时给明确边界\n> 只做：<单个具体目标>\n> 完成标准：<可验证结果>\n> 完成后：停止并总结，勿自行扩范围"
+    )}
+    ${suggestion(
+      "把反复出现的排查经验沉淀成文档",
+      "配置/MCP 排查类会话（hooks、codegraph 启动失败）多次出现且消耗巨大，属于『已解决却未沉淀』。",
+      "mkdir -p docs/codex_notes && cat >> docs/codex_notes/known_issues.md <<'EOF'\n## 已排障问题\n- hooks 冲突 → 统一到单一 config\n- MCP 启动失败 → 检查手写握手超时\nEOF"
+    )}
+    ${hasBug ? suggestion("验证脚本强制 UTF-8,避免编码返工", "工具脚本反复踩 GBK/UTF-8,中文路径/输出乱码。", "export PYTHONUTF8=1\n# Windows PowerShell\n$env:PYTHONUTF8=\"1\"") : ""}
+  </div>`;
+  const topSessionsNote = topSessions.length
+    ? `重点关注会话：${topSessions.map((s: any) => s.id.slice(0, 8)).join("、")}（token 最高，建议复盘是否产出匹配消耗）`
+    : "";
+
+  // —— At a Glance 自动文案 ——
+  const biggestWinGoal = fa.wins[0]?.underlying_goal || "少数大主线(论文/费效)投入了长会话";
+  const topFrictionLabel = fa.friction[0]?.[0] || "";
+  const topFrictionNum = fa.friction[0]?.[1] || 0;
+  const dissatisfiedNum = (fa.satisfaction.find(([k]) => k === "dissatisfied") || [])[1] || 0;
+  const glanceHtml = hasFacets
+    ? `<div class="glance-section"><strong>做得好：</strong>${esc(biggestWinGoal)} 这类目标被模型标为值得肯定；跨会话沉淀成可复用产物（MCP 工具、报告生成器）是你的强项。<a href="#section-wins" class="see-more">亮点工作 →</a></div>
+       <div class="glance-section"><strong>阻碍点：</strong>${topFrictionLabel ? `最高频摩擦是「${esc(topFrictionLabel)}」（${topFrictionNum} 会话）` : "摩擦总体较少"}${dissatisfiedNum ? `；${dissatisfiedNum} 个会话被标为不满意。` : "。"}超长续写使单会话 token 以亿计，算力大量耗于重读历史。<a href="#section-friction" class="see-more">问题分析 →</a></div>
+       <div class="glance-section"><strong>可尝试：</strong>给长会话设明确「完成即止」边界；把反复出现的 Codex 排查经验沉淀成文档/Skill，而非每次重查。<a href="#section-horizon" class="see-more">可试建议 →</a></div>`
+    : `<div class="glance-section"><strong>做得好：</strong>你的 Codex 工作集中在少数深水区并投入了超长会话。<a href="#section-wins" class="see-more">亮点工作 →</a></div>
+       <div class="glance-section"><strong>阻碍点：</strong>超长会话带来 token 黑洞与主题漂移。<a href="#section-friction" class="see-more">问题分析 →</a></div>
+       <div class="glance-section"><strong>可尝试：</strong>给长会话设边界并沉淀排查经验。<a href="#section-horizon" class="see-more">可试建议 →</a></div>`;
+
   const lines = workLines(r);
   const tokMax = Math.max(1, ...lines.map(([, e]) => e.tok));
   const msgMax = Math.max(1, ...lines.map(([, e]) => e.msg));
@@ -174,11 +371,7 @@ async function main() {
 
   <div class="at-a-glance">
     <div class="glance-title">一图速览 · At a Glance</div>
-    <div class="glance-sections">
-      <div class="glance-section"><strong>做得好：</strong>你的 Codex 工作集中在少数几条深水区——DataFusion 论文与 ABaCaS 费效评估——并为此投入了超长会话（单会话最高 16.5 亿 token）。你倾向把任务做成可复用的产物（MCP 工具、报告生成器），而不是一次性脚本。<a href="#section-wins" class="see-more">亮点工作 →</a></div>
-      <div class="glance-section"><strong>阻碍点：</strong>大量 token 消耗在超长续写会话与配置/环境排查（hooks、MCP 启动失败），真正的代码产出占比不高；多模型混用（vision-exp/terra/luna/sol）使成本与行为难以预期。<a href="#section-friction" class="see-more">问题分析 →</a></div>
-      <div class="glance-section"><strong>可尝试：</strong>给长会话设明确「完成即止」边界，避免开着跨周续写空转；把反复出现的 Codex 排查经验沉淀成可复用文档/Skill，而非每次重查。<a href="#section-horizon" class="see-more">On the Horizon →</a></div>
-    </div>
+    <div class="glance-sections">${glanceHtml}</div>
   </div>
 
   <nav class="nav-toc">
@@ -193,8 +386,19 @@ async function main() {
     <div class="stat"><div class="stat-value">${r.count}</div><div class="stat-label">Sessions</div></div>
     <div class="stat"><div class="stat-value">${fmt(r.msgTotal)}</div><div class="stat-label">Messages</div></div>
     <div class="stat"><div class="stat-value">${Math.round(r.tokenTotal / 1e8) / 10}亿</div><div class="stat-label">Tokens</div></div>
-    <div class="stat"><div class="stat-value">${r.toolTotals.bash + r.toolTotals.edit + r.toolTotals.write + r.toolTotals.read + r.toolTotals.other}</div><div class="stat-label">Tool Calls</div></div>
+    <div class="stat"><div class="stat-value">${fmt(deepAgg.commands)}</div><div class="stat-label">Commands</div></div>
+    <div class="stat"><div class="stat-value">${fmt(deepAgg.files)}</div><div class="stat-label">Files Changed</div></div>
     <div class="stat"><div class="stat-value">${esc(r.dateStart.slice(5))}</div><div class="stat-label">→ ${esc(r.dateEnd.slice(5))}</div></div>
+  </div>
+
+  <div class="charts-row">
+    <div class="chart-card"><div class="chart-title">Languages · 改动语言分布</div>
+      ${langTop.length ? bars(langTop, "#10b981") : '<div class="empty">（老会话无 apply_patch 记录）</div>'}
+    </div>
+    <div class="chart-card"><div class="chart-title">Files Changed · 文件操作</div>
+      ${bars([["新增 Add", deepAgg.add], ["修改 Update", deepAgg.upd], ["删除 Delete", deepAgg.del]] as [string, number][], "#4da3ff")}
+      ${`<div style="font-size:12px;color:#64748b;margin-top:8px;">命令失败 ${deepAgg.fails}/${deepAgg.commands} 次（${(deepAgg.commands ? ((deepAgg.fails / deepAgg.commands) * 100).toFixed(1) : 0)}%）</div>`}
+    </div>
   </div>
 
   <h2 id="section-work">What You Work On · 工作分布</h2>
@@ -213,39 +417,22 @@ async function main() {
   </div>
 
   <h2 id="section-wins">Impressive Things · 亮点工作</h2>
-  <div class="section-intro">这些会话展示了超出「问答」的深度。</div>
-  <div class="big-wins">
-    <div class="big-win"><div class="big-win-title">论文 RQ 框架的持久梳理</div><div class="big-win-desc">从「读取目前项目，针对 RQ1/2/3 有什么」到多轮迭代，把 8 个融合数据集的证据链、区域断点、集成口径梳理成可讲给导师的框架，并配套中期答辩 PPT 与图表核对。</div></div>
-    <div class="big-win"><div class="big-win-title">费效评估接口的精确诊断</div><div class="big-win-desc">定位 Control Case / Reduction_Cost 生成的条件依赖，把「前端不上传成本文件就失败」的根因讲清，并给出后端拆分为 calculate_cost / generate_control_case 两模式的改法。</div></div>
-    <div class="big-win"><div class="big-win-title">跨会话的自有工具链</div><div class="big-win-desc">本报告即由你自建 agent-sessions MCP 驱动——读 Codex 会话、统计 token、聚合洞察，数据与 Codex 官方统计一致。</div></div>
-  </div>
+  <div class="section-intro">${hasFacets ? `${facets.length} 个被分析会话中，模型标注出这些做得好的点。` : "这些会话展示了超出「问答」的深度。"}</div>
+  <div class="big-wins">${winsHtml}</div>
 
   <h2 id="section-friction">Where Things Go Wrong · 问题分析</h2>
-  <div class="friction-categories">
-    <div class="friction-category">
-      <div class="friction-title">超长会话带来 token 黑洞与失焦</div>
-      <div class="friction-desc">跨周续写 + 频繁 compact 使单会话 token 以亿计（最高 16.6 亿），大量算力消耗在重读历史；会话「继续」过多时主题易漂移。</div>
-      <ul class="friction-examples"><li>019f8891 会话 16.6 亿 token，主体是 hooks/MCP 环境排查，真正产出有限。</li><li>多个「继续」会话 msg 上百但首条消息仅「继续」，缺少目标锚点。</li></ul>
-    </div>
-    <div class="friction-category">
-      <div class="friction-title">多模型混用致成本与行为不可预期</div>
-      <div class="friction-desc">同一 Codex 实际路由到 5 种模型(deepseek-v4-flash-vision-exp / gpt-5.6-terra / luna / sol / flash)，单价差异巨大且部分无官方价，费用核算困难。</div>
-      <ul class="friction-examples"><li>cost 最大并非 token 最多的 vision-exp（96% 缓存、便宜），而是 terra（非缓存输入价高）。</li><li>早期会话(4-5月)与部分渠道无 usage 记录，历史费用不可追。</li></ul>
-    </div>
-  </div>
+  <div class="section-intro">${hasFacets ? "基于对每个会话的模型标注聚合：摩擦主要来自这些类别（附真实会话描述）。" : "你的使用数据中反复出现的摩擦点。"}</div>
+  <div class="friction-categories">${frictionHtml}</div>
 
-  <h2 id="section-horizon">On the Horizon · 建议</h2>
-  <div class="horizon-section">
-    <div class="horizon-card"><div class="horizon-title">给长会话设边界</div><div class="horizon-possible">为超长主线开「新会话 + 交接文档」而非无限「继续」；用 session_insights 定期看哪些会话 token 失控。</div></div>
-    <div class="horizon-card"><div class="horizon-title">固定模型与成本口径</div><div class="horizon-possible">在 Codex 配置锁定目标模型，避免自动路由漂移到加价档；沿用本报告的三档 token 统计做月度复盘。</div></div>
-  </div>
+  ${typeChartsHtml}
 
-  <div class="fun-ending">
-    <div class="fun-headline">从一个「能不能看 Codex 会话」的问题，长出了一整套会话洞察工具</div>
-    <div class="fun-detail">本报告本身，就是这套工具的第一个正式产出。</div>
-  </div>
+  <h2 id="section-horizon">Features to Try · 可试建议</h2>
+  <div class="section-intro">${topSessionsNote || "基于会话摩擦分析的可操作建议。"}</div>
+  ${suggestionHtml}
 
-  <p class="footer-note">数据来源 ~/.codex 会话记录 · token 为官方统计(46/60 会话有记录) · 由 agent-sessions · session_insights 生成</p>
+  ${funHtml}
+
+  <p class="footer-note">数据来源 ~/.codex 会话记录 · token 为官方统计 · 语义标注由 one-hub deepseek-v4-flash 生成 · agent-sessions session_insights</p>
 </div></body></html>`;
 
   mkdirSync(join(outPath, ".."), { recursive: true });
