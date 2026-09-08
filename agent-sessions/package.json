@@ -1,0 +1,14 @@
+{
+  "name": "agent-sessions-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for reading local agent sessions (Claude Code + Codex)",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  },
+  "license": "MIT"
+}
