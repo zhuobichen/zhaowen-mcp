@@ -11,6 +11,7 @@
 | `read_agent_session` | 按会话 ID（支持短前缀）查看对话；`detail=true` 追加 AI 的工具动作摘要（改了哪些文件/跑了什么命令及输出），`agent`/`max_messages`/`max_msg_len` 可配 |
 | `search_agent_sessions` | 按关键词/正则搜索会话标题与内容，返回命中片段，可 `agent` 限定 |
 | `agent_token_usage` | 各会话 token 用量（total/input/cache/output），可 `agent`/`limit`；`money=true` 时按 gpt-5.6-sol 估算 Codex 费用 |
+| `session_insights` | 会话洞察聚合（数据层）：指定范围（agent/project/days/limit）内每会话的结构化特征 + 聚合统计，供调用方模型归纳总结与建议（让 Codex 也有近似 /insights 的复盘能力） |
 
 ### token 用量口径说明
 
@@ -36,6 +37,19 @@
 - 两端底层格式不同但已统一：Claude 读 content 块中 `tool_use`/`tool_result`；Codex 读 `response_item` 的 `function_call`/`custom_tool_call`/`apply_patch` 及其 `_output`（按 call_id 配对）。
 - **摘要版只列动作 + 文件名/命令，不贴改动全文与完整输出**，避免刷屏。thinking 一律跳过。
 - 示例：`read_agent_session 79b26d95 detail=true`
+
+### session_insights 与 /insights
+
+Claude Code 内置 `/insights` 的实质 = 读 `~/.claude/projects` 会话日志 → 提取结构化特征 → 由模型归纳总结与建议，最后产出 HTML 报告。它**只读 Claude Code 会话**。
+
+`session_insights` 把这个「数据采集层」暴露成 MCP 工具，且**对 Codex 会话同样生效**（本工具能读 `~/.codex` rollout）—— 因此让 Codex 也能获得近似 `/insights` 的复盘能力：
+
+```
+session_insights agent=codex project=DataFusion days=30 limit=20
+# → 返回结构化材料，调用方模型据此生成总结/建议
+```
+
+数据聚合设计（对应 /insights 的 Collect→Extract→Summarize→Aggregate），工具给出**原始特征**（每会话项目/时间/标题/消息数/工具使用/token/跨度 + 项目分布聚合），**不做语义判断**；主题分类、摩擦点、改进建议由调用方 LLM 完成（与 /insights 同构）。注意：标题可能很长，工具使用只统计会话前部事件。
 
 ## 数据源
 

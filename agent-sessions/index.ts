@@ -31,6 +31,7 @@ import {
   AgentSession,
   AgentKind,
 } from "./sessions.js";
+import { buildInsightReport, renderInsightReport } from "./insights.js";
 
 const DEFAULT_MAX_MSGS = 500;
 const DEFAULT_MAX_MSG_LEN = 8000;
@@ -215,6 +216,20 @@ async function usageTool(args: Record<string, any>) {
   return head + "\n" + lines.join("\n") + tail + foot;
 }
 
+async function insightsTool(args: Record<string, any>) {
+  try {
+    const report = await buildInsightReport({
+      agent: parseAgent(args.agent),
+      project: args.project ? String(args.project) : undefined,
+      days: args.days ? Number(args.days) : undefined,
+      limit: args.limit ? Number(args.limit) : undefined,
+    });
+    return renderInsightReport(report);
+  } catch (e: any) {
+    return `错误: ${e.message}`;
+  }
+}
+
 async function searchTool(args: Record<string, any>) {
   const query = String(args.query || "").trim();
   if (!query) return "错误: 请提供 query 关键词";
@@ -348,6 +363,32 @@ async function main() {
           },
         },
       },
+      {
+        name: "session_insights",
+        description:
+          "会话洞察聚合（数据层）：返回指定范围内每个会话的结构化特征（时间/项目/标题/消息数/工具使用/token/活跃跨度）与聚合统计（项目分布、工具合计、token 合计）。用途：由调用方模型据此归纳工作主题、摩擦点并给出改进建议 —— 即把 /insights 的『数据采集』暴露成工具，让 Claude Code 与 Codex 都能得到会话复盘。可指定 agent/project/days/limit。注意：标题可能很长，工具使用只统计会话前部事件；token 统计对老会话可能偏慢。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent: {
+              type: "string",
+              description: "可选：claude / codex / all（缺省 all）",
+            },
+            project: {
+              type: "string",
+              description: "可选：只统计项目路径包含此子串的会话（如 ABaCaS、DataFusion）",
+            },
+            days: {
+              type: "integer",
+              description: "可选：只统计最近 N 天的会话（缺省 30）",
+            },
+            limit: {
+              type: "integer",
+              description: "可选：最多返回会话数（缺省 30）",
+            },
+          },
+        },
+      },
     ],
   }));
 
@@ -367,6 +408,9 @@ async function main() {
           break;
         case "agent_token_usage":
           text = await usageTool(args);
+          break;
+        case "session_insights":
+          text = await insightsTool(args);
           break;
         default:
           text = `未知工具: ${name}`;
