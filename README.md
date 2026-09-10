@@ -14,6 +14,7 @@
 | [`onehub-monitor/`](./onehub-monitor) | one-hub 用量监测 | `check_usage` 用量 · `daily_snapshot` 每日记账 · `usage_history` 历史 |
 | [`easy-log/`](./easy-log) | 工作日志 + 发票填报 | 远程 MCP 工具 · `scenarios/` 场景手册 · `scripts/invoice_api.py` CLI |
 | [`agent-sessions/`](./agent-sessions) | 查看本机智能体会话(Claude Code + Codex) | `list_agent_sessions` 列出 · `read_agent_session` 查看(`detail=true` 含代码改动/命令摘要) · `search_agent_sessions` 搜索 · `agent_token_usage` token/费用统计 · `session_insights` 洞察 · `annotate` LLM 逐会话语义标注(facets) · `gen_report` 生成 /insights 同款 HTML |
+| [`other-projects/`](./other-projects) | 帮别人做的任务 → Other_Projects 仓库 | `list_projects` 列出现有项目 · `publish_project` 发布本地任务目录并 push（支持 dry_run） |
 
 ## 隐私说明
 
@@ -48,6 +49,3 @@ cd onehub-monitor && npm install
 ## License
 
 MIT
-
-
-| 帮别人做的任务 → Other_Projects 仓库 | [`other-projects//`](other-projects//) | `list_projects` 列出现有项目 · `publish_project` 发布本地任务目录并 push(支持 dry_run) |

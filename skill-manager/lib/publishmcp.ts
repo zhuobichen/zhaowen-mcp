@@ -16,7 +16,41 @@ import {
   gitStatus,
 } from "./git.js";
 import { scanPath } from "./sensitive.js";
-import { upsertReadmeRow } from "./readme.js";
+
+/** zhaowen-mcp 集合 README 格式：`| 目录 | 服务 | 功能 |`，目录单元格形如 [`name/`](./name) */
+const COLLECTION_HEADER_RE = /^\|\s*目录\s*\|\s*服务\s*\|\s*功能\s*\|$/;
+
+function upsertCollectionRow(
+  readme: string,
+  name: string,
+  title: string,
+  description: string
+): { changed: boolean; content: string; appended: boolean } {
+  const cell = `[\`${name}/\`](./${name})`;
+  const row = `| ${cell} | ${title} | ${description} |`;
+  const lines = readme.split(/\r?\n/);
+
+  // 命中已有行 → 替换
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(cell)) {
+      if (lines[i].trim() === row) return { changed: false, content: readme, appended: false };
+      lines[i] = row;
+      return { changed: true, content: lines.join("\n"), appended: false };
+    }
+  }
+  // 在「目录|服务|功能」表头后插入（跳过表头与其分隔行）
+  for (let i = 0; i < lines.length; i++) {
+    if (COLLECTION_HEADER_RE.test(lines[i].trim())) {
+      let at = i + 1;
+      while (at < lines.length && /^\s*\|[\s\-:|]+\|\s*$/.test(lines[at])) at++;
+      lines.splice(at, 0, row);
+      return { changed: true, content: lines.join("\n"), appended: false };
+    }
+  }
+  // 未找到表头 → 追加末尾（并告知调用方）
+  lines.push("", row);
+  return { changed: true, content: lines.join("\n"), appended: true };
+}
 
 const EXCLUDE = new Set([
   "node_modules", "dist", "__pycache__", ".venv", "venv", ".git",
@@ -141,12 +175,9 @@ export async function publishMcp(
   try {
     const readmePath = path.join(repoDir, "README.md");
     const readme = await fs.readFile(readmePath, "utf8");
-    if (!readme.includes(`${name}/`)) {
-      const res = upsertReadmeRow(readme, `${name}/`, title, desc);
-      if (res.changed) await fs.writeFile(readmePath, res.content, "utf8");
-    } else {
-      warnings.push(`README 已存在 ${name}/ 行，未重复登记（如需更新描述请手动改）`);
-    }
+    const res = upsertCollectionRow(readme, name, title, desc);
+    if (res.changed) await fs.writeFile(readmePath, res.content, "utf8");
+    if (res.appended) warnings.push(`README 未找到「目录|服务|功能」表头，已将 ${name} 行追加到文件末尾，请手动挪入表格。`);
   } catch (e: any) {
     warnings.push(`README 更新失败（已跳过）：${e.message}`);
   }
