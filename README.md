@@ -48,3 +48,6 @@ cd onehub-monitor && npm install
 ## License
 
 MIT
+
+
+| 帮别人做的任务 → Other_Projects 仓库 | [`other-projects//`](other-projects//) | `list_projects` 列出现有项目 · `publish_project` 发布本地任务目录并 push(支持 dry_run) |

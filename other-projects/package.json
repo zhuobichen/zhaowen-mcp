@@ -1,0 +1,14 @@
+{
+  "name": "other-projects-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server: 把帮别人做的任务目录发布到 GitHub Other_Projects 仓库",
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  },
+  "license": "MIT"
+}
