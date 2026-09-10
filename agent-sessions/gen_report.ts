@@ -10,7 +10,8 @@ import { homedir } from "os";
 import { buildInsightReport } from "./insights.js";
 import { deepStats } from "./deep_insights.js";
 
-const outPath = process.argv[2] || join(process.cwd(), "reports", "codex_report.html");
+const _pathArg = process.argv.slice(2).find((a) => !a.startsWith("--"));
+const outPath = _pathArg || join(process.cwd(), "reports", "codex_report.html");
 const FACETS_DIR = join(process.cwd(), "reports", "facets");
 
 const esc = (s: string) =>
@@ -435,9 +436,79 @@ async function main() {
   <p class="footer-note">数据来源 ~/.codex 会话记录 · token 为官方统计 · 语义标注由 one-hub deepseek-v4-flash 生成 · agent-sessions session_insights</p>
 </div></body></html>`;
 
+  // —— Markdown 版(与 HTML 同数据;--md 时输出) ——
+  const md: string[] = [];
+  const srcName = "Codex";
+  md.push(`# ${srcName} 会话洞察报告`, "");
+  md.push(`> ${fmt(r.msgTotal)} 条消息 · ${r.count} 个会话 · ${r.dateStart} ~ ${r.dateEnd}`, "");
+  md.push(`- token 合计：**${(r.tokenTotal / 1e8).toFixed(1)} 亿**`);
+  md.push(`- 命令 ${fmt(deepAgg.commands)} 次（失败 ${fmt(deepAgg.fails)}，${deepAgg.commands ? ((deepAgg.fails / deepAgg.commands) * 100).toFixed(1) : 0}%）· 文件改动 ${fmt(deepAgg.files)} 次`);
+  md.push(`- 分析会话（facets）：${facets.length} 个`, "");
+
+  md.push("## 一图速览", "");
+  md.push(`- **做得好**：${hasFacets ? biggestWinGoal : "少数深水区投入了长会话"}`);
+  md.push(`- **阻碍点**：${topFrictionLabel ? `最高频摩擦「${topFrictionLabel}」（${topFrictionNum} 会话）` : "摩擦较少"}${dissatisfiedNum ? `，${dissatisfiedNum} 个会话不满意` : ""}`);
+  md.push(`- **可尝试**：给长会话设边界；反复排查经验沉淀成文档`, "");
+
+  md.push("## 工作分布", "");
+  md.push("| 工作线 | 会话 | token | 时间范围 |");
+  md.push("|---|---|---|---|");
+  for (const [name, e] of lines) {
+    md.push(`| ${name} | ${e.n} | ${fmt(e.tok)} | ${e.t0.slice(0, 10)} ~ ${e.t1.slice(0, 10)} |`);
+  }
+  md.push("");
+  if (langTop.length) {
+    md.push("**改动语言分布**：" + langTop.map(([k, v]) => `${k}(${v})`).join(" · "), "");
+  }
+
+  if (hasFacets) {
+    md.push("## 亮点工作", "");
+    for (const w of fa.wins) md.push(`- ${w.brief_summary}`, "");
+    md.push("## 问题分析", "");
+    for (const f of fa.frictionExamples) {
+      md.push(`### ${f.title}`, "");
+      for (const e of f.examples) md.push(`- ${e}`);
+      md.push("");
+    }
+    md.push("## 可试建议", "");
+    md.push("### 给超长会话设边界 · 控制 token 黑洞", "");
+    md.push(hasScopeDrift ? "多个会话出现 scope_drift（目标漂移）；token 亿级会话多为跨周续写。改为「一个目标一个新会话」。" : "token 最大的会话多为跨周续写。", "");
+    md.push("```", "# 会话开始时给明确边界", "> 只做：<单个具体目标>", "> 完成标准：<可验证结果>", "> 完成后：停止并总结，勿自行扩范围", "```", "");
+    md.push("### 把反复排查经验沉淀成文档", "");
+    md.push("配置/MCP 排查类会话多次出现且消耗大，属「已解决未沉淀」。", "");
+    md.push("```", "mkdir -p docs/notes && cat >> docs/notes/known_issues.md <<'EOF'", "## 已排障问题", "- hooks 冲突 → 统一到单一 config", "- MCP 启动失败 → 检查握手超时", "EOF", "```", "");
+    if (hasBug) {
+      md.push("### 验证脚本强制 UTF-8", "");
+      md.push("```", "export PYTHONUTF8=1", "# Windows PowerShell", '$env:PYTHONUTF8="1"', "```", "");
+    }
+    const fm = ["session_type", "outcome", "satisfaction", "friction"] as const;
+    const maps: Record<string, [string, number][]> = {
+      session_type: fa.sessionType, outcome: fa.outcome, satisfaction: fa.satisfaction, friction: fa.friction,
+    };
+    md.push("## 分布统计", "");
+    for (const key of fm) {
+      md.push(`- **${key}**：` + maps[key].map(([k, v]) => `${k} ${v}`).join(" · "));
+    }
+    md.push("");
+  }
+
+  if (funFacet) {
+    md.push("---", "", `> **${funFacet.underlying_goal || ""}**`, `> ${funFacet.brief_summary || ""}`, "");
+  }
+  md.push("---", `*数据来源 ~/.codex 会话记录 · 语义标注 deepseek-v4-flash · agent-sessions*`);
+
+  const mdText = md.join("\n");
+
   mkdirSync(join(outPath, ".."), { recursive: true });
-  writeFileSync(outPath, html, "utf-8");
-  console.log("已生成:", outPath, `(${(html.length / 1024).toFixed(0)} KB)`);
+  const wantMd = process.argv.includes("--md");
+  if (wantMd) {
+    const mdPath = outPath.endsWith(".md") ? outPath : outPath.replace(/\.html?$/i, "") + ".md";
+    writeFileSync(mdPath, mdText, "utf-8");
+    console.log("已生成 Markdown:", mdPath, `(${(mdText.length / 1024).toFixed(0)} KB)`);
+  } else {
+    writeFileSync(outPath, html, "utf-8");
+    console.log("已生成:", outPath, `(${(html.length / 1024).toFixed(0)} KB)`);
+  }
 }
 
 main().catch((e) => {

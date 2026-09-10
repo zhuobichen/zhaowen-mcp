@@ -101,8 +101,15 @@ node E:/CodeProject/node_modules/tsx/dist/cli.mjs annotate.ts
 # 2. 生成报告（复用官方 /insights 浅色版式；数据 + facets 自动聚合，非手写文案）
 node E:/CodeProject/node_modules/tsx/dist/cli.mjs gen_report.ts
 #    → 输出 reports/codex_report.html
+
+# 导出 Markdown（同数据，便于粘贴/存档）
+node E:/CodeProject/node_modules/tsx/dist/cli.mjs gen_report.ts --md
+#    → 输出 reports/codex_report.md
+
+# 也可指定输出路径
+node E:/CodeProject/node_modules/tsx/dist/cli.mjs gen_report.ts reports/my_report.md --md
 ```
 
 - `annotate.ts` 标注约 20+ 个主要 Codex 会话：目标/会话类型/满意度/摩擦点/总结，key 从 `~/.claude.json` 的 code-review env 自动读取（或环境变量 `REVIEW_API_KEY`）。成本 ≈ 几分钱级（flash 档）。
-- `gen_report.ts` 含：硬统计图（token/语言/文件/命令失败/工具）+ facets 图（会话类型/Outcome/满意度/摩擦）+ 亮点/问题/可复制建议（friction 与 brief_summary 驱动）。
+- `gen_report.ts` 含：硬统计图（token/语言/文件/命令失败/工具）+ facets 图（会话类型/Outcome/满意度/摩擦）+ 亮点/问题/可复制建议（friction 与 brief_summary 驱动）。`--md` 输出 Markdown 版（一图速览/工作分布表/亮点/问题/建议/分布统计）。
 - 生成物 `reports/` 不入 git。

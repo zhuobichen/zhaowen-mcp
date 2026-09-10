@@ -16,7 +16,17 @@ import { readMessages, listSessions, findSession } from "./sessions.js";
 const MODEL = "deepseek-v4-flash";
 const CONCURRENCY = 4;
 const REPORTS_DIR = join(process.cwd(), "reports");
-const FACETS_DIR = join(REPORTS_DIR, "facets");
+
+/** 从 argv 解析 --agent claude|codex,缺省 codex(向后兼容) */
+function parseAgentArg(): "claude" | "codex" {
+  const i = process.argv.indexOf("--agent");
+  const v = i >= 0 ? process.argv[i + 1] : "codex";
+  return v === "claude" ? "claude" : "codex";
+}
+function facetsDir(_agent: "claude" | "codex"): string {
+  // 统一目录 reports/facets（与 gen_report.ts 的 FACETS_DIR 一致）
+  return join(REPORTS_DIR, "facets");
+}
 
 interface ApiConfig {
   apiKey: string;
@@ -40,7 +50,7 @@ function getApiConfig(): ApiConfig {
   }
 }
 
-const SYSTEM_PROMPT = `你是会话复盘分析师。分析用户提供的"Codex 会话"信息(标题/用户提问/硬统计),判断这次会话:目标、类型、结果、用户满意度、摩擦点。
+const SYSTEM_PROMPT = `你是会话复盘分析师。分析用户提供的"智能体会话(Claude Code / Codex)"信息(标题/用户提问/硬统计),判断这次会话:目标、类型、结果、用户满意度、摩擦点。
 严格只输出 JSON(不要 markdown 代码块),字段如下:
 {
   "session_id": "完整会话id",
@@ -179,7 +189,7 @@ function pickSessions(r: InsightReport) {
 async function run() {
   const cfg = getApiConfig();
   if (!cfg.apiKey) throw new Error("未找到 one-hub key(需 code-review env 的 REVIEW_API_KEY 或环境变量)");
-  mkdirSync(FACETS_DIR, { recursive: true });
+  mkdirSync(facetsDir("codex"), { recursive: true });
 
   const r = await buildInsightReport({ agent: "codex", days: 9999, limit: 400 });
   const all = await listSessions("codex");
@@ -219,12 +229,12 @@ async function run() {
 
   console.log(`待标注会话: ${withMsgs.length} 个`);
   // 并发
-  const todo = withMsgs.filter((f) => !existsSync(join(FACETS_DIR, f.session_id + ".json")));
+  const todo = withMsgs.filter((f) => !existsSync(join(facetsDir("codex"), f.session_id + ".json")));
   console.log(`需新标注(未缓存): ${todo.length} 个`);
   let done = 0;
   let fail = 0;
   const runOne = async (f: FacetInput) => {
-    const outPath = join(FACETS_DIR, f.session_id + ".json");
+    const outPath = join(facetsDir("codex"), f.session_id + ".json");
     try {
       const facet = await callAnnotate(f, cfg);
       facet.session_id = f.session_id;
