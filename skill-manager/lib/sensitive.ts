@@ -20,7 +20,8 @@ export const SENSITIVE_RULES: SensitiveRule[] = [
   { id: "acct-1", category: "账号", label: "键值对账号", pattern: /\b(username|user_id|login)\b\s*[:=]\s*\S+/i, placeholder: "<账号>" },
   { id: "acct-2", category: "账号", label: "中文账号", pattern: /(账号|用户名)\s*[:：]\s*[^\s${}()]+/, placeholder: "<账号>" },
   { id: "key-1", category: "API Key", label: "OpenAI/DeepSeek 风格 key", pattern: /\b(sk|pk|rk)-[A-Za-z0-9_-]{16,}\b/, placeholder: "<API Key>" },
-  { id: "key-2", category: "API Key", label: "api_key 键值", pattern: /\bapi[_-]?key\b\s*[:=]\s*\S+/i, placeholder: "<API Key>" },
+  // 仅当值为引号包裹的字符串（≥12字符）才命中，避免误报 `apiKey: string` / `apiKey: envKey` 等类型声明或变量引用
+  { id: "key-2", category: "API Key", label: "api_key 键值（引号长串）", pattern: /\bapi[_-]?key\b\s*[:=]\s*["'`][^"'`\s]{12,}["'`]/i, placeholder: "<API Key>" },
   { id: "key-3", category: "密钥", label: "secret 键值", pattern: /\b(secret|client_secret|app_secret)\b\s*[:=]\s*\S+/i, placeholder: "<Secret>" },
   { id: "key-4", category: "密钥", label: "AWS access key", pattern: /\bAKIA[0-9A-Z]{16}\b/, placeholder: "<AWS Key>" },
   { id: "tok-1", category: "Token", label: "token/bearer 键值", pattern: /\b(access_token|refresh_token|auth_token|bearer)\b\s*[:=]\s*[^\s,;]{4,}/i, placeholder: "<Token>" },

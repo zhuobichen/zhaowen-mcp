@@ -5,8 +5,11 @@
  * 盘点本地 skill + 一键发布到 GitHub（zhaowen-skill 仓库）。
  * - list_skills: 盘点本地所有 skill 及位置/状态
  * - check_sensitive: 检测敏感信息（密码/内网IP/API key/token 等）
- * - publish_skill: 显式触发时把指定 skill 规范化命名后推送到 GitHub（唯一 push 入口）
+ * - publish_skill: 显式触发时把指定 skill 规范化命名后推送到 GitHub（zhaowen-skill）
+ * - publish_mcp: 把指定本地 MCP server 目录发布到 zhaowen-mcp 集合仓库
+ * - sync_self: 把 skill-manager 自身同步到 zhaowen-mcp
  * - get_config: 查看当前配置
+ * 注：push 仅在显式调用 publish_skill / publish_mcp / sync_self 时发生。
  *
  * 启动: npx tsx E:/CodeProject/mcp-server/skill-manager/index.ts
  */
@@ -22,6 +25,7 @@ import { scanAll } from "./lib/skills.js";
 import { scanPath } from "./lib/sensitive.js";
 import { publishSkill } from "./lib/publish.js";
 import { syncSelf } from "./lib/syncself.js";
+import { publishMcp } from "./lib/publishmcp.js";
 
 async function main() {
   const server = new Server(
@@ -99,6 +103,23 @@ async function main() {
         description:
           "把 skill-manager MCP 自身源码同步到 zhaowen-mcp 集合仓库工作副本（复制排除 node_modules/dist）→ 更新 README → git add/commit/push。只有显式调用本工具才会执行 push。",
         inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "publish_mcp",
+        description:
+          "把任意本地 MCP server 目录发布到 zhaowen-mcp 集合仓库并 push。流程：校验源（需 index.ts/package.json）→ 复制到仓库同名目录（排除 node_modules/dist/reports 等）→ 敏感检查（默认命中即中止，可 mask 仅提示）→ 更新 README 表格 → git add/commit/push。只有显式调用本工具才会执行 push；dry_run=true 可只预览变更。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            src_dir: { type: "string", description: "本地 MCP 源目录绝对路径（如 E:/CodeProject/mcp-server/agent-sessions）" },
+            target_name: { type: "string", description: "可选：仓库内目录名/服务名（缺省用源目录名）" },
+            title: { type: "string", description: "可选：README 表格「服务」列简介（缺省用目录名）" },
+            description: { type: "string", description: "可选：README 表格「功能」列描述（如 `tool_a` 列出 · `tool_b` 查看）" },
+            sensitive_action: { type: "string", description: "可选：abort（默认，命中敏感项即中止）/ mask（仅提示继续）" },
+            dry_run: { type: "boolean", description: "可选：true 时只复制+更新 README 并显示变更，不 commit/push" },
+          },
+          required: ["src_dir"],
+        },
       },
       {
         name: "get_config",
@@ -224,9 +245,29 @@ async function main() {
         case "sync_self": {
           const result = await syncSelf(config);
           const lines = [result.message];
-          if (result.commitHash && result.commitMessage === undefined) {
+          if (result.commitHash) {
             lines.push(`commit: ${result.commitHash.slice(0, 7)}`);
           }
+          if (result.warnings?.length) lines.push(`⚠️ 警告:\n${result.warnings.join("\n")}`);
+          return { content: [{ type: "text", text: lines.join("\n") }] };
+        }
+
+        case "publish_mcp": {
+          if (!args.src_dir) {
+            return { content: [{ type: "text", text: "错误: 请提供 src_dir（本地 MCP 源目录绝对路径）" }] };
+          }
+          const result = await publishMcp(config, {
+            srcDir: String(args.src_dir),
+            targetName: args.target_name ? String(args.target_name) : undefined,
+            title: args.title ? String(args.title) : undefined,
+            description: args.description ? String(args.description) : undefined,
+            sensitiveAction: args.sensitive_action === "mask" ? "mask" : "abort",
+            dryRun: args.dry_run === true || args.dry_run === "true",
+          });
+          const lines = [result.message];
+          if (result.targetDir) lines.push(`目标目录: ${result.targetDir}`);
+          if (typeof result.copiedFiles === "number") lines.push(`复制文件: ${result.copiedFiles}`);
+          if (result.commitHash) lines.push(`commit: ${result.commitHash.slice(0, 7)}`);
           if (result.warnings?.length) lines.push(`⚠️ 警告:\n${result.warnings.join("\n")}`);
           return { content: [{ type: "text", text: lines.join("\n") }] };
         }
