@@ -17,6 +17,7 @@ import {
   augmentIdsOf,
   clientStatus,
   getGameDetail,
+  getMatchHistory,
   getRecentGames,
   getSummoner,
   isMayhemGame,
@@ -143,22 +144,32 @@ export async function myRecentGames(args: { limit?: number; only_mayhem?: boolea
     return `读不到对局记录：${status.error}\n（需要游戏客户端正在运行。可以先跑 get_my_account_status 看状态。）`;
   }
   const me = await getSummoner();
-  const games = await getRecentGames(limit);
+  // 一次多要一些，顺便把「本地一共能查到多少把」也报出来
+  const { games, total } = await getMatchHistory(Math.max(limit, 200));
   if (!games.length) return "客户端返回的最近对局是空的（可能刚登录、或对局记录还没同步）。";
 
   const onlyMayhem = args.only_mayhem !== false;
-  const filtered = onlyMayhem ? games.filter(isMayhemGame) : games;
+  const allMayhem = games.filter(isMayhemGame);
+  const filtered = onlyMayhem ? allMayhem : games;
   const modes = [...new Set(games.map((g) => String(g.gameMode)))].join("、");
-  const rows = filtered.map((g) => {
+  const rows = filtered.slice(0, limit).map((g) => {
     const pid = myParticipantId(g, { puuid: me.puuid, name: (me.displayName || me.gameName || "").split("#")[0] });
     return gameLine(g, pid);
   });
 
+  // 时间跨度：让人一眼看出本地记录覆盖到什么时候
+  const times = games.map((g) => g.gameCreation).filter(Boolean).sort((a, b) => a - b);
+  const fmt = (t: number) => new Date(t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short" });
+  const span = times.length ? `${fmt(times[0])} ~ ${fmt(times[times.length - 1])}` : "未知";
+
   const out = [
     `账号：${me.displayName || me.gameName || "(未命名)"}`,
-    `最近 ${games.length} 把里${onlyMayhem ? "海斗" : ""}对局 ${filtered.length} 把${onlyMayhem ? "" : "（未过滤模式）"}`,
+    `本地客户端记录里共 ${total} 把对局，其中海斗 ${allMayhem.length} 把；时间跨度 ${span}`,
     `（客户端返回的模式标识：${modes}）`,
+    `⚠ 「共 ${total} 把」是**本地客户端缓存**的数量，不是账号历史总场次：实测把翻页参数放大到 2000 也只返回同一批，` +
+      "更早的对局官方接口对海斗是封的（match-v5 403），所以查不到更远的历史。",
     "",
+    ...(filtered.length > limit ? [`（下面只列最近 ${limit} 把，共 ${filtered.length} 把；要更多传 limit）`] : []),
     ...rows,
   ];
   if (onlyMayhem && !filtered.length) {
@@ -178,9 +189,10 @@ export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<
     return `读不到对局记录：${status.error}\n（需要游戏客户端正在运行。）`;
   }
   const me = await getSummoner();
-  const games = (await getRecentGames(limit)).filter(isMayhemGame);
+  const hist = await getMatchHistory(Math.max(limit, 200));
+  const games = hist.games.filter(isMayhemGame);
   if (!games.length) {
-    return `最近 ${limit} 把里没有识别到海斗对局，无法统计符文。（可先用 get_my_recent_games 看看客户端上报的模式标识。）`;
+    return `本地记录里没有识别到海斗对局，无法统计符文。（可先用 get_my_recent_games 看看客户端上报的模式标识。）`;
   }
 
   interface Row {
@@ -276,7 +288,7 @@ export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<
   }
 
   const out: string[] = [
-    `账号：${me.displayName || me.gameName || "(未命名)"} · 统计最近 ${rows.length} 把海斗`,
+    `账号：${me.displayName || me.gameName || "(未命名)"} · 统计本地记录里的 ${rows.length} 把海斗（客户端共缓存 ${hist.total} 把对局）`,
     `近期胜率：${localWins}/${local.length}${local.length ? ` (${Math.round((localWins / local.length) * 100)}%)` : ""}`,
   ];
   if (topChamps.length) {

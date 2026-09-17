@@ -233,10 +233,20 @@ export async function getSummoner(): Promise<LcuSummoner> {
 
 /** 最近对局摘要（默认取最近 20 把，含全部模式） */
 export async function getRecentGames(limit = 20): Promise<LcuGameSummary[]> {
+  return (await getMatchHistory(limit)).games;
+}
+
+/**
+ * 对局记录 + 客户端声明总量。
+ * 注意：`total` 是**本地客户端缓存里**的数量，不是账号历史总场次 ——
+ * 实测（国服 26.x）无论把 begIndex/endIndex 放大到多少，返回的都是同一批最近对局。
+ */
+export async function getMatchHistory(limit = 20): Promise<{ games: LcuGameSummary[]; total: number }> {
   const list = await lcuGet<LcuMatchList>(
     `/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=${Math.max(1, limit)}`
   );
-  return list.games?.games ?? [];
+  const games = list.games?.games ?? [];
+  return { games, total: list.games?.gameCount ?? games.length };
 }
 
 /** 单局详情（含更完整的 stats 与会话数据） */
