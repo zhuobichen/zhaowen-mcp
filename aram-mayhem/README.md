@@ -96,6 +96,7 @@ npm run typecheck    # TypeScript 类型检查
 npx tsx smoke.ts     # 冒烟测试：直接调用各工具，检查输出
 node mcp-smoke.mjs   # 端到端：用真实 MCP stdio 协议连一次服务
 npx tsx lcuprobe.ts  # 客户端探测：连接状态、最近对局里实际有哪些字段
+npm run report:html  # 生成个人战绩报告（单文件 HTML，输出到 reports/）
 ```
 
 每次 `npm run refresh` 会按补丁号在 `data/patch-snapshots/<补丁>.json` 存一份快照，攒够两个版本后 `compare_patches` 就能做版本对比。
@@ -114,6 +115,7 @@ lib/tools.ts          查询类工具实现
 lib/my.ts             账号类工具实现
 lib/friends.ts        好友列表与好友战绩
 lib/analysis.ts       对局分析（本人/好友共用）
+lib/report.ts         个人战绩报告生成器（单文件 HTML，内联 SVG 图表）
 smoke.ts / mcp-smoke.mjs / lcuprobe.ts   自检脚本（lcuprobe 可单独跑，确认客户端连接与对局字段）
 data/augments.json    符文（合并结果）
 data/champions.json   英雄（含国服口径与手动外号）
@@ -126,7 +128,19 @@ data/meta.json        补丁号、来源、条数、校验报告
 data/patch-snapshots/ 各补丁快照
 data/profile.json     绑定的账号（运行时生成，含召唤师名/puuid，已在 .gitignore 中排除）
 data/friends-*.json   好友相关数据不落盘，全部按需从客户端读取
+reports/              生成的个人战绩报告（含账号名，已在 .gitignore 中排除）
 ```
+
+## 个人战绩报告（HTML）
+
+```sh
+npm run report:html                      # → reports/海斗战绩报告-<账号>-<日期>.html
+npx tsx lib/report.ts --out 任意路径.html  # 指定输出位置
+```
+
+单文件、离线、无外部依赖（图表是内联 SVG），包含：胜率走势（滚动 20 把）、英雄胜率条形（50% 基准、背离着色）、符文「你 vs 版本」对比（条形=你的胜率，刻度=版本胜率）、锐评结论、可执行建议、最近 20 把明细，以及深色模式与页脚的数据边界说明。
+
+配色取自可视化基线（浅色 `#2a78d6`/`#eb6834`，深色 `#3987e5`/`#d95926`，背离蓝↔红），已用调色板校验脚本跑过色盲分离度与对比度检查。
 
 ## 已知限制
 

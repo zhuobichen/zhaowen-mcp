@@ -7,7 +7,8 @@
     "start": "tsx index.ts",
     "refresh": "tsx lib/refresh.ts",
     "report": "tsx lib/refresh.ts --report-only",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "report:html": "tsx lib/report.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

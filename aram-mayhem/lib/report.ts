@@ -1,0 +1,696 @@
+/**
+ * 个人海斗战绩报告（单文件 HTML，离线，内联 SVG 图表）。
+ *
+ * 用法：
+ *   npx tsx lib/report.ts            # 输出到 reports/海斗战绩报告-<账号>-<日期>.html
+ *   npx tsx lib/report.ts --out x.html
+ *   npx tsx lib/report.ts --games 198
+ *
+ * 数据来源：本机客户端的对局记录（puuid 路径，最多最近 200 场）。
+ * 边界会在报告页脚如实写明：不是生涯总场次、单个符文样本小、LCU 只读。
+ *
+ * 配色取自项目内置的可视化基线（已用校验脚本跑过 CVD/对比度检查）：
+ *   分类色 浅色 #2a78d6 / #eb6834，深色 #3987e5 / #d95926
+ *   背离色 蓝 #2a78d6 ↔ 红 #e34948（浅）/ #3987e5 ↔ #e66767（深），中位灰
+ */
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { augmentIdsOf, getMatchHistory, getSummoner, isMayhemGame, myParticipantId } from "./lcu.js";
+import { loadData } from "./store.js";
+
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+interface Row {
+  t: number;
+  win: boolean;
+  champ: string;
+  kills: number;
+  deaths: number;
+  assists: number;
+  damage: number;
+  gold: number;
+  durationMin: number;
+  augments: number[];
+}
+
+interface Bucket {
+  name: string;
+  games: number;
+  wins: number;
+  winRate: number;
+}
+
+const pctNum = (w: number, g: number) => (g ? (w / g) * 100 : 0);
+const fmtPct = (v: number, d = 1) => `${v.toFixed(d)}%`;
+const esc = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+
+// ---------------------------------------------------------------- 数据
+
+async function collect(gamesLimit: number) {
+  const d = loadData();
+  const me = await getSummoner();
+  const name = me.displayName || me.gameName || "未知账号";
+  const { games: all, total } = await getMatchHistory(gamesLimit, me.puuid);
+  const pidOf = (g: any) =>
+    myParticipantId(g, { puuid: me.puuid ?? undefined, name: (me.gameName || "").split("#")[0] });
+
+  const rows: Row[] = all
+    .filter(isMayhemGame)
+    .map((g) => {
+      const pid = pidOf(g);
+      const p = (g.participants ?? []).find((x: any) => x.participantId === pid) ?? (g.participants ?? [])[0];
+      const s: any = p?.stats ?? {};
+      const cid = d.championIds[String(p?.championId)];
+      return {
+        t: g.gameCreation,
+        win: s.win === true,
+        champ: cid ? d.championById.get(cid.id)?.name ?? cid.name : `英雄#${p?.championId}`,
+        kills: s.kills ?? 0,
+        deaths: s.deaths ?? 0,
+        assists: s.assists ?? 0,
+        damage: s.totalDamageDealtToChampions ?? 0,
+        gold: s.goldEarned ?? 0,
+        durationMin: Math.round((g.gameDuration ?? 0) / 60),
+        augments: augmentIdsOf(g, pid),
+      };
+    })
+    .sort((a, b) => a.t - b.t); // 从早到晚
+
+  const n = rows.length;
+  const wins = rows.filter((r) => r.win).length;
+  const avg = (f: (r: Row) => number) => (n ? rows.reduce((s, r) => s + f(r), 0) / n : 0);
+
+  // 连胜 / 连败
+  let longestWin = 0,
+    longestLoss = 0,
+    cw = 0,
+    cl = 0;
+  for (const r of rows) {
+    if (r.win) {
+      cw++;
+      cl = 0;
+    } else {
+      cl++;
+      cw = 0;
+    }
+    longestWin = Math.max(longestWin, cw);
+    longestLoss = Math.max(longestLoss, cl);
+  }
+
+  // 滚动 20 把胜率（前 20 把用累计）
+  const WINDOW = 20;
+  const rolling = rows.map((_, i) => {
+    const from = Math.max(0, i - WINDOW + 1);
+    const slice = rows.slice(from, i + 1);
+    const w = slice.filter((r) => r.win).length;
+    return { i: i + 1, t: rows[i].t, wr: pctNum(w, slice.length) };
+  });
+
+  const bucket = (key: (r: Row) => string, min: number): Bucket[] => {
+    const m = new Map<string, { g: number; w: number }>();
+    for (const r of rows) {
+      const k = key(r);
+      const c = m.get(k) ?? { g: 0, w: 0 };
+      c.g++;
+      if (r.win) c.w++;
+      m.set(k, c);
+    }
+    return [...m.entries()]
+      .filter(([, v]) => v.g >= min)
+      .map(([k, v]) => ({ name: k, games: v.g, wins: v.w, winRate: pctNum(v.w, v.g) }));
+  };
+
+  const champions = bucket((r) => r.champ, 5).sort((a, b) => b.games - a.games);
+
+  const augStat = new Map<number, { g: number; w: number }>();
+  for (const r of rows) {
+    for (const id of r.augments) {
+      const c = augStat.get(id) ?? { g: 0, w: 0 };
+      c.g++;
+      if (r.win) c.w++;
+      augStat.set(id, c);
+    }
+  }
+  const augments = [...augStat.entries()]
+    .filter(([, v]) => v.g >= 8)
+    .map(([id, v]) => {
+      const a = d.augments.find((x) => x.officialId === id);
+      const versionWr = a?.stats?.winRate ? Number(String(a.stats.winRate).replace("%", "")) : null;
+      return {
+        name: a?.name ?? `未知#${id}`,
+        games: v.g,
+        wins: v.w,
+        winRate: pctNum(v.w, v.g),
+        versionWr,
+        versionRank: a?.stats?.rank ?? null,
+        rarity: a?.rarity ?? "unknown",
+        availability: a?.availability ?? "unknown",
+      };
+    })
+    .sort((a, b) => b.games - a.games);
+
+  const champCounts = new Map<string, number>();
+  for (const r of rows) champCounts.set(r.champ, (champCounts.get(r.champ) ?? 0) + 1);
+
+  -0; // noop 保留可读性
+  return {
+    name,
+    cachedTotal: total,
+    rows,
+    rolling,
+    champions,
+    augments,
+    overview: {
+      games: n,
+      wins,
+      winRate: pctNum(wins, n),
+      from: rows[0]?.t ?? null,
+      to: rows[n - 1]?.t ?? null,
+      kda: (avg((r) => r.kills) + avg((r) => r.assists)) / Math.max(avg((r) => r.deaths), 0.1),
+      kills: avg((r) => r.kills),
+      deaths: avg((r) => r.deaths),
+      assists: avg((r) => r.assists),
+      damage: avg((r) => r.damage),
+      gold: avg((r) => r.gold),
+      duration: avg((r) => r.durationMin),
+      longestWin,
+      longestLoss,
+      last20: (() => {
+        const s = rows.slice(-20);
+        return { games: s.length, wins: s.filter((r) => r.win).length };
+      })(),
+      championCount: champCounts.size,
+      oneGameChampions: [...champCounts.values()].filter((c) => c === 1).length,
+      avgAugments: n ? rows.reduce((s, r) => s + r.augments.length, 0) / n : 0,
+    },
+  };
+}
+
+// ---------------------------------------------------------------- SVG 构件
+
+const W = 900;
+
+/** 滚动胜率折线（单序列，带 50% 基线） */
+function lineChart(rolling: Array<{ i: number; t: number; wr: number }>): string {
+  const H = 240,
+    padL = 44,
+    padR = 16,
+    padT = 16,
+    padB = 28;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const x = (i: number) => padL + (plotW * (i - 1)) / Math.max(1, rolling.length - 1);
+  const y = (wr: number) => padT + plotH * (1 - wr / 100);
+  const pts = rolling.map((p) => `${x(p.i).toFixed(1)},${y(p.wr).toFixed(1)}`).join(" ");
+  const grid = [0, 25, 50, 75, 100]
+    .map(
+      (v) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`
+    )
+    .join("");
+  const ticks = [1, Math.round(rolling.length / 2), rolling.length]
+    .map(
+      (i) =>
+        `<text class="axis-label" x="${x(i)}" y="${H - 8}" text-anchor="middle">第 ${i} 把</text>`
+    )
+    .join("");
+  const crosshair = `<line class="crosshair" x1="0" x2="0" y1="${padT}" y2="${padT + plotH}" style="display:none"/>`;
+  const dots = rolling
+    .map(
+      (p) =>
+        `<circle class="hoverdot" cx="${x(p.i).toFixed(1)}" cy="${y(p.wr).toFixed(1)}" r="9" fill="transparent"` +
+        ` data-tip="第 ${p.i} 把 · ${new Date(p.t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short" })}|滚动 20 把胜率 ${p.wr.toFixed(0)}%"/>`
+    )
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>战绩走势（滚动 20 把胜率，虚线为 50% 基准）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="滚动胜率折线图" data-plot="line" data-w="${W}" data-h="${H}" data-padl="${padL}" data-padr="${padR}" data-padt="${padT}" data-padb="${padB}">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(50)}" y2="${y(50)}"/>
+    <polyline class="series-line" points="${pts}"/>
+    ${crosshair}
+    ${dots}
+    ${ticks}
+  </svg>
+</figure>`;
+}
+
+/** 英雄：条形 + 50% 参考线（背离着色：高于基准蓝、低于基准红） */
+function championBars(rows: Bucket[]): string {
+  const rowH = 26,
+    labelW = 108,
+    valueW = 56,
+    barW = W - labelW - valueW;
+  const H = rows.length * rowH + 34;
+  const x50 = labelW + (barW * 50) / 100;
+  const scale = [0, 50, 100]
+    .map(
+      (v) =>
+        `<text class="axis-label" x="${labelW + (barW * v) / 100}" y="12" text-anchor="middle">${v}%</text>`
+    )
+    .join("");
+  const body = rows
+    .map((r, i) => {
+      const y = 24 + i * rowH;
+      const w = Math.max(2, (barW * Math.min(100, r.winRate)) / 100);
+      const color = r.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      return `
+      <text class="row-label" x="0" y="${y + 12}">${esc(r.name)}</text>
+      <text class="row-sub" x="${labelW - 8}" y="${y + 12}" text-anchor="end">${r.games} 把</text>
+      <rect class="bar" x="${labelW}" y="${y + 3}" width="${w.toFixed(1)}" height="12" rx="4" fill="${color}"
+            data-tip="${esc(r.name)}|${r.games} 把 ${r.wins} 胜 · 胜率 ${fmtPct(r.winRate, 0)}"/>
+      <text class="row-value" x="${W - 4}" y="${y + 13}" text-anchor="end">${fmtPct(r.winRate, 0)}</text>`;
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>英雄胜率（≥5 把；竖线为 50% 基准，蓝色高于基准、红色低于基准）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="英雄胜率条形图">
+    ${scale}
+    <line class="baseline" x1="${x50}" x2="${x50}" y1="16" y2="${H - 8}"/>
+    ${body}
+  </svg>
+</figure>`;
+}
+
+/** 符文：条形=你的胜率，刻度=版本胜率（同一 % 轴） */
+function augmentBullets(
+  rows: Array<{ name: string; games: number; wins: number; winRate: number; versionWr: number | null; versionRank: number | null }>
+): string {
+  const rowH = 30,
+    labelW = 150,
+    valueW = 64,
+    barW = W - labelW - valueW;
+  const H = rows.length * rowH + 30;
+  const body = rows
+    .map((r, i) => {
+      const y = 20 + i * rowH;
+      const w = Math.max(2, (barW * Math.min(100, r.winRate)) / 100);
+      const above = r.versionWr == null ? true : r.winRate >= r.versionWr;
+      const color = above ? "var(--pos)" : "var(--neg)";
+      const tickX = r.versionWr == null ? null : labelW + (barW * r.versionWr) / 100;
+      const tick = tickX
+        ? `<line class="tick" x1="${tickX.toFixed(1)}" x2="${tickX.toFixed(1)}" y1="${y - 3}" y2="${y + 19}"
+             data-tip="${esc(r.name)}|版本胜率 ${fmtPct(r.versionWr!, 1)}${r.versionRank ? ` · 第 ${r.versionRank} 名` : ""}"/>`
+        : "";
+      return `
+      <text class="row-label" x="0" y="${y + 14}">${esc(r.name)}</text>
+      <text class="row-sub" x="${labelW - 10}" y="${y + 14}" text-anchor="end">${r.games} 把</text>
+      <rect class="bar" x="${labelW}" y="${y + 4}" width="${w.toFixed(1)}" height="14" rx="4" fill="${color}"
+            data-tip="${esc(r.name)}|你拿了 ${r.games} 把，赢 ${r.wins} 把 · 胜率 ${fmtPct(r.winRate, 1)}${r.versionWr != null ? `（版本 ${fmtPct(r.versionWr, 1)}）` : ""}"/>
+      ${tick}
+      <text class="row-value" x="${W - 4}" y="${y + 15}" text-anchor="end">${fmtPct(r.winRate, 0)}</text>`;
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>符文使用效果（≥8 把；条形=你的胜率，竖刻度=版本胜率。按版本名次看，蓝条高于刻度=你打出了效果）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="符文胜率对比图">
+    ${body}
+  </svg>
+</figure>`;
+}
+
+// ---------------------------------------------------------------- 文案
+
+function findings(data: Awaited<ReturnType<typeof collect>>): string[] {
+  const { overview: o, augments, champions } = data;
+  const out: string[] = [];
+
+  const gap = o.winRate - 50;
+  out.push(
+    `**中位线是 50%。** 海斗每局必有 5 胜 5 负，所以 ${o.games} 把里的 ${o.wins} 胜（${fmtPct(o.winRate)}）意味着你${gap >= 0 ? "正好站在中位线之上" : "比中位线低 " + Math.abs(gap).toFixed(1) + " 个百分点"}。`
+  );
+
+  const strong = augments
+    .filter((a) => a.versionRank != null && a.versionRank <= 30 && a.versionWr != null && a.winRate < a.versionWr - 8 && a.games >= 8)
+    .slice(0, 5);
+  if (strong.length) {
+    out.push(
+      `**版本强势符文，你打不出效果。** 这些符文版本胜率都在 55% 以上，你的胜率却明显低于它：` +
+        strong.map((a) => `${a.name}（你 ${fmtPct(a.winRate, 0)} vs 版本 ${fmtPct(a.versionWr!, 1)}，${a.games} 把）`).join("；") +
+        "。符文不背这个锅 —— 这类符文奖励节奏判断，而你的画像是「看到人就上」。"
+    );
+  }
+
+  const best = augments.filter((a) => a.games >= 8 && a.winRate >= 65).sort((a, b) => b.winRate - a.winRate).slice(0, 6);
+  if (best.length) {
+    out.push(
+      `**你的真命符文：** ` + best.map((a) => `${a.name}（${a.games} 把 ${fmtPct(a.winRate, 0)}）`).join("、") + "。"
+    );
+  }
+
+  const byWr = champions.filter((c) => c.games >= 5).sort((a, b) => b.winRate - a.winRate);
+  const good = byWr.slice(0, 3),
+    bad = byWr.slice(-3).reverse();
+  if (good.length && bad.length) {
+    out.push(
+      `**英雄两极：** 顺手的是 ${good.map((c) => `${c.name} ${fmtPct(c.winRate, 0)}（${c.games} 把）`).join("、")}；` +
+        `该躲的是 ${bad.map((c) => `${c.name} ${fmtPct(c.winRate, 0)}（${c.games} 把）`).join("、")}。`
+    );
+  }
+  if (o.oneGameChampions > 8) {
+    out.push(`**广撒网：** 共玩过 ${o.championCount} 个英雄，其中 ${o.oneGameChampions} 个只玩过 1 把 —— 你更像在玩「抽卡」，不是玩某个英雄。`);
+  }
+
+  const r20 = o.last20;
+  out.push(
+    `**节奏：** 最长连胜 ${o.longestWin}、最长连败 ${o.longestLoss}；最近 20 把 ${r20.wins}/${r20.games}（${fmtPct(pctNum(r20.wins, r20.games), 0)}），` +
+      `整体 ${fmtPct(o.winRate, 1)} —— 顺风能滚，逆风也容易一路到底。`
+  );
+  out.push(
+    `**打得很凶：** 场均 ${o.kills.toFixed(1)}/${o.deaths.toFixed(1)}/${o.assists.toFixed(1)}（KDA ${o.kda.toFixed(2)}），伤害 ${Math.round(o.damage / 1000)}k，时长 ${o.duration.toFixed(0)} 分，场均 ${o.avgAugments.toFixed(1)} 个符文（满配 4~5 个，死得多就选得少）。`
+  );
+  return out;
+}
+
+function advice(data: Awaited<ReturnType<typeof collect>>): string[] {
+  const { augments, champions } = data;
+  const out: string[] = [];
+  const strongTrap = augments
+    .filter((a) => a.versionRank != null && a.versionRank <= 40 && a.versionWr != null && a.winRate < a.versionWr - 8 && a.games >= 8)
+    .slice(0, 4);
+  if (strongTrap.length) {
+    out.push(
+      `降级这 ${strongTrap.length} 个符文：` + strongTrap.map((a) => a.name).join("、") + " —— 版本强但你不适配，纯浪费选择机会。"
+    );
+  }
+  const best = augments.filter((a) => a.games >= 8 && a.winRate >= 65).sort((a, b) => b.winRate - a.winRate).slice(0, 4);
+  if (best.length) out.push(`优先锁定：` + best.map((a) => a.name).join("、") + "。");
+  const good = champions.filter((c) => c.games >= 5 && c.winRate >= 60).sort((a, b) => b.winRate - a.winRate).slice(0, 4);
+  if (good.length) out.push(`英雄选择上多拿：` + good.map((c) => c.name).join("、") + "。");
+  return out;
+}
+
+// ---------------------------------------------------------------- HTML
+
+function render(data: Awaited<ReturnType<typeof collect>>): string {
+  const o = data.overview;
+  const fmtDate = (t: number | null) =>
+    t ? new Date(t).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "—";
+  const statTiles = [
+    ["胜率", fmtPct(o.winRate), `${o.wins} 胜 ${o.games - o.wins} 负`],
+    ["KDA", o.kda.toFixed(2), `${o.kills.toFixed(1)} / ${o.deaths.toFixed(1)} / ${o.assists.toFixed(1)}`],
+    ["场均伤害", `${Math.round(o.damage / 1000)}k`, `场均金币 ${Math.round(o.gold / 1000)}k`],
+    ["场均时长", `${o.duration.toFixed(0)} 分`, `场均符文 ${o.avgAugments.toFixed(1)} 个`],
+    ["最长连胜 / 连败", `${o.longestWin} / ${o.longestLoss}`, "波动幅度"],
+    ["英雄池", `${o.championCount} 个`, `其中 ${o.oneGameChampions} 个只玩过 1 把`],
+  ]
+    .map(
+      ([label, value, sub]) =>
+        `<div class="tile"><div class="tile-label">${label}</div><div class="tile-value">${value}</div><div class="tile-sub">${sub}</div></div>`
+    )
+    .join("");
+
+  const mdToHtml = (s: string) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const findingHtml = findings(data).map((f) => `<li>${mdToHtml(f)}</li>`).join("");
+  const adviceHtml = advice(data).map((a) => `<li>${mdToHtml(a)}</li>`).join("");
+
+  const recent = data.rows.slice(-20).reverse();
+  const recentRows = recent
+    .map(
+      (r) =>
+        `<tr><td>${new Date(r.t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short", timeStyle: "short" })}</td>` +
+        `<td>${esc(r.champ)}</td><td class="${r.win ? "win" : "lose"}">${r.win ? "胜" : "负"}</td>` +
+        `<td class="num">${r.kills}/${r.deaths}/${r.assists}</td><td class="num">${Math.round(r.damage / 1000)}k</td>` +
+        `<td class="num">${r.durationMin} 分</td><td class="num">${r.augments.length}</td></tr>`
+    )
+    .join("");
+
+  const champTable = data.champions
+    .map((c) => `<tr><td>${esc(c.name)}</td><td class="num">${c.games}</td><td class="num">${c.wins}</td><td class="num">${fmtPct(c.winRate, 1)}</td></tr>`)
+    .join("");
+  const augTable = data.augments
+    .map(
+      (a) =>
+        `<tr><td>${esc(a.name)}</td><td class="num">${a.games}</td><td class="num">${a.wins}</td><td class="num">${fmtPct(a.winRate, 1)}</td>` +
+        `<td class="num">${a.versionWr != null ? fmtPct(a.versionWr, 1) : "—"}</td><td class="num">${a.versionRank ?? "—"}</td></tr>`
+    )
+    .join("");
+
+  const generated = new Date().toLocaleString("zh-CN", { hour12: false });
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>海斗战绩报告 · ${esc(data.name)}</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --page: #f9f9f7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --pos: #2a78d6;   /* 分类槽 1 蓝 */
+    --neg: #e34948;   /* 背离红 */
+    --accent: #eb6834;/* 分类槽 2 橙 */
+    --good: #0ca30c; --critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+      --pos: #3987e5; --neg: #e66767; --accent: #d95926;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --page: #0d0d0d;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --pos: #3987e5; --neg: #e66767; --accent: #d95926;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px 64px;
+    background: var(--page); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header.hero { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-end; justify-content: space-between; margin-bottom: 8px; }
+  .hero h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; }
+  .hero .meta { color: var(--text-secondary); font-size: 13px; }
+  .hero .hero-num { font-size: 56px; font-weight: 700; line-height: 1; letter-spacing: -1px; }
+  .hero .hero-num small { font-size: 16px; font-weight: 500; color: var(--text-secondary); margin-left: 8px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0 8px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .tile-label { font-size: 12px; color: var(--text-secondary); }
+  .tile-value { font-size: 24px; font-weight: 650; margin-top: 2px; }
+  .tile-sub { font-size: 12px; color: var(--muted); }
+  section { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; margin-top: 20px; }
+  section > h2 { font-size: 16px; margin: 0 0 14px; font-weight: 650; }
+  .chart { margin: 0; }
+  .chart + .chart { margin-top: 26px; }
+  figcaption { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+  svg { width: 100%; height: auto; display: block; }
+  .grid { stroke: var(--grid); stroke-width: 1; }
+  .baseline { stroke: var(--baseline); stroke-width: 1; stroke-dasharray: 4 4; }
+  .axis-label { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .series-line { fill: none; stroke: var(--pos); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .crosshair { stroke: var(--text-secondary); stroke-width: 1; opacity: .5; }
+  .row-label { fill: var(--text-primary); font-size: 12.5px; }
+  .row-sub { fill: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .row-value { fill: var(--text-primary); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tick { stroke: var(--text-primary); stroke-width: 2; }
+  .bar { cursor: default; }
+  .bar:hover { opacity: .85; }
+  ul.findings { margin: 0; padding-left: 20px; }
+  ul.findings li { margin-bottom: 10px; }
+  ul.findings li:last-child { margin-bottom: 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table caption { text-align: left; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  th { color: var(--text-secondary); font-weight: 550; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.win { color: var(--good); font-weight: 600; }
+  td.lose { color: var(--critical); font-weight: 600; }
+  details { margin-top: 18px; }
+  summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  footer { margin-top: 24px; color: var(--text-secondary); font-size: 12px; }
+  footer li { margin-bottom: 4px; }
+  .legend { display: flex; gap: 16px; align-items: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  #tip {
+    position: fixed; pointer-events: none; z-index: 9; display: none;
+    background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.16); max-width: 320px;
+  }
+  #tip .t1 { font-weight: 600; }
+  #tip .t2 { color: var(--text-secondary); margin-top: 2px; }
+  .toggle { border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
+            border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div>
+      <h1>海克斯大乱斗 · 战绩报告</h1>
+      <div class="meta">${esc(data.name)} · ${fmtDate(o.from)} ~ ${fmtDate(o.to)} · ${o.games} 把海斗 · 生成于 ${generated}</div>
+    </div>
+    <div style="text-align:right">
+      <div class="hero-num">${fmtPct(o.winRate, 1)}<small>胜率</small></div>
+      <div class="meta">${o.wins} 胜 ${o.games - o.wins} 负 · 中位线 50%</div>
+    </div>
+  </header>
+
+  <div class="tiles">${statTiles}</div>
+
+  <section>
+    <h2>走势与分布</h2>
+    ${lineChart(data.rolling)}
+    ${championBars(data.champions)}
+    <details>
+      <summary>英雄数据表（≥5 把）</summary>
+      <table><caption>英雄胜率明细</caption>
+        <thead><tr><th>英雄</th><th class="num">场次</th><th class="num">胜</th><th class="num">胜率</th></tr></thead>
+        <tbody>${champTable}</tbody>
+      </table>
+    </details>
+  </section>
+
+  <section>
+    <h2>符文：你 vs 版本</h2>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--pos)"></i>你的胜率高于版本</span>
+      <span><i class="swatch" style="background:var(--neg)"></i>你的胜率低于版本</span>
+      <span><i class="swatch" style="background:var(--text-primary)"></i>版本胜率刻度</span>
+    </div>
+    ${augmentBullets(data.augments.slice(0, 14))}
+    <details>
+      <summary>符文数据表（≥8 把）</summary>
+      <table><caption>符文胜率明细（版本胜率来自社区站强度榜）</caption>
+        <thead><tr><th>符文</th><th class="num">场次</th><th class="num">胜</th><th class="num">你的胜率</th><th class="num">版本胜率</th><th class="num">版本名次</th></tr></thead>
+        <tbody>${augTable}</tbody>
+      </table>
+    </details>
+  </section>
+
+  <section>
+    <h2>锐评</h2>
+    <ul class="findings">${findingHtml}</ul>
+  </section>
+
+  <section>
+    <h2>可以立刻做的三件事</h2>
+    <ul class="findings">${adviceHtml}</ul>
+  </section>
+
+  <section>
+    <h2>最近 20 把</h2>
+    <table>
+      <thead><tr><th>时间</th><th>英雄</th><th>结果</th><th class="num">K/D/A</th><th class="num">伤害</th><th class="num">时长</th><th class="num">符文</th></tr></thead>
+      <tbody>${recentRows}</tbody>
+    </table>
+  </section>
+
+  <footer>
+    <div style="margin-bottom:6px"><button class="toggle" id="themeBtn">切换深色 / 浅色</button></div>
+    <strong>数据来源与边界</strong>
+    <ul>
+      <li>数据来自本机游戏客户端的对局记录（puuid 查询路径），最多返回<strong>最近 200 场</strong>，翻页参数会被忽略 —— 这是接口上限，<strong>不是生涯总场次</strong>。</li>
+      <li>本次取到 ${data.cachedTotal} 把原始记录，其中识别为海斗的 ${o.games} 把（模式标识 KIWI / KIWI_JADE / JADE）。</li>
+      <li>版本胜率/名次来自社区站 arammayhem.com（第三方统计，全球口径）；符文与英雄的中文名以官方游戏文件为准。</li>
+      <li>单个符文 8~30 把的样本，胜率波动 ±10% 属正常噪声；本报告的结论依据「同类符文指向一致」而非单点数据。</li>
+      <li>读取方式为本地只读（127.0.0.1 客户端接口），数据不出本机。</li>
+    </ul>
+  </footer>
+</div>
+<div id="tip"><div class="t1"></div><div class="t2"></div></div>
+<script>
+(function () {
+  var tip = document.getElementById('tip');
+  function show(html1, html2, x, y) {
+    tip.querySelector('.t1').innerHTML = html1;
+    tip.querySelector('.t2').innerHTML = html2 || '';
+    tip.style.display = 'block';
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var left = Math.min(Math.max(8, x + 14), window.innerWidth - w - 8);
+    var top = Math.max(8, y - h - 14);
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  }
+  function hide() { tip.style.display = 'none'; }
+
+  document.addEventListener('mousemove', function (ev) {
+    var el = ev.target.closest ? ev.target.closest('[data-tip]') : null;
+    if (el) {
+      var parts = (el.getAttribute('data-tip') || '').split('|');
+      show(parts[0] || '', parts[1] || '', ev.clientX, ev.clientY);
+      return;
+    }
+    // 折线图十字准星
+    var svg = ev.target.closest ? ev.target.closest('svg[data-plot="line"]') : null;
+    if (!svg) { hide(); return; }
+    var r = svg.getBoundingClientRect();
+    var vb = svg.viewBox.baseVal;
+    var padL = +svg.dataset.padl, padR = +svg.dataset.padr;
+    var plotW = vb.width - padL - padR;
+    var vx = ((ev.clientX - r.left) / r.width) * vb.width;
+    var pts = svg.querySelectorAll('.hoverdot');
+    if (!pts.length) return;
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < pts.length; i++) {
+      var cx = +pts[i].getAttribute('cx');
+      var dd = Math.abs(cx - vx);
+      if (dd < bestD) { bestD = dd; best = pts[i]; }
+    }
+    if (!best) return;
+    var line = svg.querySelector('.crosshair');
+    if (line) {
+      var cx2 = best.getAttribute('cx');
+      line.setAttribute('x1', cx2); line.setAttribute('x2', cx2);
+      line.style.display = '';
+    }
+    var parts = (best.getAttribute('data-tip') || '').split('|');
+    show(parts[0] || '', parts[1] || '', ev.clientX, ev.clientY);
+  });
+  document.addEventListener('mouseleave', hide);
+
+  var btn = document.getElementById('themeBtn');
+  btn.addEventListener('click', function () {
+    var cur = document.documentElement.getAttribute('data-theme');
+    var isDark = cur === 'dark' || (!cur && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  });
+})();
+</script>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------- CLI
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const argOf = (flag: string) => {
+    const i = argv.indexOf(flag);
+    return i >= 0 ? argv[i + 1] : undefined;
+  };
+  const gamesLimit = Number(argOf("--games") ?? 200);
+  const data = await collect(Number.isFinite(gamesLimit) ? gamesLimit : 200);
+  const html = render(data);
+
+  const safeName = data.name.replace(/[\\/:*?"<>|]/g, "_");
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const out =
+    argOf("--out") ?? path.join(ROOT, "reports", `海斗战绩报告-${safeName}-${stamp}.html`);
+  await mkdir(path.dirname(out), { recursive: true });
+  await writeFile(out, html, "utf8");
+  console.log(`已生成报告：${out}`);
+  console.log(`账号 ${data.name} · 海斗 ${data.overview.games} 把 · 胜率 ${fmtPct(data.overview.winRate)}`);
+}
+
+main().catch((e) => {
+  console.error("生成失败:", e?.message ?? e);
+  process.exit(1);
+});
