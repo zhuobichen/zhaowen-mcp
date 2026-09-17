@@ -15,6 +15,7 @@
 | [`easy-log/`](./easy-log) | 工作日志 + 发票填报 | 远程 MCP 工具 · `scenarios/` 场景手册 · `scripts/invoice_api.py` CLI |
 | [`agent-sessions/`](./agent-sessions) | 查看本机智能体会话(Claude Code + Codex) | `list_agent_sessions` 列出 · `read_agent_session` 查看(`detail=true` 含代码改动/命令摘要) · `search_agent_sessions` 搜索 · `agent_token_usage` token/费用统计 · `session_insights` 洞察 · `annotate` LLM 逐会话语义标注(facets) · `gen_report` 生成 /insights 同款 HTML |
 | [`other-projects/`](./other-projects) | 帮别人做的任务 → Other_Projects 仓库 | `list_projects` 列出现有项目 · `publish_project` 发布本地任务目录并 push（支持 dry_run） |
+| [`aram-mayhem/`](./aram-mayhem) | 英雄联盟「海克斯大乱斗」助手 | `search_augments` 符文搜索 · `get_augment` 符文详情（官方原文说明+国服/全球两套胜率） · `list_synergy_sets`/`analyze_synergy` 羁绊与推算 · `get_champion_guide` 英雄推荐（含陷阱符文） · `compare_patches` 版本对比 · `refresh_data` 刷新 · `get_my_account_status`/`get_my_recent_games`/`analyze_my_augments` 绑定国服账号看最近对局 |
 
 ## 隐私说明
 

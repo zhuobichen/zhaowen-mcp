@@ -1,0 +1,20 @@
+{
+  "name": "aram-mayhem-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for LoL 海克斯大乱斗（ARAM Mayhem）: 符文图鉴/搜索、羁绊推算、英雄推荐、版本对比",
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts",
+    "refresh": "tsx lib/refresh.ts",
+    "report": "tsx lib/refresh.ts --report-only",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3"
+  }
+}
