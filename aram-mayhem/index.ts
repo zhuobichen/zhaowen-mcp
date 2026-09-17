@@ -16,6 +16,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { refreshData } from "./lib/refresh.js";
 import { analyzeMyAugments, myAccountStatus, myRecentGames } from "./lib/my.js";
+import { friendStats, listMyFriends } from "./lib/friends.js";
 import {
   analyzeSynergy,
   championGuide,
@@ -173,6 +174,25 @@ async function main() {
         },
       },
       {
+        name: "list_my_friends",
+        description:
+          "列出本机客户端里当前账号的好友（含在线状态与名字#编号）。只能查好友列表里的人。",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "get_friend_stats",
+        description:
+          "看某个好友的海斗战绩（读本机客户端缓存的对局）：胜率、常玩英雄、拿过的符文与版本名次、陷阱符文提示、还没拿过的神级符文。传部分名字即可匹配。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            friend: { type: "string", description: "好友名字或名字的一部分（如 丁ding / 自己的丁ding#66595）" },
+            limit: { type: "number", description: "最多读取多少把对局（默认 200，即客户端缓存的全部）" },
+          },
+          required: ["friend"],
+        },
+      },
+      {
         name: "refresh_data",
         description:
           "联网重新拉取数据并更新本地快照（社区站 + Riot 官方文件），会归档当前补丁快照用于版本对比。仅在需要更新数据时调用。",
@@ -255,6 +275,15 @@ async function main() {
 
         case "analyze_my_augments":
           return text(await analyzeMyAugments({ limit: args.limit ? Number(args.limit) : undefined }));
+
+        case "list_my_friends":
+          return text(await listMyFriends());
+
+        case "get_friend_stats":
+          if (!args.friend) return text("请提供好友名字 friend");
+          return text(
+            await friendStats({ friend: String(args.friend), limit: args.limit ? Number(args.limit) : undefined })
+          );
 
         case "refresh_data": {
           const r = await refreshData({ dryRun: args.dry_run === true });

@@ -20,6 +20,8 @@
 | `get_my_account_status` | 连本地客户端、读当前登录账号并固定到 `data/profile.json` |
 | `get_my_recent_games` | 我最近的对局（英雄、胜负、KDA、时长） |
 | `analyze_my_augments` | 我最近海斗拿过的符文统计：使用次数/胜率（对照版本榜）、陷阱符文提示、常玩英雄与还没拿过的神级符文 |
+| `list_my_friends` | 列出客户端里的好友（含在线状态），用于确认名字 |
+| `get_friend_stats` | 看某个好友的海斗战绩：胜率、常玩英雄、符文使用与版本名次、陷阱提示、神级符文推荐（只能查好友列表里的人） |
 
 用法示例（在对话里说即可）：
 
@@ -81,7 +83,9 @@ npm run refresh     # 首次需要联网拉一次数据（生成 data/*.json，�
 - `analyze_my_augments` **确实能读到当局选过的符文** —— 本地对局记录里带 `playerAugment1..6`（数字 id，与官方符文库 `AugmentPlatformId` 一一对应，实测 21 把 46 个 id 全部对上）。
   它会给：近期胜率、常玩英雄、符文使用次数与胜率（对照版本榜）、**你实际拿过的「陷阱」符文**、以及常玩英雄里还没拿过的「神级」符文；
 - ⚠️ 注意区分：**Riot 官方对局 API 对海斗是封禁的**（match-v5 返回 403，[developer-relations#1109](https://github.com/RiotGames/developer-relations/issues/1109) 官方回复 intended），
-  但这只影响外部 API；**本地客户端自己的对局记录里是有符文数据的**，本服务走的是后者，不依赖官方 API。
+  但这只影响外部 API；**本地客户端自己的对局记录里是有符文数据的**，本服务走的是后者，不依赖官方 API；
+- `list_my_friends` / `get_friend_stats`：好友列表读的是客户端聊天接口（国服好友名在 `gameName` 字段），对局记录用 `puuid` 查询（实测对好友可用，读的是公开对局数据，只读、不改动对方任何设置）。
+  同理，**能读到的仍然只是本机客户端缓存的那部分对局**，不是对方的历史总场次；非好友不在列表里，也就读不到。
 
 ## 数据刷新与自检
 
@@ -108,6 +112,8 @@ lib/lcu.ts            本地客户端（LCU）接口封装
 lib/store.ts          本地数据加载、索引、名称匹配、文案格式化
 lib/tools.ts          查询类工具实现
 lib/my.ts             账号类工具实现
+lib/friends.ts        好友列表与好友战绩
+lib/analysis.ts       对局分析（本人/好友共用）
 smoke.ts / mcp-smoke.mjs / lcuprobe.ts   自检脚本（lcuprobe 可单独跑，确认客户端连接与对局字段）
 data/augments.json    符文（合并结果）
 data/champions.json   英雄（含国服口径与手动外号）
@@ -119,6 +125,7 @@ data/aliases.json     国服外号表（手动维护，可随时改）
 data/meta.json        补丁号、来源、条数、校验报告
 data/patch-snapshots/ 各补丁快照
 data/profile.json     绑定的账号（运行时生成，含召唤师名/puuid，已在 .gitignore 中排除）
+data/friends-*.json   好友相关数据不落盘，全部按需从客户端读取
 ```
 
 ## 已知限制
