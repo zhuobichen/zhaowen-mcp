@@ -237,17 +237,28 @@ export async function getRecentGames(limit = 20): Promise<LcuGameSummary[]> {
 }
 
 /**
- * 对局记录 + 客户端声明总量。
- * 注意：`total` 是**本地客户端缓存里**的数量，不是账号历史总场次 ——
- * 实测（国服 26.x）无论把 begIndex/endIndex 放大到多少，返回的都是同一批最近对局。
+ * 对局记录（含客户端声明的总数）。
+ *
+ * ⚠ 两条路径差别很大，实测（国服 26.x）：
+ *   · `…/matches?…` 用 **puuid** 查 → 服务端返回，最多 **200 把**（更早的翻不出来：begIndex 被忽略）；
+ *   · `…/current-summoner/matches` 这种别名查 → 只给**本地已缓存**的一小部分（本机实测只有 21 把）。
+ * 所以这里一律用 puuid 路径 —— 这才是「完整」的那份（仍然止于最近 200 场，不是生涯总场次）。
  */
-export async function getMatchHistory(limit = 20): Promise<{ games: LcuGameSummary[]; total: number }> {
+export async function getMatchHistory(
+  limit = 200,
+  puuid?: string | null
+): Promise<{ games: LcuGameSummary[]; total: number }> {
+  const target = puuid ?? (await getSummoner()).puuid;
+  if (!target) throw new Error("拿不到 puuid，无法查询对局记录");
   const list = await lcuGet<LcuMatchList>(
-    `/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=${Math.max(1, limit)}`
+    `/lol-match-history/v1/products/lol/${encodeURIComponent(target)}/matches?begIndex=0&endIndex=${Math.max(1, Math.min(limit, 200))}`
   );
   const games = list.games?.games ?? [];
   return { games, total: list.games?.gameCount ?? games.length };
 }
+
+/** 客户端对局记录每次最多给这么多把（接口上限，不是本地缓存） */
+export const MATCH_HISTORY_CAP = 200;
 
 /** 单局详情（含更完整的 stats 与会话数据） */
 export async function getGameDetail(gameId: number): Promise<LcuGameSummary> {
@@ -320,8 +331,12 @@ export async function clientStatus(): Promise<LcuStatus> {
   }
 }
 
-/** 海斗在客户端里的模式标识（Riot 内部代号 KIWI，国服可能沿用） */
-export const MAYHEM_MODES = ["KIWI", "ARAM_MAYHEM", "MAYHEM"];
+/**
+ * 海斗在客户端里的模式标识。
+ * 实测国服 26.x 会出现三种：KIWI、KIWI_JADE、JADE（对应官方符文池 KIWI / KIWI_JADE），
+ * 以及 ARAM_MAYHEM / MAYHEM 这类兜底写法。
+ */
+export const MAYHEM_MODES = ["KIWI", "KIWI_JADE", "JADE", "ARAM_MAYHEM", "MAYHEM"];
 
 export function isMayhemGame(game: LcuGameSummary): boolean {
   const mode = String(game.gameMode ?? "").toUpperCase();

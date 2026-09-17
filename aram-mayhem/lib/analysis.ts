@@ -23,8 +23,10 @@ export interface AnalyzeOptions {
   ownerName?: string | null;
   /** 标题里的称呼，如「我」/「好友 自己的丁ding」 */
   subject: string;
-  /** 客户端本地缓存的对局总数（用于说明数据边界） */
+  /** 本次取到的对局总数（接口声明值，用于说明数据边界） */
   cachedTotal: number;
+  /** 数据边界说明（本人与好友的口径不同，由调用方传入） */
+  dataNote?: string;
 }
 
 export async function analyzeMayhemGames(
@@ -138,7 +140,7 @@ export async function analyzeMayhemGames(
   }
 
   const out: string[] = [
-    `${who}：统计本地记录里的 ${rows.length} 把海斗（客户端针对该账号共缓存 ${opts.cachedTotal} 把对局）`,
+    `${who}：统计 ${rows.length} 把海斗（本次共取到 ${opts.cachedTotal} 把对局记录）`,
     `胜率：${wins}/${decided.length}${decided.length ? ` (${Math.round((wins / decided.length) * 100)}%)` : ""}`,
   ];
   if (topChamps.length) {
@@ -197,8 +199,9 @@ export async function analyzeMayhemGames(
 
   out.push(
     "",
-    "说明：场次是**本地客户端缓存**的量，不是账号历史总场次；样本量小时胜率没有统计意义；" +
-      "符文 id 来自客户端本地对局记录（playerAugment1..6），与官方符文库 id 对照。"
+    opts.dataNote ??
+      "说明：场次来自客户端对局记录，不是生涯总场次；样本量小时胜率没有统计意义。",
+    "符文 id 取自本地对局记录（playerAugment1..6），与官方符文库 id 对照。"
   );
   return out.join("\n");
 }

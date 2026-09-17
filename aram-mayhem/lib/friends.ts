@@ -2,13 +2,13 @@
  * 好友相关：读本地客户端的好友列表，并对某个好友做海斗统计。
  *
  * 说明与边界：
- *   · 只走本机 127.0.0.1 的客户端接口，只读；能读到的是**客户端当前缓存**的对局，不是历史总场次。
+ *   · 只走本机 127.0.0.1 的客户端接口，只读；最多能拿到**最近 200 场**（接口上限），不是历史总场次。
  *   · 好友数据来自 `lol-chat/v1/friends`（国服好友名在 gameName 字段，name 常为空串）。
  *   · 客户端对任意 puuid 的对局记录接口（/lol-match-history/v1/products/lol/{puuid}/matches）实测可用，
  *     读的是公开的对局数据，不需要对方同意，也不会动对方任何设置。
  */
 import { analyzeMayhemGames } from "./analysis.js";
-import { clientStatus, lcuGet, type LcuGameSummary, type LcuMatchList } from "./lcu.js";
+import { clientStatus, getMatchHistory, lcuGet, type LcuGameSummary } from "./lcu.js";
 import { normalize } from "./store.js";
 
 export interface Friend {
@@ -76,13 +76,9 @@ export function friendLine(f: Friend): string {
   return `${f.gameName}#${f.gameTag} · ${availabilityCn(f.availability)}`;
 }
 
-/** 好友的对局记录（客户端缓存范围内的全部） */
+/** 好友的对局记录（走 puuid 路径，最多最近 200 场） */
 export async function getFriendGames(puuid: string, limit = 200): Promise<{ games: LcuGameSummary[]; total: number }> {
-  const list = await lcuGet<LcuMatchList>(
-    `/lol-match-history/v1/products/lol/${encodeURIComponent(puuid)}/matches?begIndex=0&endIndex=${Math.max(1, limit)}`
-  );
-  const games = list.games?.games ?? [];
-  return { games, total: list.games?.gameCount ?? games.length };
+  return await getMatchHistory(limit, puuid);
 }
 
 // ---------------------------------------------------------------- 工具实现
@@ -140,6 +136,9 @@ export async function friendStats(args: { friend: string; limit?: number }): Pro
     ownerName: f.gameName,
     subject: `好友 ${f.gameName}#${f.gameTag}`,
     cachedTotal: total,
+    dataNote:
+      "说明：好友的对局记录取决于本机客户端当前缓存了多少（实测会变，同一好友不同时刻可能是 20~200 把不等），" +
+      "不是对方的历史总场次；样本量小时胜率没有统计意义。",
   });
   return [
     `（数据来自本机客户端缓存的对局记录；只能读好友列表里的人，读不到的是客户端没有的数据）`,

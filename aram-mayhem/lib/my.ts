@@ -17,6 +17,7 @@ import { analyzeMayhemGames } from "./analysis.js";
 import {
   clientStatus,
   getMatchHistory,
+  MATCH_HISTORY_CAP,
   getRecentGames,
   getSummoner,
   isMayhemGame,
@@ -156,10 +157,10 @@ export async function myRecentGames(args: { limit?: number; only_mayhem?: boolea
 
   const out = [
     `账号：${me.displayName || me.gameName || "(未命名)"}`,
-    `本地客户端记录里共 ${total} 把对局，其中海斗 ${allMayhem.length} 把；时间跨度 ${span}`,
+    `共取到 ${games.length} 把对局（接口声明 ${total} 把），其中海斗 ${allMayhem.length} 把；时间跨度 ${span}`,
     `（客户端返回的模式标识：${modes}）`,
-    `⚠ 「共 ${total} 把」是**本地客户端缓存**的数量，不是账号历史总场次：实测把翻页参数放大到 2000 也只返回同一批，` +
-      "更早的对局官方接口对海斗是封的（match-v5 403），所以查不到更远的历史。",
+    `⚠ 这是**接口天花板**：本地客户端的对局记录最多给最近 ${MATCH_HISTORY_CAP} 把（实测 begIndex 翻页会被忽略），` +
+      "再早的对局查不到 —— 官方 API 对海斗更是直接封禁（match-v5 403），所以这不是生涯总场次。",
     "",
     ...(filtered.length > limit ? [`（下面只列最近 ${limit} 把，共 ${filtered.length} 把；要更多传 limit）`] : []),
     ...rows,
@@ -188,6 +189,9 @@ export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<
     ownerName: me.displayName || me.gameName || "",
     subject: `我（${me.displayName || me.gameName || "未命名"}）`,
     cachedTotal: hist.total,
+    dataNote:
+      "说明：自己的账号由服务端给最近最多 200 场（实测 begIndex 翻页会被忽略），这是接口上限、不是生涯总场次；" +
+      "更早的对局官方 API 对海斗是封的（match-v5 403），拿不到；样本量小时胜率没有统计意义。",
   });
 }
 
