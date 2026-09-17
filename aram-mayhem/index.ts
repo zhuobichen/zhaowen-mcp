@@ -17,6 +17,7 @@ import {
 import { refreshData } from "./lib/refresh.js";
 import { analyzeMyAugments, myAccountStatus, myRecentGames } from "./lib/my.js";
 import { friendStats, listMyFriends } from "./lib/friends.js";
+import { tftStats } from "./lib/tft.js";
 import {
   analyzeSynergy,
   championGuide,
@@ -193,6 +194,18 @@ async function main() {
         },
       },
       {
+        name: "get_tft_stats",
+        description:
+          "查云顶之弈（TFT）战绩：平均名次、吃鸡率、前四率、名次分布、队列分布与最近几局明细。默认查自己，传 friend 可查好友。注意客户端只保留最近 20 局。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            friend: { type: "string", description: "可选：好友名字（部分匹配），不传就是查自己" },
+            limit: { type: "number", description: "明细列最近多少局（默认 10）" },
+          },
+        },
+      },
+      {
         name: "refresh_data",
         description:
           "联网重新拉取数据并更新本地快照（社区站 + Riot 官方文件），会归档当前补丁快照用于版本对比。仅在需要更新数据时调用。",
@@ -283,6 +296,14 @@ async function main() {
           if (!args.friend) return text("请提供好友名字 friend");
           return text(
             await friendStats({ friend: String(args.friend), limit: args.limit ? Number(args.limit) : undefined })
+          );
+
+        case "get_tft_stats":
+          return text(
+            await tftStats({
+              friend: args.friend ? String(args.friend) : undefined,
+              limit: args.limit ? Number(args.limit) : undefined,
+            })
           );
 
         case "refresh_data": {

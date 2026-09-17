@@ -22,6 +22,7 @@
 | `analyze_my_augments` | 我最近海斗拿过的符文统计：使用次数/胜率（对照版本榜）、陷阱符文提示、常玩英雄与还没拿过的神级符文 |
 | `list_my_friends` | 列出客户端里的好友（含在线状态），用于确认名字 |
 | `get_friend_stats` | 看某个好友的海斗战绩：胜率、常玩英雄、符文使用与版本名次、陷阱提示、神级符文推荐（只能查好友列表里的人） |
+| `get_tft_stats` | 云顶之弈（TFT）战绩：平均名次、吃鸡率、前四率、名次分布、队列分布、最近几局明细（含羁绊/棋子/装备中文名）。默认查自己，传 `friend` 查好友 |
 
 用法示例（在对话里说即可）：
 
@@ -39,6 +40,8 @@
 | 符文**效果说明原文**、官方中文名、品质、图标、模式归属 | Riot 客户端游戏文件（[CommunityDragon](https://raw.communitydragon.org) 导出：`kiwi.bin.json`/`kiwi_jade.bin.json` 的文本 key + `lol.stringtable.json` 中文文本 + `cherry-augments.json` + `augment-lists.json`） | **官方文件**，即游戏内显示的内容 |
 | 符文胜率/选取率/名次、羁绊、英雄梯队与胜率、英雄×符文搭配与攻略、神级/陷阱标签 | 社区站 [arammayhem.com](https://arammayhem.com) 的公开静态 JSON（`search-index.json`、`zh-cn/augments/` 页面、`zh-cn/tier-list/augment-overflow.json`、`zh-cn/combo-index-data.json`） | **第三方统计**（全球口径），非官方数值 |
 | 国服胜率/选取率/名次 | [aramgg.com](https://aramgg.com) 的公开静态 JSON（聚合的腾讯国服样本） | **第三方统计**（国服口径） |
+| 云顶之弈羁绊/棋子/装备的中文名 | Riot 官方云顶数据（CommunityDragon `cdragon/tft/zh_cn.json`，只抽「内部标识→中文名」的瘦表） | **官方文件** |
+| 队列中文名（海斗=海克斯大乱斗、云顶各模式等） | 客户端自带的 `/lol-game-data/assets/v1/queues.json` | **官方本地化** |
 
 两套胜率口径**分开列出、不混算**。官方与社区站名称/品质冲突时以官方名为展示名，两种名字都能搜到，并在 `get_data_info` 里列出冲突明细。
 
@@ -116,6 +119,7 @@ lib/my.ts             账号类工具实现
 lib/friends.ts        好友列表与好友战绩
 lib/analysis.ts       对局分析（本人/好友共用）
 lib/report.ts         个人战绩报告生成器（单文件 HTML，内联 SVG 图表）
+lib/tft.ts            云顶之弈战绩（最近 20 局）
 smoke.ts / mcp-smoke.mjs / lcuprobe.ts   自检脚本（lcuprobe 可单独跑，确认客户端连接与对局字段）
 data/augments.json    符文（合并结果）
 data/champions.json   英雄（含国服口径与手动外号）
@@ -123,6 +127,7 @@ data/synergy-sets.json 羁绊
 data/combos.json      多件搭配
 data/combo-cards.json 单件评价卡片（带神级/陷阱标签）
 data/champion-ids.json 数字英雄 id ↔ 英文 id（对局记录用）
+data/tft-names.json   云顶羁绊/棋子/装备的官方中文名（约 250KB）
 data/aliases.json     国服外号表（手动维护，可随时改）
 data/meta.json        补丁号、来源、条数、校验报告
 data/patch-snapshots/ 各补丁快照
@@ -130,6 +135,17 @@ data/profile.json     绑定的账号（运行时生成，含召唤师名/puuid�
 data/friends-*.json   好友相关数据不落盘，全部按需从客户端读取
 reports/              生成的个人战绩报告（含账号名，已在 .gitignore 中排除）
 ```
+
+## 云顶之弈（TFT）战绩
+
+```
+get_tft_stats                               # 自己
+get_tft_stats { "friend": "丁ding" }         # 好友（部分名字即可）
+```
+
+给的东西：本地保留的 20 局里，平均名次 / 吃鸡率 / 前四率 / 名次分布 / 队列分布（队列名是客户端官方中文名，如「云顶之弈 (自然之力 排位 BETA测试)」），以及每局明细：名次、等级、时长、剩余金币、成型羁绊（中文）、主力棋子（星级 + 装备中文名）。
+
+**边界（实测）**：云顶对局接口 `…/products/tft/{puuid}/matches?count=N` **最多只返回最近 20 局** —— `count` 给到 500 也还是 20，且没有任何可用的翻页参数（`begIndex` 之类一律 400）。所以这是窗口快照，不是生涯总场次。海斗那边上限是 200 局，两者不同。
 
 ## 个人战绩报告（HTML）
 
@@ -146,7 +162,8 @@ npx tsx lib/report.ts --out 任意路径.html  # 指定输出位置
 
 - **没有对局内实时推荐**：海斗符文是在游戏内选的，对局中三选一是游戏进程直接下发的，本地接口与官方 Live Client Data 都不含这个实时数据。**已经打完的对局**能读到符文（`playerAugment1..6`），但「现在这三选一该拿哪个」只能靠屏幕 OCR，属另一个项目。
 - **官方 API 拿不到海斗对局**：match-v5 对海斗返回 403（官方明确 intended），所以任何依赖官方 API 的统计都做不了 —— 本服务的账号功能全部走本地客户端，不依赖官方 API。
-- **`refresh_data` 会联网**：其余工具都是只读本地快照。刷新要下载一个 32MB 的官方字符串表（符文说明文本的来源）。
+- **`refresh_data` 会联网**：其余工具都是只读本地快照。刷新要下载官方字符串表（约 32MB）与云顶官方数据（约 24MB，只用来抽中文名瘦表）。
+- **云顶战绩只有最近 20 局**（接口上限），海斗是最近 200 局 —— 都是窗口快照，不是生涯总场次。
 - **胜率口径**：社区站页面未标注样本量，国服数据来自客户端上传聚合；样本量小时数字没有统计意义，只适合相对比较。
 - **官方轮换池 `KIWI` / `KIWI_JADE` 的含义未经官方文档确认**：两者互有出入（223 / 188 条），本服务都按海斗处理并注明。
 - 外号表是手工维护的，只覆盖常见国服叫法；缺的可以直接改 `data/aliases.json`。

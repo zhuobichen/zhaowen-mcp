@@ -62,6 +62,8 @@ export const SOURCES = {
   cnChampionStats: "https://aramgg.com/data/champions-stats.json",
   /** 社区站「英雄×符文」单件评价卡片：带 神级/强力/陷阱 等标签与中文攻略 */
   comboIndex: "https://arammayhem.com/zh-cn/combo-index-data.json",
+  /** 云顶之弈官方数据（中文名：羁绊/棋子/装备），24MB，只把「内部标识→中文名」做成小表 */
+  tftData: "https://raw.communitydragon.org/latest/cdragon/tft/zh_cn.json",
 };
 
 /**
@@ -330,6 +332,16 @@ interface RawCnChampionStats {
   date?: string;
   source?: string;
 }
+interface RawTftData {
+  /** 装备在顶层（所有赛季共用） */
+  items?: Array<{ apiName?: string; name?: string }>;
+  setData?: Array<{
+    number?: number;
+    traits?: Array<{ apiName?: string; name?: string }>;
+    champions?: Array<{ apiName?: string; name?: string }>;
+    items?: Array<{ apiName?: string; name?: string }>;
+  }>;
+}
 interface RawComboIndex {
   typeLabels?: Record<string, string>;
   cards?: Array<{
@@ -464,6 +476,29 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
       `官方字符串表未取到（${stringTableError}），本次没有官方中文说明，说明改用社区站文本`
     );
   }
+
+  // 云顶官方数据（24MB，可选源：只用它做羁绊/棋子/装备的中文名；失败就退回显示内部标识）
+  let tftNames: { traits: Record<string, string>; champions: Record<string, string>; items: Record<string, string> } = {
+    traits: {},
+    champions: {},
+    items: {},
+  };
+  try {
+    const tft = await fetchJson<RawTftData>(SOURCES.tftData);
+    const put = (map: Record<string, string>, list?: Array<{ apiName?: string; name?: string }>) => {
+      for (const it of list ?? []) if (it?.apiName && it.name) map[it.apiName] = it.name;
+    };
+    // 名额都取：羁绊/棋子按赛季、装备在顶层（全赛季共用），只存「内部标识→中文名」的瘦表
+    for (const set of tft.setData ?? []) {
+      put(tftNames.traits, set.traits);
+      put(tftNames.champions, set.champions);
+      put(tftNames.items, set.items);
+    }
+    put(tftNames.items, tft.items);
+  } catch (e: any) {
+    validation.dataSourceIssues.push(`云顶官方数据未取到（${e?.message ?? e}），云顶羁绊/棋子只能显示内部标识`);
+  }
+
 
   // ---- 1. 官方数据：轮换池归属 + 按名称建索引
   const officialListsByAugment = new Map<string, Set<string>>();
@@ -911,6 +946,7 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
       augmentsWithOfficialDesc: augments.filter((a) => a.descOfficial).length,
       augmentsWithCnStats: augments.filter((a) => a.cnStats).length,
       comboCards: comboCards.length,
+      tftNames: Object.keys(tftNames.traits).length + Object.keys(tftNames.champions).length + Object.keys(tftNames.items).length,
       champions: champions.length,
       championIds: Object.keys(championIdMap).length,
       championsWithCnStats: champions.filter((c) => c.cnWinRate !== null).length,
@@ -973,6 +1009,7 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
     await write("synergy-sets.json", synergySets);
     await write("combos.json", combos);
     await write("combo-cards.json", comboCards);
+    await write("tft-names.json", tftNames);
     await write("meta.json", meta, true);
     await writeFile(
       path.join(SNAPSHOT_DIR, `${index.patch}.json`),

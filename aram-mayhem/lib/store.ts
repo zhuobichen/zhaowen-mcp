@@ -41,6 +41,8 @@ export interface Data {
   combos: Combo[];
   /** 社区站的「英雄×符文」单件评价卡片（带 神级/陷阱 等标签） */
   comboCards: ComboCard[];
+  /** 云顶之弈官方中文名：羁绊/棋子/装备的内部标识 → 中文名（只含最近几个赛季） */
+  tftNames: { traits: Record<string, string>; champions: Record<string, string>; items: Record<string, string> };
   /** 数字英雄 id → 英文 id / 官方中文名（本地客户端对局记录里只有数字 id） */
   championIds: Record<string, { id: string; name: string }>;
   /** 已归档的补丁号（升序） */
@@ -70,6 +72,9 @@ export function loadData(): Data {
   const comboCards = existsSync(path.join(DATA_DIR, "combo-cards.json"))
     ? readJson<ComboCard[]>(path.join(DATA_DIR, "combo-cards.json"))
     : [];
+  const tftNames = existsSync(path.join(DATA_DIR, "tft-names.json"))
+    ? readJson<Data["tftNames"]>(path.join(DATA_DIR, "tft-names.json"))
+    : { traits: {}, champions: {}, items: {} };
   // 老快照可能没有这个文件，缺了就退回空表（本地客户端功能会提示需要 refresh）
   const championIds = existsSync(path.join(DATA_DIR, "champion-ids.json"))
     ? readJson<Record<string, { id: string; name: string }>>(path.join(DATA_DIR, "champion-ids.json"))
@@ -100,6 +105,7 @@ export function loadData(): Data {
     synergySets,
     combos,
     comboCards,
+    tftNames,
     championIds,
     patches,
     augmentById: new Map(augments.map((a) => [a.id, a])),

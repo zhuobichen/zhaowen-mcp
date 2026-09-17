@@ -29,6 +29,7 @@ const cases = [
   { name: "analyze_my_augments", args: { limit: 5 } },
   { name: "list_my_friends", args: {} },
   { name: "get_friend_stats", args: { friend: "丁ding" } },
+  { name: "get_tft_stats", args: { limit: 3 } },
 ];
 for (const c of cases) {
   const r = await client.callTool({ name: c.name, arguments: c.args });
