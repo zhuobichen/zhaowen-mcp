@@ -56,24 +56,31 @@ function parseLockfile(text: string): LcuAuth | null {
   return { port, token: parts[3], source: "lockfile" };
 }
 
-/** 从正在运行的客户端进程命令行里取端口与 token（最可靠，客户端在跑就一定有） */
-async function fromProcess(): Promise<LcuAuth | null> {
+/**
+ * 从正在运行的客户端进程命令行里取端口与 token。
+ * 关键点：无响应退出的旧客户端进程会残留（端口已经没人监听），所以**按启动时间倒序**取最新的那个。
+ */
+async function fromProcesses(): Promise<LcuAuth[]> {
   const cmd =
-    "Get-CimInstance Win32_Process -Filter \"Name='LeagueClientUx.exe'\" | Select-Object -First 1 -ExpandProperty CommandLine";
+    "Get-CimInstance Win32_Process -Filter \"Name='LeagueClientUx.exe'\" | " +
+    "Where-Object { $_.CommandLine -match '--app-port' } | " +
+    "Sort-Object CreationDate -Descending | " +
+    "ForEach-Object { $_.CommandLine }";
   try {
     const { stdout } = await execFileAsync(
       "powershell",
       ["-NoProfile", "-NonInteractive", "-Command", cmd],
       { timeout: 10_000, windowsHide: true }
     );
-    const line = stdout.trim();
-    if (!line) return null;
-    const port = /--app-port=(\d+)/.exec(line)?.[1];
-    const token = /--remoting-auth-token=([\w-]+)/.exec(line)?.[1];
-    if (!port || !token) return null;
-    return { port: Number(port), token, source: "进程命令行" };
+    const out: LcuAuth[] = [];
+    for (const line of stdout.split(/\r?\n/)) {
+      const port = /--app-port=(\d+)/.exec(line)?.[1];
+      const token = /--remoting-auth-token=([\w-]+)/.exec(line)?.[1];
+      if (port && token) out.push({ port: Number(port), token, source: "进程命令行（最新）" });
+    }
+    return out;
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -93,20 +100,44 @@ function fromDisk(): LcuAuth | null {
   return null;
 }
 
-/** 找到可用凭据；客户端没开时返回 null */
-export async function findLcuAuth(): Promise<LcuAuth | null> {
+/** 所有候选凭据，按可信度排序（新进程 > 旧进程 > lockfile） */
+export async function findLcuAuthCandidates(): Promise<LcuAuth[]> {
+  const list: LcuAuth[] = [];
   const envPort = process.env.MAYHEM_LCU_PORT;
   const envToken = process.env.MAYHEM_LCU_TOKEN;
-  if (envPort && envToken) {
-    return { port: Number(envPort), token: envToken, source: "环境变量" };
-  }
-  return (await fromProcess()) ?? fromDisk();
+  if (envPort && envToken) list.push({ port: Number(envPort), token: envToken, source: "环境变量" });
+  list.push(...(await fromProcesses()));
+  const disk = fromDisk();
+  if (disk) list.push(disk);
+  // 同一端口可能被重复列出（多个进程共享端口），去重但保持顺序
+  const seen = new Set<number>();
+  return list.filter((a) => (seen.has(a.port) ? false : (seen.add(a.port), true)));
+}
+
+/** 找到可用凭据（取最新进程）；客户端没开时返回 null */
+export async function findLcuAuth(): Promise<LcuAuth | null> {
+  const list = await findLcuAuthCandidates();
+  return list[0] ?? null;
 }
 
 /** 调一次 LCU 接口（本地自签名证书，需要跳过校验） */
 export async function lcuGet<T>(path: string, auth?: LcuAuth | null): Promise<T> {
-  const a = auth ?? (await findLcuAuth());
-  if (!a) throw new Error("找不到客户端凭据：游戏客户端可能没有运行");
+  if (auth) return await lcuGetOnce<T>(path, auth);
+  // 没指定凭据时逐个候选试：旧进程可能残留、lockfile 可能过期
+  const candidates = await findLcuAuthCandidates();
+  if (!candidates.length) throw new Error("找不到客户端凭据：游戏客户端可能没有运行");
+  const errors: string[] = [];
+  for (const a of candidates) {
+    try {
+      return await lcuGetOnce<T>(path, a);
+    } catch (e: any) {
+      errors.push(`127.0.0.1:${a.port}（${a.source}）：${e?.message ?? e}`);
+    }
+  }
+  throw new Error(`所有候选凭据都连不上 —— ${errors.join("；")}`);
+}
+
+async function lcuGetOnce<T>(path: string, a: LcuAuth): Promise<T> {
   const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: false });
   return await new Promise<T>((resolve, reject) => {
     const req = https.request(
@@ -128,19 +159,19 @@ export async function lcuGet<T>(path: string, auth?: LcuAuth | null): Promise<T>
         res.on("end", () => {
           const body = Buffer.concat(chunks).toString("utf8");
           if (!res.statusCode || res.statusCode >= 400) {
-            reject(new Error(`LCU ${path} 返回 ${res.statusCode}: ${body.slice(0, 200)}`));
+            reject(new Error(`返回 ${res.statusCode}: ${body.slice(0, 200)}`));
             return;
           }
           try {
             resolve(JSON.parse(body) as T);
           } catch {
-            reject(new Error(`LCU ${path} 返回内容不是 JSON: ${body.slice(0, 200)}`));
+            reject(new Error(`返回内容不是 JSON: ${body.slice(0, 200)}`));
           }
         });
       }
     );
     req.on("timeout", () => {
-      req.destroy(new Error("LCU 请求超时（客户端可能正在进游戏或未完全启动）"));
+      req.destroy(new Error("请求超时（客户端可能正在进游戏或未完全启动）"));
     });
     req.on("error", reject);
     req.end();
@@ -256,7 +287,7 @@ export async function clientStatus(): Promise<LcuStatus> {
         "没找到客户端凭据：游戏客户端没有运行（如果你的安装目录不常见，可用环境变量 MAYHEM_LOCKFILE 指明 lockfile 路径）",
     };
   }
-  const processFound = auth.source === "进程命令行" || auth.source === "环境变量";
+  const processFound = /^进程命令行|^环境变量/.test(auth.source);
   try {
     const s = await getSummoner();
     return {
@@ -264,7 +295,7 @@ export async function clientStatus(): Promise<LcuStatus> {
       credentialSource: auth.source,
       port: auth.port,
       reachable: true,
-      summonerName: s.displayName ?? s.gameName ?? null,
+      summonerName: s.displayName || s.gameName || null,
       error: null,
     };
   } catch (e: any) {

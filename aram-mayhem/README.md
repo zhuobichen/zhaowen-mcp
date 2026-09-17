@@ -19,7 +19,7 @@
 | `refresh_data` | 联网刷新数据并归档快照（等价于 `npm run refresh`） |
 | `get_my_account_status` | 连本地客户端、读当前登录账号并固定到 `data/profile.json` |
 | `get_my_recent_games` | 我最近的对局（英雄、胜负、KDA、时长） |
-| `analyze_my_augments` | 我最近海斗拿过的符文统计 —— **注意**：客户端很可能不上报符文字段，见下方「已知限制」 |
+| `analyze_my_augments` | 我最近海斗拿过的符文统计：使用次数/胜率（对照版本榜）、陷阱符文提示、常玩英雄与还没拿过的神级符文 |
 
 用法示例（在对话里说即可）：
 
@@ -72,7 +72,16 @@ npm run refresh     # 首次需要联网拉一次数据（生成 data/*.json，�
 
 - 需要**英雄联盟客户端正在运行**，并且已经进到大厅（登录/更新界面时本地接口还没起来）；
 - 凭据自动从 `LeagueClientUx.exe` 的命令行或 `LeagueClient/lockfile` 获取，也可用环境变量 `MAYHEM_LCU_PORT` / `MAYHEM_LCU_TOKEN` 手动指定；
-- 首次连上后账号名会固定到 `data/profile.json`（只记名字/puuid/等级/时间），客户端没开时仍知道「是谁」。
+- 客户端异常退出会残留**端口已失效的旧进程**，取凭据时按启动时间倒序取最新、并逐个候选试连，所以不用手动清理；
+- 首次连上后账号名会固定到 `data/profile.json`（只记名字/puuid/等级/时间，已被 `.gitignore` 排除，不上传仓库）。
+
+**实测能力（国服 26.x，2026-09 验证）**：
+
+- `get_my_recent_games` 能读到最近对局（模式标识就是 `KIWI`，即海斗）：英雄、胜负、KDA、时长；
+- `analyze_my_augments` **确实能读到当局选过的符文** —— 本地对局记录里带 `playerAugment1..6`（数字 id，与官方符文库 `AugmentPlatformId` 一一对应，实测 21 把 46 个 id 全部对上）。
+  它会给：近期胜率、常玩英雄、符文使用次数与胜率（对照版本榜）、**你实际拿过的「陷阱」符文**、以及常玩英雄里还没拿过的「神级」符文；
+- ⚠️ 注意区分：**Riot 官方对局 API 对海斗是封禁的**（match-v5 返回 403，[developer-relations#1109](https://github.com/RiotGames/developer-relations/issues/1109) 官方回复 intended），
+  但这只影响外部 API；**本地客户端自己的对局记录里是有符文数据的**，本服务走的是后者，不依赖官方 API。
 
 ## 数据刷新与自检
 
@@ -99,7 +108,7 @@ lib/lcu.ts            本地客户端（LCU）接口封装
 lib/store.ts          本地数据加载、索引、名称匹配、文案格式化
 lib/tools.ts          查询类工具实现
 lib/my.ts             账号类工具实现
-smoke.ts / mcp-smoke.mjs / lcuprobe.ts   自检脚本
+smoke.ts / mcp-smoke.mjs / lcuprobe.ts   自检脚本（lcuprobe 可单独跑，确认客户端连接与对局字段）
 data/augments.json    符文（合并结果）
 data/champions.json   英雄（含国服口径与手动外号）
 data/synergy-sets.json 羁绊
@@ -109,13 +118,13 @@ data/champion-ids.json 数字英雄 id ↔ 英文 id（对局记录用）
 data/aliases.json     国服外号表（手动维护，可随时改）
 data/meta.json        补丁号、来源、条数、校验报告
 data/patch-snapshots/ 各补丁快照
-data/profile.json     绑定的账号（运行时生成，不含凭据）
+data/profile.json     绑定的账号（运行时生成，含召唤师名/puuid，已在 .gitignore 中排除）
 ```
 
 ## 已知限制
 
-- **没有对局内实时推荐**：海斗符文是在游戏内选的，官方 Live Client Data 接口不含 augment 字段，LCU 也没有对应的对局接口（已查公开 swagger，只有 TFT 的 augment-pillar 与 `/lol-inventory/v1/cherryInventory` 这类无关端点）。对局中三选一要靠屏幕 OCR，属另一个项目。
-- **`analyze_my_augments` 很可能拿不到数据**：Riot 已明确对海斗模式封禁官方对局接口（`RiotGames/developer-relations` issue #1109，状态为 working-as-intended），LCU 的本地对局记录也不提供 `playerAugment1..6`。该工具会如实报告实际读到了什么，不做推测填充 —— 客户端能给的（最近玩了哪些英雄、胜负）仍然可用。
+- **没有对局内实时推荐**：海斗符文是在游戏内选的，对局中三选一是游戏进程直接下发的，本地接口与官方 Live Client Data 都不含这个实时数据。**已经打完的对局**能读到符文（`playerAugment1..6`），但「现在这三选一该拿哪个」只能靠屏幕 OCR，属另一个项目。
+- **官方 API 拿不到海斗对局**：match-v5 对海斗返回 403（官方明确 intended），所以任何依赖官方 API 的统计都做不了 —— 本服务的账号功能全部走本地客户端，不依赖官方 API。
 - **`refresh_data` 会联网**：其余工具都是只读本地快照。刷新要下载一个 32MB 的官方字符串表（符文说明文本的来源）。
 - **胜率口径**：社区站页面未标注样本量，国服数据来自客户端上传聚合；样本量小时数字没有统计意义，只适合相对比较。
 - **官方轮换池 `KIWI` / `KIWI_JADE` 的含义未经官方文档确认**：两者互有出入（223 / 188 条），本服务都按海斗处理并注明。

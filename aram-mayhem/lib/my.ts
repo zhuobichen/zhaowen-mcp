@@ -49,7 +49,7 @@ export function loadProfile(): Profile | null {
 
 async function saveProfile(s: LcuSummoner): Promise<Profile> {
   const p: Profile = {
-    summonerName: s.displayName ?? s.gameName ?? "(未命名)",
+    summonerName: s.displayName || s.gameName || "(未命名)",
     puuid: s.puuid ?? null,
     summonerId: s.summonerId ?? null,
     level: s.summonerLevel ?? null,
@@ -106,7 +106,7 @@ export async function myAccountStatus(args: { pin?: boolean } = {}): Promise<str
     const s = await getSummoner();
     const p = args.pin === false ? null : await saveProfile(s);
     out.push("✅ 已连上本地客户端");
-    out.push(`  账号：${s.displayName ?? s.gameName ?? "(未命名)"}`);
+    out.push(`  账号：${s.displayName || s.gameName || "(未命名)"}`);
     if (s.summonerLevel) out.push(`  等级：${s.summonerLevel}`);
     if (s.puuid) out.push(`  puuid：${s.puuid}`);
     out.push(`  凭据来源：${status.credentialSource}`);
@@ -150,12 +150,12 @@ export async function myRecentGames(args: { limit?: number; only_mayhem?: boolea
   const filtered = onlyMayhem ? games.filter(isMayhemGame) : games;
   const modes = [...new Set(games.map((g) => String(g.gameMode)))].join("、");
   const rows = filtered.map((g) => {
-    const pid = myParticipantId(g, { puuid: me.puuid, name: (me.displayName ?? "").split("#")[0] });
+    const pid = myParticipantId(g, { puuid: me.puuid, name: (me.displayName || me.gameName || "").split("#")[0] });
     return gameLine(g, pid);
   });
 
   const out = [
-    `账号：${me.displayName ?? me.gameName ?? "(未命名)"}`,
+    `账号：${me.displayName || me.gameName || "(未命名)"}`,
     `最近 ${games.length} 把里${onlyMayhem ? "海斗" : ""}对局 ${filtered.length} 把${onlyMayhem ? "" : "（未过滤模式）"}`,
     `（客户端返回的模式标识：${modes}）`,
     "",
@@ -187,11 +187,12 @@ export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<
     game: LcuGameSummary;
     augments: number[];
     win: boolean | null;
+    championNumber: number | null;
   }
   const rows: Row[] = [];
   let augmentFieldSeen = false;
   const pidOf = (g: LcuGameSummary) =>
-    myParticipantId(g, { puuid: me.puuid, name: (me.displayName ?? "").split("#")[0] });
+    myParticipantId(g, { puuid: me.puuid, name: (me.displayName || me.gameName || "").split("#")[0] });
 
   for (const g of games) {
     const pid = pidOf(g);
@@ -207,22 +208,21 @@ export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<
     }
     if (ids.length) augmentFieldSeen = true;
     const me2 = (g.participants ?? []).find((p) => p.participantId === pid) ?? (g.participants ?? [])[0];
-    rows.push({ game: g, augments: ids, win: me2?.stats?.win ?? null });
+    rows.push({ game: g, augments: ids, win: me2?.stats?.win ?? null, championNumber: me2?.championId ?? null });
   }
 
   if (!augmentFieldSeen) {
     return [
-      `最近 ${games.length} 把海斗对局里，客户端没有提供符文字段，所以统计不了“我拿了哪些符文”。`,
+      `最近 ${games.length} 把海斗对局里，这次没有读到符文字段（playerAugment1..6），所以统计不出“我拿了哪些符文”。`,
       "",
-      "已核对过的实际情况：",
-      "  · Riot 对海斗模式的官方对局接口是**主动封禁**的（match-v5 返回 403，RiotGames/developer-relations issue #1109，",
-      "    官方回复为 intended，即新轮换模式的对局数据不再公开）。",
-      "  · 本地客户端（LCU）的公开接口里没有海斗对局符文端点：对局中三选一是游戏进程直接下发的，不走 LCU。",
-      "  · 因此 /lol-match-history/... 返回的 stats 里没有 playerAugment1..6 字段。",
-      "这不是本工具少写了逻辑，也不是凭据问题 —— 所以这里如实报告“读不到”，不编数据。",
+      "常见原因（按可能性排序）：",
+      "  · 对局记录刚同步，部分早期对局的详情还没拉全 —— 稍后再试通常就好；",
+      "  · 客户端版本差异：该字段由国服客户端决定是否上报，实测国服 26.x 版本是有的；",
+      "  · 这些对局确实没选到符文（例如秒退/极端短局）。",
+      "本工具不会用“猜的符文”填充统计 —— 读不到就报读不到。",
       "",
-      "仍然可用的个性化能力：",
-      "  · get_my_recent_games：最近玩了哪些英雄、胜负（能读到的话就是可信的）",
+      "可先跑这两个：",
+      "  · get_my_recent_games：最近玩了哪些英雄、胜负（这条路径能读到）",
       "  · get_champion_guide：针对你常玩的英雄给推荐符文与陷阱提示",
     ].join("\n");
   }
@@ -241,12 +241,51 @@ export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<
   const local = rows.filter((r) => r.win !== null);
   const localWins = local.filter((r) => r.win === true).length;
 
+  const d = loadData();
+
+  // 常玩英雄
+  const champCount = new Map<string, { name: string; games: number; wins: number }>();
+  for (const r of rows) {
+    if (r.championNumber == null) continue;
+    const cid = d.championIds[String(r.championNumber)];
+    const local = cid ? d.championById.get(cid.id) : undefined;
+    const key = local?.id ?? `#${r.championNumber}`;
+    const cur = champCount.get(key) ?? { name: local?.name ?? `英雄#${r.championNumber}`, games: 0, wins: 0 };
+    cur.games += 1;
+    if (r.win === true) cur.wins += 1;
+    champCount.set(key, cur);
+  }
+  const topChamps = [...champCount.entries()].sort((a, b) => b[1].games - a[1].games).slice(0, 5);
+
+  // 我实际拿过的「陷阱」符文（社区站按英雄×符文标注）
+  const trapHits: string[] = [];
+  for (const r of rows) {
+    if (r.championNumber == null) continue;
+    const cid = d.championIds[String(r.championNumber)];
+    if (!cid) continue;
+    for (const id of r.augments) {
+      const aug = augmentByOfficialId(id);
+      if (!aug) continue;
+      const card = d.comboCards.find(
+        (c) => c.championId === cid.id && c.augmentId === aug.id && c.types.includes("陷阱")
+      );
+      if (card) {
+        trapHits.push(`${d.championById.get(cid.id)?.name ?? cid.id} 拿 ${aug.name}${card.desc ? ` —— ${card.desc}` : ""}`);
+      }
+    }
+  }
+
   const out: string[] = [
-    `账号：${me.displayName ?? me.gameName ?? "(未命名)"} · 统计最近 ${rows.length} 把海斗`,
+    `账号：${me.displayName || me.gameName || "(未命名)"} · 统计最近 ${rows.length} 把海斗`,
     `近期胜率：${localWins}/${local.length}${local.length ? ` (${Math.round((localWins / local.length) * 100)}%)` : ""}`,
-    "",
-    "你拿过的符文（按出现次数；「版本名次」是社区站强度榜，用来对照你拿的是不是强势符文）：",
   ];
+  if (topChamps.length) {
+    out.push(
+      `常玩英雄：${topChamps.map(([, v]) => `${v.name}(${v.games}把${v.wins ? `/${v.wins}胜` : ""})`).join("、")}`,
+      "  （想细看某个英雄怎么出符文，用 get_champion_guide）"
+    );
+  }
+  out.push("", "你拿过的符文（按出现次数；「版本名次」是社区站强度榜，用来对照你拿的是不是强势符文）：");
   for (const [id, s] of ranked.slice(0, 20)) {
     const a = augmentByOfficialId(id);
     if (!a) {
@@ -270,7 +309,33 @@ export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<
     for (const x of weak.slice(0, 8)) out.push(`  · ${x.a.name}（第 ${x.a.stats?.rank} 名，你拿了 ${x.s.games} 把）`);
   }
 
-  out.push("", "说明：样本量小的时候胜率没有统计意义；符文 id 来自客户端上报，与官方符文库的 id 对照。");
+  if (trapHits.length) {
+    out.push("", `⚠ 你实际拿过的「陷阱」符文（社区站按英雄×符文标注，共 ${trapHits.length} 次）：`);
+    for (const t of [...new Set(trapHits)].slice(0, 8)) out.push(`  · ${t}`);
+  }
+
+  // 你常玩的英雄，社区站给的神级符文里你还没拿过的
+  const takenIds = new Set(ranked.map(([id]) => augmentByOfficialId(id)?.id).filter(Boolean) as string[]);
+  const suggestions: string[] = [];
+  for (const [cid] of topChamps) {
+    if (cid.startsWith("#")) continue;
+    for (const card of d.cardsByChampion.get(cid) ?? []) {
+      if (!card.types.includes("神级")) continue;
+      if (takenIds.has(card.augmentId)) continue;
+      const aug = d.augmentById.get(card.augmentId);
+      if (!aug || aug.availability !== "live") continue;
+      suggestions.push(`${card.championName} 拿 ${aug.name}（${card.desc ?? "社区站列为神级"}）`);
+    }
+  }
+  if (suggestions.length) {
+    out.push("", "你常玩英雄里还没拿过的「神级」符文（可以留意）：");
+    for (const s of [...new Set(suggestions)].slice(0, 6)) out.push(`  · ${s}`);
+  }
+
+  out.push(
+    "",
+    "说明：样本量小的时候胜率没有统计意义；符文 id 来自客户端本地对局记录（playerAugment1..6），与官方符文库 id 对照。"
+  );
   return out.join("\n");
 }
 
@@ -282,7 +347,7 @@ export async function myChampionIds(limit = 20): Promise<string[]> {
   const games = (await getRecentGames(limit)).filter(isMayhemGame);
   const count = new Map<number, number>();
   for (const g of games) {
-    const pid = myParticipantId(g, { puuid: me.puuid, name: (me.displayName ?? "").split("#")[0] });
+    const pid = myParticipantId(g, { puuid: me.puuid, name: (me.displayName || me.gameName || "").split("#")[0] });
     const p = (g.participants ?? []).find((x) => x.participantId === pid);
     if (p) count.set(p.championId, (count.get(p.championId) ?? 0) + 1);
   }
