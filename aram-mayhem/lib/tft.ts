@@ -190,7 +190,8 @@ export async function tftStats(args: { friend?: string; limit?: number } = {}): 
 
   return [
     `${target.label} · 云顶之弈战绩`,
-    `本地客户端保留的最近 ${rows.length} 局（${fmtTime(times[0])} ~ ${fmtTime(times[times.length - 1])}）`,
+    `本次统计 ${rows.length} 局（${fmtTime(times[0])} ~ ${fmtTime(times[times.length - 1])}）`,
+    `数据来源：${res.note}`,
     "",
     `平均名次：${avg.toFixed(2)}｜吃鸡 ${first} 次（${n ? ((first / n) * 100).toFixed(0) : 0}%）｜前四 ${top4} 局（${n ? ((top4 / n) * 100).toFixed(0) : 0}%）｜后四 ${bottom4} 局`,
     "",

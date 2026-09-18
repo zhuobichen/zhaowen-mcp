@@ -57,9 +57,25 @@ export async function loadLolGames(puuid: string, limit = 200, name?: string | n
 
 /** 云顶：客户端最多给最近 20 局 */
 export async function loadTftGames(puuid: string, name?: string | null): Promise<GamesResult> {
-  return await load("tft", puuid, 20, async () => {
-    const { getTftGames } = await import("./tft.js");
-    return [{ source: "lcu", games: await getTftGames(puuid) }];
+  return await load("tft", puuid, 2000, async () => {
+    const out: Array<{ games: any[]; source: string }> = [];
+    // SGP：云顶也能分页（实测 684 局），远深于客户端的 20 局
+    try {
+      const { getSgpContext, fetchSgpHistory, sgpTftToGame } = await import("./sgp.js");
+      const ctx = await getSgpContext();
+      const games = await fetchSgpHistory(ctx, puuid, { pageSize: 100, maxGames: 2000, product: "tft" });
+      if (games.length) out.push({ source: "sgp", games: games.map((g) => sgpTftToGame(g, puuid)) });
+    } catch {
+      /* SGP 不通就只靠 LCU */
+    }
+    try {
+      const { getTftGames } = await import("./tft.js");
+      const games = await getTftGames(puuid);
+      if (games.length) out.push({ source: "lcu", games });
+    } catch {
+      /* 忽略 */
+    }
+    return out;
   }, name);
 }
 

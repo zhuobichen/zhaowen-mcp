@@ -143,14 +143,14 @@ export interface SgpPage {
 export async function fetchSgpHistory(
   ctx: SgpContext,
   puuid: string,
-  opts: { pageSize?: number; maxGames?: number; onPage?: (p: SgpPage) => void } = {}
+  opts: { pageSize?: number; maxGames?: number; product?: "lol" | "tft"; onPage?: (p: SgpPage) => void } = {}
 ): Promise<SgpSummary[]> {
   const pageSize = Math.max(1, Math.min(opts.pageSize ?? 100, 200));
   const maxGames = Math.max(1, opts.maxGames ?? 1000);
   const out: SgpSummary[] = [];
   for (let start = 0; start < maxGames; start += pageSize) {
     const page = await sgpGet<any>(
-      `/match-history-query/v1/products/lol/player/${encodeURIComponent(puuid)}/SUMMARY?startIndex=${start}&count=${pageSize}`,
+      `/match-history-query/v1/products/${opts.product ?? "lol"}/player/${encodeURIComponent(puuid)}/SUMMARY?startIndex=${start}&count=${pageSize}`,
       ctx
     );
     // 实测结构：{ games: [ {metadata, json}, ... ] }（也兼容直接给数组的写法）
@@ -215,5 +215,37 @@ export function sgpToGame(item: SgpSummary, puuid: string): any {
       participantId: p.participantId,
       player: { puuid: p.puuid, summonerName: p.summonerName },
     })),
+  };
+}
+
+
+/** SGP 云顶记录 → 归档形态（participants 里带 placement/level/traits/units） */
+export function sgpTftToGame(item: SgpSummary, puuid: string): any {
+  const j = unwrapSgp(item) ?? {};
+  const parts = (j.participants ?? []).map((p: any, idx: number) => ({
+    participantId: p.participantId ?? idx,
+    puuid: p.puuid ?? null,
+    placement: p.placement,
+    level: p.level,
+    gold_left: p.gold_left,
+    last_round: p.last_round,
+    players_eliminated: p.players_eliminated,
+    total_damage_to_players: p.total_damage_to_players,
+    traits: (p.traits ?? []).map((t: any) => ({ name: t.name, num_units: t.num_units, style: t.style })),
+    units: (p.units ?? []).map((u: any) => ({
+      character_id: u.character_id,
+      tier: u.tier,
+      rarity: u.rarity,
+      itemNames: u.itemNames,
+    })),
+  }));
+  return {
+    gameId: j.gameId,
+    gameCreation: j.gameCreation ?? Number(j.game_datetime ?? 0),
+    gameDuration: Math.round(j.game_length ?? 0),
+    gameMode: "TFT",
+    queueId: j.queueId ?? 0,
+    participants: parts,
+    participantIdentities: parts.map((p: any) => ({ participantId: p.participantId, player: { puuid: p.puuid } })),
   };
 }
