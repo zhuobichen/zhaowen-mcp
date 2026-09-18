@@ -38,7 +38,9 @@
     "counters": "tsx lib/counters-probe.ts",
     "contribution": "tsx lib/contribution-probe.ts",
     "tilt": "tsx lib/tilt-probe.ts",
-    "checkup": "tsx lib/checkup-probe.ts"
+    "checkup": "tsx lib/checkup-probe.ts",
+    "game": "tsx lib/game-detail-probe.ts",
+    "report:md": "tsx lib/report-md-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

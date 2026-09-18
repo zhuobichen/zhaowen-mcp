@@ -34,6 +34,8 @@ import { countersText } from "./lib/counters.js";
 import { contributionText } from "./lib/contribution.js";
 import { tiltText } from "./lib/tilt.js";
 import { checkupText } from "./lib/checkup.js";
+import { gameDetailText } from "./lib/game-detail.js";
+import { reportMarkdownText } from "./lib/report-md.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -314,6 +316,31 @@ async function main() {
             who: { type: "string", description: "可选：导出哪个账号（好友名，部分匹配）。不传就是自己" },
             kind: { type: "string", enum: ["mayhem", "lol", "tft"], description: "导什么：海斗 / 英雄联盟全部模式 / 云顶（默认 mayhem）" },
             out: { type: "string", description: "可选：自定义输出路径" },
+          },
+        },
+      },
+      {
+        name: "export_report_markdown",
+        description:
+          "生成 Markdown 版战绩小结（写到仓库 reports/ 目录）：核心数字、逐周走势、常玩英雄、体检结论，一屏看完、能直接贴进聊天/issue/笔记。取向和 HTML 报告不同 —— HTML 求全，这份求快看。可传 who 出好友的。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：导出哪个账号（好友名，部分匹配）。不传就是自己" },
+            out: { type: "string", description: "可选：自定义输出路径" },
+          },
+        },
+      },
+      {
+        name: "get_game_detail",
+        description:
+          "单局详情（复盘）：把一局的 10 个人摊开 —— 双方阵容、KDA、伤害、金币、补刀、装备，两队伤害对比，我全场第几，以及这局拿到的符文在归档里的实证胜率。选局方式：index=最近第 N 把（默认 1）、which=日期(2026-09-17)/英雄名/gameId。日期或英雄名命中多把时会列出来让你指定，不会随便挑一把。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            index: { type: "number", description: "最近第 N 把海斗（1 = 最近一把，默认 1）" },
+            which: { type: "string", description: "也可以按日期(2026-09-17) / 英雄名 / gameId 指定" },
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
           },
         },
       },
@@ -638,6 +665,23 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "export_report_markdown":
+          return text(
+            await reportMarkdownText({
+              who: args.who ? String(args.who) : undefined,
+              out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_game_detail":
+          return text(
+            await gameDetailText({
+              index: args.index ? Number(args.index) : undefined,
+              which: args.which ? String(args.which) : undefined,
+              who: args.who ? String(args.who) : undefined,
             })
           );
 
