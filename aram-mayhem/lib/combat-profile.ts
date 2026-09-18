@@ -198,8 +198,10 @@ export async function analyzeCombat(
 
     // 把两个被减数都写出来（第一 X% / 垫底合并 Y% / 差 Z）—— 只说「差 12.7」
     // 读者在表里找不到 12.7 这个数，没法核对。是结论自洽审计提的同一类问题。
+    // 带上各自的局数：只报百分比、不报 n，读者没法核对，判据也算不出噪声
+    // （「几倍标准误」那套要从 n 和 p 推）。tilt / contribution 的结论都带 n。
     const pair = (a: number, b: number) =>
-      `队内第一 ${a.toFixed(1)}% / 第 4 名及以后合并 ${b.toFixed(1)}%`;
+      `队内第一 ${a.toFixed(1)}%（${first?.games ?? 0} 局） / 第 4 名及以后合并 ${b.toFixed(1)}%（${lastG} 局）`;
 
     let verdict: string;
     if (degenerate) {
@@ -209,95 +211,111 @@ export async function analyzeCombat(
         `拿它分档比胜率没有意义。这一项不做结论。`;
     } else if (spread == null) {
       verdict = "样本不足（队内第一或垫底的场次不够），不下结论。";
-    } else if (Math.abs(spread) < 5) {
-      verdict = `${pair(first!.winRate, lastRate)}，差 ${spread.toFixed(1)} 个百分点 —— 看不出这项与胜负有关。`;
-    } else if (spread > 0) {
-      verdict = `${pair(first!.winRate, lastRate)}，差 ${spread.toFixed(1)} 个百分点 —— 这项做得多，赢得更多。`;
     } else {
-      const parts = [`${pair(first!.winRate, lastRate)}，第一反而低 ${Math.abs(spread).toFixed(1)} 个百分点`];
-      if (durSame) parts.push(`两队的中位时长几乎一样（${durationFirst?.toFixed(0)} 分），所以不是「久局拖出来的」`);
-      if (overlaps != null && overlaps < 0.7) {
-        parts.push(
-          `而且这项队内第一的人里只有 ${(overlaps * 100).toFixed(0)}% 对英雄伤害也第一 —— ` +
-            `说明它和「输出」在抢同一份注意力，多半是资源投到了别处，而不是「做这件事会输」`
-        );
+      // 判据按**标准误倍数**，不用固定的 5 个百分点。
+      // 和 lib/tilt.ts / lib/contribution.ts 同一个毛病、同一个改法：
+      // 同一个 5pp，在 400 局的组里是实的，在 30 局的组里连一个标准误都不到。
+      // 这三处原先都是固定阈值，comps.ts 的「4 个标准误」才是本仓库的正确样板。
+      const gap = Math.abs(spread);
+      const se = Math.sqrt(
+        Math.max(first!.winRate * (100 - first!.winRate), 1) / first!.games +
+          Math.max(lastRate * (100 - lastRate), 1) / Math.max(lastG, 1)
+      );
+      const k = se > 0 ? gap / se : 0;
+      const head = `${pair(first!.winRate, lastRate)}，差 ${spread.toFixed(1)} 个百分点（约是噪声的 ${k.toFixed(2)} 倍）`;
+      if (k < 1.5) {
+        verdict = `${head} —— 看不出这项与胜负有关。`;
+      } else if (k < 2.5) {
+        // 卡在线上：说「看不出」太轻、说「赢得更多」太满
+        verdict = `${head} —— **正好卡在「分得开」的线上**，先当倾向，别当结论。`;
+      } else if (spread > 0) {
+        verdict = `${head} —— 这项做得多，赢得更多。`;
+      } else {
+        const parts = [`${head}，第一反而更低`];
+        if (durSame) parts.push(`两队的中位时长几乎一样（${durationFirst?.toFixed(0)} 分），所以不是「久局拖出来的」`);
+        if (overlaps != null && overlaps < 0.7) {
+          parts.push(
+            `而且这项队内第一的人里只有 ${(overlaps * 100).toFixed(0)}% 对英雄伤害也第一 —— ` +
+              `说明它和「输出」在抢同一份注意力，多半是资源投到了别处，而不是「做这件事会输」`
+          );
+        }
+        verdict = parts.join("；") + "。";
       }
-      verdict = parts.join("；") + "。";
     }
 
-    const c = cover.get(m.key)!;
-    return {
-      key: m.key,
-      label: m.label,
-      coverage: c.n ? c.nonzero / c.n : 0,
-      byRank,
-      spread,
-      overlapsDamageRank: overlaps,
-      durationFirst,
-      durationLast,
-      verdict,
-    };
-  });
-
-  // 排除的字段：给出可核对的原因，而不是默默不分析
-  const excluded: CombatReport["excluded"] = [];
-  const vis = cover.get("visionScore")!;
-  if (vis.n && vis.nonzero / vis.n < 0.1) {
-    excluded.push({
-      key: "visionScore",
-      reason: `归档 ${vis.n} 行里只有 ${vis.nonzero} 行非零（${((vis.nonzero / vis.n) * 100).toFixed(0)}%）—— 海斗没有眼位系统，这个字段在这里没有意义，不分析。`,
-    });
-  }
-  const dead = cover.get("timeSpentDead")!;
-  if (!dead.n) {
-    excluded.push({
-      key: "timeSpentDead",
-      reason: "归档里 0 行有值 —— 采集列表里声明了这个字段，但数据源（SGP/LCU）实际上没给，取不到就不编。",
-    });
-  }
-
+  const c = cover.get(m.key)!;
   return {
-    playerName,
-    games: n,
-    baseWinRate: base,
-    metrics,
-    excluded,
-    note:
-      (fallback
-        ? `⚠ 没有指定账号、也解析不出身份，以下用的是**归档里出现最多的那个账号**（可能是好友，不一定是本人）。`
-        : "") +
-      `样本：归档里 ${n} 把有该账号、且有同队至少 3 人的海斗对局，该账号整体胜率 ${base.toFixed(1)}%。` +
-      `统计口径是**队内真实名次**（同队 5 人里排第几，并列算同名次）—— ` +
-      `「控制 30 秒」在不同时长的局里意义不同，但「队内第一」可比。` +
-      `样本 <${minGames} 局的分组不下结论。` +
-      `⚠ 同 contribution：赢得顺的局大家数据都好看，所以只能说相关。`,
+    key: m.key,
+    label: m.label,
+    coverage: c.n ? c.nonzero / c.n : 0,
+    byRank,
+    spread,
+    overlapsDamageRank: overlaps,
+    durationFirst,
+    durationLast,
+    verdict,
   };
+});
+
+// 排除的字段：给出可核对的原因，而不是默默不分析
+const excluded: CombatReport["excluded"] = [];
+const vis = cover.get("visionScore")!;
+if (vis.n && vis.nonzero / vis.n < 0.1) {
+  excluded.push({
+    key: "visionScore",
+    reason: `归档 ${vis.n} 行里只有 ${vis.nonzero} 行非零（${((vis.nonzero / vis.n) * 100).toFixed(0)}%）—— 海斗没有眼位系统，这个字段在这里没有意义，不分析。`,
+  });
+}
+const dead = cover.get("timeSpentDead")!;
+if (!dead.n) {
+  excluded.push({
+    key: "timeSpentDead",
+    reason: "归档里 0 行有值 —— 采集列表里声明了这个字段，但数据源（SGP/LCU）实际上没给，取不到就不编。",
+  });
+}
+
+return {
+  playerName,
+  games: n,
+  baseWinRate: base,
+  metrics,
+  excluded,
+  note:
+    (fallback
+      ? `⚠ 没有指定账号、也解析不出身份，以下用的是**归档里出现最多的那个账号**（可能是好友，不一定是本人）。`
+      : "") +
+    `样本：归档里 ${n} 把有该账号、且有同队至少 3 人的海斗对局，该账号整体胜率 ${base.toFixed(1)}%。` +
+    `统计口径是**队内真实名次**（同队 5 人里排第几，并列算同名次）—— ` +
+    `「控制 30 秒」在不同时长的局里意义不同，但「队内第一」可比。` +
+    `样本 <${minGames} 局的分组不下结论。` +
+    `⚠ 同 contribution：赢得顺的局大家数据都好看，所以只能说相关。`,
+};
 }
 
 /** 文本输出 */
 export async function combatText(opts: { puuid?: string; name?: string; minGames?: number } = {}): Promise<string> {
-  let r: CombatReport;
-  try {
-    r = await analyzeCombat(await resolveTarget(opts));
-  } catch (e: any) {
-    return `读取失败：${e?.message ?? e}`;
+let r: CombatReport;
+try {
+  r = await analyzeCombat(await resolveTarget(opts));
+} catch (e: any) {
+  return `读取失败：${e?.message ?? e}`;
+}
+const out: string[] = [];
+out.push(`${r.playerName ?? "（归档里出现最多的账号）"} · 伤害以外的贡献`);
+out.push(r.note);
+out.push("");
+if (!r.games) return out.join("\n");
+
+out.push("为什么分析这几项：做了一次字段审计，归档里采集了 34 个统计字段，");
+out.push("其中这批从来没被任何模块读过。审计结果（实测覆盖率）如下。", "");
+
+for (const m of r.metrics) {
+  out.push(`${m.label}（有值行数占比 ${(m.coverage * 100).toFixed(0)}%）：${m.verdict}`);
+  for (const b of m.byRank) {
+    out.push(
+      `  队内第 ${b.rank} 名：${b.games} 局 ${b.winRate.toFixed(1)}%（比整体 ${b.delta >= 0 ? "+" : ""}${b.delta.toFixed(1)}）${b.enough ? "" : " ← 样本少"}`
+    );
   }
-  const out: string[] = [];
-  out.push(`${r.playerName ?? "（归档里出现最多的账号）"} · 伤害以外的贡献`);
-  out.push(r.note);
-  out.push("");
-  if (!r.games) return out.join("\n");
-
-  out.push("为什么分析这几项：做了一次字段审计，归档里采集了 34 个统计字段，");
-  out.push("其中这批从来没被任何模块读过。审计结果（实测覆盖率）如下。", "");
-
-  for (const m of r.metrics) {
-    out.push(`${m.label}（有值行数占比 ${(m.coverage * 100).toFixed(0)}%）：${m.verdict}`);
-    for (const b of m.byRank) {
-      out.push(
-        `  队内第 ${b.rank} 名：${b.games} 局 ${b.winRate.toFixed(1)}%（比整体 ${b.delta >= 0 ? "+" : ""}${b.delta.toFixed(1)}）${b.enough ? "" : " ← 样本少"}`
-      );
-    }
     // 结论里说的「与垫底差 X 个百分点」是**第 4/5 名合并**算的，表里只有分开的两行 ——
     // 不把这行打出来，读者没法核对结论（结论自洽审计查出来的，和 contribution 同一类问题）。
     const low = m.byRank.filter((b) => b.rank >= 4);
@@ -305,6 +323,12 @@ export async function combatText(opts: { puuid?: string; name?: string; minGames
     if (lg > 0) {
       const lw = low.reduce((s2, b) => s2 + b.wins, 0);
       out.push(`  └ 第 4 名及以后合并：${lg} 局 ${((lw / lg) * 100).toFixed(1)}%`);
+      // 结论里引用的「差 X 个百分点」必须能在明细里找到 —— 否则读者没法核对。
+      // 是结论自洽审计（audit:verdict）提出来的：改了结论的措辞让它带上符号之后，
+      // 明细里只有两端的百分比、没有这个差值，审计就报「-7.5 在明细里找不到」。
+      if (m.spread != null) {
+        out.push(`  └ 队内第一 − 第 4 名及以后：差 ${m.spread.toFixed(1)} 个百分点`);
+      }
     }
     out.push("");
   }

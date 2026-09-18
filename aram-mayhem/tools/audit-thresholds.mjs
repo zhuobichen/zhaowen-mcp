@@ -138,10 +138,13 @@ const DIFF_REGISTRY = [
     key: "combat",
     file: "lib/combat-profile.ts",
     tool: "get_combat_profile",
-    what: "队内第一 vs 垫底，胜率差几个百分点才算「这项跟胜负有关」",
-    find: /Math\.abs\(spread\) < (\d+(?:\.\d+)?)/,
-    unit: "pp",
-    why: "未说明",
+    what: "队内第一 vs 垫底：差多少才算「这项跟胜负有关」（现在按标准误倍数）",
+    find: /if \(k < (\d+(?:\.\d+)?)\)/,
+    unit: "se",
+    // 原先是固定的 `Math.abs(spread) < 5`，和 tilt / contribution 同一个毛病。
+    // 实测这个号：承伤 12.7pp = 1.71 倍 → 原写法会说「这项做得多，赢得更多」，
+    // 对目标伤害 -14.5pp = 2.02 倍 → 边缘。都改成按标准误倍数后如实标「卡在线上」。
+    why: "从固定 5pp 改成 2.5 倍标准误；同时给结论补上了各自的局数（只报百分比没法核对，也推不出噪声）",
     hedged: false,
   },
   {
