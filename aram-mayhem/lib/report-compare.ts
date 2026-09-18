@@ -268,7 +268,11 @@ export function augmentDiff(a: Side, b: Side, noun = "两人"): string {
   }
   const rows = [...m.entries()]
     .map(([name, v]) => ({ name, gap: v.a - v.b }))
-    .filter((x) => Math.abs(x.gap) >= 0.015)
+    // 2 个百分点 —— 与文字版（lib/compare.ts 的符文偏好差异）保持一致。
+    // 原先这里是 0.015，两边**讲的是同一件事却用不同的门槛**，于是同一个双账号对比，
+    // 看文字版和看 HTML 版会列出不同的符文。是「门槛登记表」的配对检查查出来的
+    // （tools/audit-thresholds.mjs 的 sameAs 判据）。
+    .filter((x) => Math.abs(x.gap) >= 0.02)
     .sort((x, y) => Math.abs(y.gap) - Math.abs(x.gap))
     .slice(0, 12);
   if (rows.length < 2) return "";

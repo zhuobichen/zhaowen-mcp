@@ -1,17 +1,15 @@
-// 样本门槛登记与体检：每个「至少 N 局才下结论」的门槛，都要登记，并且算出它买到的是什么。
+// 门槛登记与体检：把散在各模块里的裸数字登记出来，并算清每个**买到的是什么**。
 //
-// 为什么要做：这些数是散在各个 lib/ 模块里的裸数字（8/12/15/20/30/60/100/150/300…），
-// 全库没有一处写明了推导。裸数字的危险不是「可能写错」，而是**没人知道它对不对** ——
-// 改它的时候只能靠感觉，也没法判断某个结论是否撑得起它那句话。
-//
-// 所以这里做两件事：
-//   1. **登记**：每个门槛都要在下面的 REGISTRY 里有条目（新增门槛不登记就报错）。
-//   2. **体检**：算出这个门槛在 95% 置信下能分辨多大的胜率差，写进文档。
-//      两个比例、每组 n 局时，可分辨差 ≈ 1.96·√(0.5/n)（取 p≈0.5 最坏情况）。
-//      这一步把「N 局」翻译成「能看出多少个百分点」，门槛够不够就一目了然了。
+// 两类数，是配套的：
+//   · **样本门槛**（`opts.min* ?? N`）：决定「能不能看出这个差」
+//   · **差值阈值**（`Math.abs(diff) < N`）：决定「看出多大的差才值得说」
+// 只登记一半，两个数就对不上账 —— 门槛说「15 局就能下结论」，
+// 而差值阈值要求的是「差 3 个百分点」，可 15 局根本分辨不出 3 个百分点。
+// 所以这一版把两类都登记，并给差值阈值算出「要分辨它需要多少样本」。
 //
 // 用法：
-//   node tools/audit-thresholds.mjs           # 检查（登记齐全 + 文档不漂）
+//   node tools/audit-thresholds.mjs           # 检查（登记齐全 + 配对一致 + 文档不漂）
+//   node tools/audit-thresholds.mjs --selftest
 //   node tools/audit-thresholds.mjs --write   # 重新生成 docs/THRESHOLDS.md
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -19,13 +17,13 @@ import path from "node:path";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DOC = "docs/THRESHOLDS.md";
+const read = (p) => readFileSync(path.join(ROOT, p), "utf8").replace(/\r\n/g, "\n");
 
 /**
- * 登记表。每条：这个门槛用在哪、分的是什么桶、为什么是这个数。
- * key 形如 "文件:变量名"；value 里 why 必须写实话 —— 想不出来就写「未说明」，
- * 不要编一个听起来合理的理由（那比没有更坏，下一个人会照着它改）。
+ * 样本门槛登记表（`opts.X ?? N` 扫描出来的，必须全部有条目）。
+ * why 写不出理由就写「未说明」—— 不要编一个听起来合理的，那比没有更坏，下一个人会照着改。
  */
-const REGISTRY = {
+const SAMPLE_REGISTRY = {
   "lib/matchups.ts:minGames": { tool: "get_my_matchups", splits: "对面出现过的英雄（约 170 个）", why: "未说明" },
   "lib/matchups.ts:minChampionGames": { tool: "get_my_matchups", splits: "我玩过的英雄", why: "未说明" },
   "lib/matchups.ts:perPairGames": {
@@ -38,13 +36,21 @@ const REGISTRY = {
   "lib/combat-profile.ts:minGames": { tool: "get_combat_profile", splits: "队内名次档（同上）", why: "未说明" },
   "lib/tilt.ts:minGames": { tool: "get_my_tilt", splits: "连败/连胜长度档", why: "未说明" },
   "lib/patches.ts:minGames": { tool: "get_my_patches", splits: "补丁（通常 5~10 个）", why: "只用于「列进明细」，不下结论" },
-  "lib/patches.ts:verdictMinGames": { tool: "get_my_patches", splits: "同上，但用于跨版本结论", why: "刻意比列明细的门槛高 —— 列出来是陈述事实，下结论才有样本要求" },
+  "lib/patches.ts:verdictMinGames": {
+    tool: "get_my_patches",
+    splits: "同上，但用于跨版本结论",
+    why: "刻意比列明细的门槛高 —— 列出来是陈述事实，下结论才有样本要求",
+  },
 
   "lib/comps.ts:minGames": { tool: "get_enemy_comps", splits: "对面 6 类标签 × 胜负", why: "未说明" },
   "lib/counters.ts:minItemGames": { tool: "get_counter_items", splits: "装备（成装约 150 件）", why: "未说明" },
   "lib/counters.ts:minBucketGames": { tool: "get_counter_items", splits: "对面阵容档 × 装备", why: "全库最高的门槛 —— 二维交叉，单元最多" },
 
-  "lib/empirical.ts:minGames": { tool: "get_empirical_augments 等", splits: "符文 / 组合 / 羁绊（该文件有 6 处不同门槛）", why: "同一个文件里 20/30/60/100 都出现了，未说明为何不同" },
+  "lib/empirical.ts:minGames": {
+    tool: "get_empirical_augments 等",
+    splits: "符文 / 组合 / 羁绊（该文件有 6 处不同门槛）",
+    why: "同一个文件里 20/30/60/100 都出现了，未说明为何不同",
+  },
   "lib/builds.ts:minGames": { tool: "get_my_builds", splits: "装备 × 槽位", why: "未说明" },
   "lib/queue-stats.ts:minGames": { tool: "get_queue_stats", splits: "队列（4~6 个）", why: "未说明" },
   "lib/tft-detail.ts:minGames": { tool: "get_tft_detail", splits: "棋子 / 装备", why: "未说明" },
@@ -53,26 +59,174 @@ const REGISTRY = {
   "lib/social.ts:minGames": { tool: "get_my_teammates", splits: "队友 / 对手", why: "未说明" },
 };
 
+/**
+ * 差值阈值登记表：手动登记（这类写法太多样，扫不干净），但**核对值有没有被改**。
+ * 每条带 `find`：在原文件里定位的那个片段，捕获组 1 必须是当前的值。
+ * `unit`：pp=百分点、placement=云顶名次、min=分钟、share=比例。
+ */
+const DIFF_REGISTRY = [
+  {
+    key: "trend.lol",
+    file: "lib/trend.ts",
+    tool: "get_my_trend",
+    what: "海斗周趋势：最近 4 个有效周 vs 之前 4 个，差几个百分点才叫「有趋势」",
+    find: /Math\.abs\(diff\) < (\d+(?:\.\d+)?)/,
+    unit: "pp",
+    why: "未说明",
+    hedged: false,
+  },
+  {
+    key: "trend.tft",
+    file: "lib/trend.ts",
+    tool: "get_my_trend",
+    what: "云顶周趋势：前段 vs 后段的平均名次差",
+    find: /Math\.abs\(newAvg - oldAvg\) < (\d+(?:\.\d+)?)/,
+    unit: "placement",
+    why: "未说明",
+    hedged: false,
+  },
+  {
+    key: "patches.tft",
+    file: "lib/patches.ts",
+    tool: "get_my_patches",
+    what: "云顶跨补丁：平均名次差",
+    find: /Math\.abs\(diff\) < (\d+(?:\.\d+)?)/,
+    unit: "placement",
+    why: "未说明",
+    hedged: false,
+  },
+  {
+    key: "contribution",
+    file: "lib/contribution.ts",
+    tool: "get_my_contribution",
+    what: "伤害队内第一 vs 第三及以后，胜率差几个百分点才算「有关系」",
+    find: /Math\.abs\(top\.winRate - lowWr\) < (\d+(?:\.\d+)?)/,
+    unit: "pp",
+    why: "未说明",
+    hedged: false,
+  },
+  {
+    key: "combat",
+    file: "lib/combat-profile.ts",
+    tool: "get_combat_profile",
+    what: "队内第一 vs 垫底，胜率差几个百分点才算「这项跟胜负有关」",
+    find: /Math\.abs\(spread\) < (\d+(?:\.\d+)?)/,
+    unit: "pp",
+    why: "未说明",
+    hedged: false,
+  },
+  {
+    key: "combat.duration",
+    file: "lib/combat-profile.ts",
+    tool: "get_combat_profile",
+    what: "两组的**中位时长**差几分钟以内算「时长差不多」（用来排除「久局」这个解释）",
+    find: /Math\.abs\(durationFirst - durationLast\) < (\d+(?:\.\d+)?)/,
+    unit: "min",
+    why: "不是统计阈值，是「时长可比」的实用判断",
+    hedged: true,
+  },
+  {
+    key: "compare.winrate",
+    file: "lib/compare.ts",
+    tool: "compare_accounts",
+    what: "双账号：胜率差几个百分点以内算「同一档」",
+    find: /Math\.abs\(diff\) < (\d+(?:\.\d+)?)/,
+    unit: "pp",
+    why: "未说明",
+    hedged: true,
+  },
+  {
+    key: "compare.augment",
+    file: "lib/compare.ts",
+    tool: "compare_accounts",
+    what: "双账号（文字版）：符文偏好差多少才值得列",
+    find: /Math\.abs\(x\.gap\) >= (\d+(?:\.\d+)?)/,
+    unit: "share",
+    why: "与下面 report-compare 那条是同一个语义，值却不同",
+    sameAs: "reportcompare.augment",
+  },
+  {
+    key: "reportcompare.augment",
+    file: "lib/report-compare.ts",
+    tool: "export_compare_report",
+    what: "双账号（HTML 版）：符文偏好差多少才值得列",
+    find: /Math\.abs\(x\.gap\) >= (\d+(?:\.\d+)?)/,
+    unit: "share",
+    why: "与上面 compare.augment 是同一个语义",
+    sameAs: "compare.augment",
+  },
+  {
+    key: "report.gap",
+    file: "lib/report.ts",
+    tool: "（HTML 报告内部）",
+    what: "某英雄胜率比同批人高多少个百分点才列进「高光」",
+    find: /a\.gap >= (\d+(?:\.\d+)?)/,
+    unit: "pp",
+    why: "未说明",
+    hedged: true,
+  },
+  {
+    key: "comps.noise",
+    file: "lib/comps.ts",
+    tool: "get_enemy_comps",
+    what: "对面标签间的极差要超过多少个标准误才算「有影响」",
+    // 这条没有捕获组 —— 值直接声明（见下面 raw 的取法）
+    find: /4 个标准误/,
+    value: 4,
+    unit: "se",
+    why: "全库唯一一个**跟着样本量走**的差值判据（其余都是固定数字）—— 这是对的写法",
+    hedged: true,
+  },
+  {
+    key: "combat.degenerate",
+    file: "lib/combat-profile.ts",
+    tool: "get_combat_profile",
+    what: "队内第一占比超过多少就认定「这项没有区分度」（退化检测，不是差值阈值）",
+    find: /topShare > (\d+(?:\.\d+)?)/,
+    unit: "share",
+    why: "不是差值阈值，是「分组本身失效」的检测",
+    hedged: true,
+    // 不是「差多少才值得说」，所以不参与「要分辨它需要多少样本」那套换算 ——
+    // 第一版没标这个，它被当成比例阈值算出「每组约 6 局」，纯属胡说
+    notDiff: true,
+  },
+];
+
 /** 两个比例、每组 n 局时，95% 置信下能分辨的胜率差（百分点）。取 p=0.5 最坏情况。 */
-function detectableDiff(n) {
-  return 1.96 * Math.sqrt(0.5 / n) * 100;
+const detectable = (n) => 1.96 * Math.sqrt(0.5 / n) * 100;
+/** 反过来：要分辨 d 个百分点，每组需要多少局。 */
+const nToResolve = (dPP) => Math.ceil(0.5 * Math.pow(1.96 / (dPP / 100), 2));
+
+if (process.argv.includes("--selftest")) {
+  const c1 = [[15, 36], [30, 25], [60, 18], [100, 14], [300, 8]];
+  const c2 = [[3, 2135], [5, 769], [10, 193], [20, 49]];
+  let bad = 0;
+  for (const [n, want] of c1) {
+    const got = Math.round(detectable(n));
+    if (got !== want) { bad++; console.log(`✗ 可分辨差 n=${n} 期望 ~${want}pp，得到 ${got}pp`); }
+    else console.log(`✓ 可分辨差 n=${n} → ${got}pp`);
+  }
+  for (const [d, want] of c2) {
+    const got = nToResolve(d);
+    // 允许 ±2 的取整差
+    if (Math.abs(got - want) > 2) { bad++; console.log(`✗ 反解 ${d}pp 期望 ~${want} 局，得到 ${got} 局`); }
+    else console.log(`✓ 反解 ${d}pp → 每组约 ${got} 局`);
+  }
+  console.log("");
+  console.log(bad ? `✗ 自测 ${bad} 条不通过` : `✓ 自测通过（${c1.length + c2.length} 条）`);
+  process.exit(bad ? 1 : 0);
 }
 
-// ---- 扫描源码里的门槛
-const thresholdRe = /opts\.(\w+)\s*\?\?\s*(\d+)/g;
+// ---- 扫描样本门槛
 const found = [];
 for (const f of readdirSync(path.join(ROOT, "lib")).filter((x) => x.endsWith(".ts"))) {
-  const lines = readFileSync(path.join(ROOT, "lib", f), "utf8").replace(/\r\n/g, "\n").split("\n");
-  lines.forEach((l, i) => {
-    for (const m of l.matchAll(thresholdRe)) {
-      const [, name, val] = m;
-      // 只看「样本门槛」语义的：min* / verdictMin* / perPair
-      if (!/^(min|verdictMin|perPair)/.test(name)) continue;
-      found.push({ file: `lib/${f}`, line: i + 1, name, value: Number(val), key: `lib/${f}:${name}` });
+  read(`lib/${f}`).split("\n").forEach((l, i) => {
+    for (const m of l.matchAll(/opts\.(\w+)\s*\?\?\s*(\d+)/g)) {
+      if (!/^(min|verdictMin|perPair)/.test(m[1])) continue;
+      found.push({ file: `lib/${f}`, line: i + 1, name: m[1], value: Number(m[2]), key: `lib/${f}:${m[1]}` });
     }
   });
 }
-// 同一个 key 出现多次（如 empirical 里 6 处）时合并，值列全
 const merged = new Map();
 for (const t of found) {
   const cur = merged.get(t.key) ?? { ...t, values: new Set(), lines: [] };
@@ -80,118 +234,148 @@ for (const t of found) {
   cur.lines.push(t.line);
   merged.set(t.key, cur);
 }
+const problems = [];
+for (const k of merged.keys()) if (!SAMPLE_REGISTRY[k]) problems.push(`样本门槛没登记：${k} = ${[...merged.get(k).values].join("/")}（${merged.get(k).file}:${merged.get(k).lines.join(",")}）`);
+for (const k of Object.keys(SAMPLE_REGISTRY)) if (!merged.has(k)) problems.push(`登记表里的样本门槛已不存在：${k}`);
 
-const unregistered = [...merged.keys()].filter((k) => !REGISTRY[k]);
-const staleRegistry = Object.keys(REGISTRY).filter((k) => !merged.has(k));
+// ---- 核对差值阈值（值有没有被改）
+const diffs = [];
+for (const d of DIFF_REGISTRY) {
+  const src = read(d.file);
+  const m = src.match(d.find);
+  if (!m) {
+    problems.push(`差值阈值定位失败：${d.key}（${d.file} 里找不到 ${d.find}）`);
+    continue;
+  }
+  // 有捕获组就从源码里取值（顺便核对有没有被改动）；没有捕获组的用声明值
+  const raw = m.slice(1).find((x) => x !== undefined) ?? d.value;
+  diffs.push({ ...d, value: Number(raw) });
+}
+// 配对一致性：声明 sameAs 的两条必须同值
+for (const d of diffs) {
+  if (!d.sameAs) continue;
+  const other = diffs.find((x) => x.key === d.sameAs);
+  if (!other) { problems.push(`sameAs 指向不存在的条目：${d.key} → ${d.sameAs}`); continue; }
+  // 只在 key 字典序靠前的那一侧报，否则同一处不一致会被报两遍（两个方向各一次）
+  if (d.key > other.key) continue;
+  if (other.value !== d.value) {
+    problems.push(
+      `同一语义的两个阈值不一致：${d.key}=${d.value} vs ${other.key}=${other.value}` +
+        `（${d.tool} 与 ${other.tool} 讲的是同一件事，用户会看到两套结果）`
+    );
+  }
+}
 
-// ---- 生成文档
+// ---- 渲染
 function render() {
-  const rows = [...merged.entries()]
-    .map(([k, t]) => ({ ...t, reg: REGISTRY[k] }))
+  const sampleRows = [...merged.entries()]
+    .map(([k, t]) => ({ ...t, reg: SAMPLE_REGISTRY[k] }))
     .sort((a, b) => Math.min(...a.values) - Math.min(...b.values));
-  const unstated = rows.filter((r) => /未说明/.test(r.reg?.why ?? "")).length;
   const out = [];
-  out.push("# 样本门槛登记表");
+  out.push("# 门槛登记表");
   out.push("");
   out.push("> 由 `npm run thresholds:doc` 生成（`tools/audit-thresholds.mjs`）。**不要手改**。");
   out.push("");
-  out.push("这些「至少 N 局才下结论」的数是散在各模块里的裸数字，全库没有一处写明推导。");
-  out.push("这里把每个都登记出来，并算清它**买到的是什么** —— 门槛够不够，看最后一列比看数字直观。");
+  out.push("这些数字散在各模块里，全库没有一处写明推导。这里把每个都登记出来，并算清它**买到的是什么**。");
   out.push("");
-  out.push("**可分辨差**：两组各 n 局、比胜率时，95% 置信下能分辨的最小差（百分点）。");
-  out.push("算法 `1.96·√(0.5/n)`，取 p≈0.5 的最坏情况。约等于说：小于这个差，结论跟噪声分不开。");
+  out.push("## 一、样本门槛（决定「能不能看出这个差」）");
+  out.push("");
+  out.push("**可分辨差**：两组各 n 局、比胜率时，95% 置信下能分辨的最小差（百分点），算法 `1.96·√(0.5/n)`。");
+  out.push("小于这个差，结论跟噪声分不开。");
   out.push("");
   out.push("| 门槛 | 值 | 位置 | 分的是什么桶 | 可分辨差 | 为什么是这个数 |");
   out.push("|---|---|---|---|---|---|");
-  for (const r of rows) {
-    const vals = [...r.values].sort((a, b) => a - b).join(" / ");
-    const diffs = [...r.values].sort((a, b) => a - b).map((v) => `${detectableDiff(v).toFixed(0)}pp`).join(" / ");
+  for (const r of sampleRows) {
+    const vals = [...r.values].sort((a, b) => a - b);
     out.push(
-      `| \`${r.name}\` | ${vals} | \`${r.file}:${r.lines.join(",")}\` | ${r.reg.splits} | ${diffs} | ${r.reg.why} |`
+      `| \`${r.name}\` | ${vals.join(" / ")} | \`${r.file}:${r.lines.join(",")}\` | ${r.reg.splits} | ` +
+        `${vals.map((v) => `${detectable(v).toFixed(0)}pp`).join(" / ")} | ${r.reg.why} |`
     );
   }
   out.push("");
-  out.push("## 怎么看这张表");
+  out.push("## 二、差值阈值（决定「看出多大的差才值得说」）");
   out.push("");
-  out.push("- **可分辨差大于你要讲的那句话，那个结论就撑不起来。** 例如门槛 15 局只能分辨 ~36 个");
-  out.push("  百分点的差 —— 想讲「这项做得多就赢得多」，得那个差真的很大才行。");
-  out.push("- 全库最高的是 `minBucketGames`（300 局 → 可分辨 ~8pp），最低的是 `minGamesPerWeek`（5 局 →");
-  out.push("  ~62pp）。这两个差得很远是对的：分桶越多、单元越细，每个桶需要的样本越多。");
-  out.push("- 但**同类语义用了不同数字且没写理由**的地方仍然存在（见表中「未说明」）。");
-  out.push("  这不是 bug，是「没人知道该是多少」—— 记在这里，改的时候至少知道自己在改一个有记录的空缺。");
+  out.push("**要分辨它需要多少局**：把阈值反解成所需样本（每组）。拿它跟该分析实际能拿到的样本比 ——");
+  out.push("差得越远，说明这个阈值越像是「希望」而不是「能测出来的」。");
   out.push("");
-  out.push(`共 ${rows.length} 个门槛登记在册，其中 ${unstated} 个的理由是「未说明」。`);
+  out.push("| 判据 | 值 | 位置 | 讲的是什么 | 要分辨它需要 | 为什么是这个数 |");
+  out.push("|---|---|---|---|---|---|");
+  for (const d of diffs) {
+    const need =
+      d.notDiff ? "不适用（不是差值阈值）"
+      : d.unit === "pp" ? `每组约 ${nToResolve(d.value).toLocaleString("en-US")} 局`
+      : d.unit === "share" ? `每组约 ${nToResolve(d.value * 100).toLocaleString("en-US")} 局`
+      : "不适用（不是比例）";
+    out.push(`| \`${d.key}\` | ${d.value}${d.unit === "pp" ? "pp" : d.unit === "min" ? " 分钟" : d.unit === "se" ? " 个标准误" : ""} | \`${d.file}\` | ${d.what} | ${need} | ${d.why} |`);
+  }
+  out.push("");
+  out.push("## 三、这两类数要对得上账");
+  out.push("");
+  out.push("样本门槛决定「能不能看出这个差」，差值阈值决定「看出多大的差才值得说」—— 两者是配套的。");
+  out.push("如果差值阈值对应的样本需求**远大于**该分析实际拿得到的样本，那它报出来的「有趋势/有关系」");
+  out.push("就可能是噪声。这不是说数字写错了，而是说：**它现在只能当方向参考，不能当结论。**");
+  out.push("");
+  out.push("按「要分辨它需要的样本」从大到小排（同一语义的配对只列一次）：");
+  out.push("");
+  out.push("| 判据 | 阈值 | 要分辨它需要 | 该分析的典型样本 | 措辞有没有打折扣 |");
+  out.push("|---|---|---|---|---|");
+  const seenPair = new Set();
+  const worst = diffs
+    .filter((d) => !d.notDiff && (d.unit === "pp" || d.unit === "share"))
+    .filter((d) => {
+      if (!d.sameAs) return true;
+      const pairKey = [d.key, d.sameAs].sort().join("|");
+      if (seenPair.has(pairKey)) return false;
+      seenPair.add(pairKey);
+      return true;
+    })
+    .map((d) => ({ ...d, need: nToResolve(d.unit === "share" ? d.value * 100 : d.value) }))
+    .sort((a, b) => b.need - a.need);
+  for (const w of worst) {
+    const pp = w.unit === "share" ? `${(w.value * 100).toFixed(1)}pp` : `${w.value}pp`;
+    const typical = w.unit === "share" ? "分组样本通常几百" : "几十~几百局";
+    out.push(`| \`${w.key}\` | ${pp} | 每组约 ${w.need.toLocaleString("en-US")} 局 | ${typical} | ${w.hedged ? "有" : "**没有**"} |`);
+  }
+  out.push("");
+  out.push("`comps.noise` 是全库唯一一个跟着样本量走的差值判据（4 个标准误），其余都是固定数字。");
+  out.push("固定数字不是错，但换成 `k 个标准误` 就能自动随样本量收紧 —— 上面这几条里值得优先考虑的改法。");
+  out.push("");
+  const unstated = sampleRows.filter((r) => /未说明/.test(r.reg.why)).length + diffs.filter((d) => /未说明/.test(d.why)).length;
+  out.push(`共 ${sampleRows.length} 个样本门槛 + ${diffs.length} 个差值阈值登记在册；其中 ${unstated} 个的理由是「未说明」。`);
+  out.push("理由写不出来就写「未说明」—— 不要编一个听起来合理的，那比没有更坏，下一个人会照着它改。");
   out.push("");
   out.push("## 怎么维护");
   out.push("");
-  out.push("新增一个样本门槛（`opts.min* ?? N`）后，`npm run audit:thresholds` 会报「有门槛没登记」。");
-  out.push("在 `tools/audit-thresholds.mjs` 的 `REGISTRY` 里加上条目再 `npm run thresholds:doc`。");
-  out.push("**理由写不出来就写「未说明」**，不要编一个听起来合理的 —— 那比没有更坏，下一个人会照着它改。");
+  out.push("新增样本门槛（`opts.min* ?? N`）后，`npm run audit:thresholds` 会报「没登记」；");
+  out.push("在 `SAMPLE_REGISTRY` 加条目。新增差值阈值则在 `DIFF_REGISTRY` 加条目（带定位用的 `find` 正则）。");
+  out.push("声明为同一语义的两条（`sameAs`）值不一致时会直接报错。");
   return out.join("\n") + "\n";
 }
 
-if (process.argv.includes("--selftest")) {
-  // 判据自测：可分辨差的算法本身
-  const cases = [[15, 36], [30, 25], [60, 18], [100, 14], [300, 8]];
-  let bad = 0;
-  for (const [n, want] of cases) {
-    const got = Math.round(detectableDiff(n));
-    const ok = got === want;
-    if (!ok) bad++;
-    console.log(`${ok ? "✓" : "✗"} n=${n} 期望 ~${want}pp，得到 ${got}pp`);
-  }
-  console.log("");
-  console.log(bad ? `✗ 自测 ${bad} 条不通过` : `✓ 自测通过（${cases.length} 条）`);
-  process.exit(bad ? 1 : 0);
-}
-
 if (process.argv.includes("--write")) {
-  if (unregistered.length) {
-    console.log("✗ 有门槛没登记，先把它们加进 REGISTRY：");
-    for (const k of unregistered) console.log(`  · ${k}（值 ${[...merged.get(k).values].join("/")}，${merged.get(k).file}:${merged.get(k).lines.join(",")}）`);
+  if (problems.length) {
+    console.log("✗ 先把这些问题解决再生成：");
+    for (const p of problems) console.log(`  · ${p}`);
     process.exit(1);
   }
   if (!existsSync(path.join(ROOT, "docs"))) mkdirSync(path.join(ROOT, "docs"));
   writeFileSync(path.join(ROOT, DOC), render(), "utf8");
-  console.log(`✓ 已写出 ${DOC}（${merged.size} 个门槛）`);
+  console.log(`✓ 已写出 ${DOC}（${merged.size} 个样本门槛 + ${diffs.length} 个差值阈值）`);
   process.exit(0);
 }
 
-// ---- 默认：检查
-let problems = 0;
-if (unregistered.length) {
-  problems += unregistered.length;
-  console.log("✗ 这些样本门槛没登记（新增的话请在 REGISTRY 里加一条）：");
-  for (const k of unregistered) console.log(`  · ${k} = ${[...merged.get(k).values].join("/")}（${merged.get(k).file}:${merged.get(k).lines.join(",")}）`);
+const docPath = path.join(ROOT, DOC);
+if (!problems.length && (!existsSync(docPath) || read(DOC) !== render())) {
+  problems.push(`${DOC} 与源码不一致（跑 npm run thresholds:doc 重生成）`);
 }
-if (staleRegistry.length) {
-  problems += staleRegistry.length;
-  console.log("✗ 登记表里这些条目已经不存在了（门槛被删或改名）：");
-  for (const k of staleRegistry) console.log(`  · ${k}`);
-}
-// 登记的值跟源码对不对得上
-for (const [k, t] of merged) {
-  const reg = REGISTRY[k];
-  if (!reg) continue;
-  const want = reg.value;
-  if (want !== undefined && !t.values.has(want)) {
-    problems++;
-    console.log(`✗ ${k} 登记的值是 ${want}，源码里是 ${[...t.values].join("/")}`);
-  }
-}
-if (!problems) {
-  const docPath = path.join(ROOT, DOC);
-  const drifted = !existsSync(docPath) || readFileSync(docPath, "utf8").replace(/\r\n/g, "\n") !== render();
-  if (drifted) {
-    problems++;
-    console.log(`✗ ${DOC} 与源码不一致（跑 npm run thresholds:doc 重生成）`);
-  }
-}
+
 console.log("");
-const unstated = [...merged.keys()].filter((k) => /未说明/.test(REGISTRY[k]?.why ?? "")).length;
+for (const p of problems) console.log(`  ✗ ${p}`);
+const unstated = [...merged.keys()].filter((k) => /未说明/.test(SAMPLE_REGISTRY[k]?.why ?? "")).length
+  + diffs.filter((d) => /未说明/.test(d.why)).length;
 console.log(
-  problems
-    ? `✗ 样本门槛登记有 ${problems} 处问题`
-    : `✓ ${merged.size} 个样本门槛都已登记、文档与源码一致（其中 ${unstated} 个的理由是「未说明」）`
+  problems.length
+    ? `✗ 门槛登记有 ${problems.length} 处问题`
+    : `✓ ${merged.size} 个样本门槛 + ${diffs.length} 个差值阈值都已登记、配对一致、文档与源码同步（其中 ${unstated} 个理由是「未说明」）`
 );
-process.exit(problems ? 1 : 0);
+process.exit(problems.length ? 1 : 0);
