@@ -40,7 +40,7 @@ import {
   championGuide,
   comparePatches,
   dataInfo,
-  getAugmentTool,
+  getAugmentToolAsync,
   listChampions,
   listSynergySets,
   searchAugmentsTool,
@@ -477,7 +477,7 @@ async function main() {
 
         case "get_augment":
           if (!args.name) return text("请提供符文名 name");
-          return text(getAugmentTool({ name: String(args.name) }));
+          return text(await getAugmentToolAsync({ name: String(args.name) }));
 
         case "list_synergy_sets":
           return text(listSynergySets({ query: args.query ? String(args.query) : undefined }));

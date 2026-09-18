@@ -455,3 +455,48 @@ export function rarityOptions(): string {
 }
 
 export type { Champion };
+
+/**
+ * 符文详情 + **本机实证**（异步版）。
+ *
+ * 社区站的胜率是全服口径，跟本机这批对局未必可比；这里再补一段：
+ * 「在你归档的这几千把里，这个符文多少局、胜率多少；和谁一起拿更好、和谁一起拿更差」。
+ * 数据来自本地归档，扫一遍约 150ms，所以直接在详情里带上，不用另开工具。
+ */
+export async function getAugmentToolAsync(args: { name: string; empirical?: boolean }): Promise<string> {
+  const base = getAugmentTool(args);
+  // 没解析出唯一目标（没找到 / 命中多个）就别硬加，免得张冠李戴
+  const matches = searchAugments(args.name, { limit: 10 });
+  const exact = matches.filter((m) => m.how === "完全同名");
+  if (!matches.length || (!exact.length && matches.length > 1)) return base;
+  const target = (exact[0] ?? matches[0]).augment;
+  if (target.officialId == null) {
+    return base + "\n\n本机实证：这条符文没有官方数字 id（对局记录里认不出来），无法统计。";
+  }
+  if (args.empirical === false) return base;
+
+  try {
+    const { augmentEmpirical } = await import("./empirical.js");
+    const e = await augmentEmpirical(target.officialId);
+    const out = [base, "", "本机实证（数据来自本地归档，非社区站口径）："];
+    if (e.self) {
+      out.push(
+        `  · 在你归档的对局里被拿到 ${e.self.games} 次，胜率 ${e.self.winRate.toFixed(1)}%` +
+          `（比全体基准 ${e.self.delta >= 0 ? "+" : ""}${e.self.delta.toFixed(1)} 个百分点）`
+      );
+    } else {
+      out.push("  · 归档里几乎没有它的记录（样本不足），不下结论。");
+    }
+    if (e.topPairs.length) {
+      out.push("  · 一起拿最赚的：" + e.topPairs.map((p) => `${p.with}（${p.games} 局 ${p.winRate.toFixed(0)}%，协同 ${p.synergy >= 0 ? "+" : ""}${p.synergy.toFixed(1)}）`).join("、"));
+    }
+    if (e.worstPairs.length) {
+      out.push("  · 一起拿最亏的：" + e.worstPairs.map((p) => `${p.with}（${p.games} 局 ${p.winRate.toFixed(0)}%，协同 ${p.synergy >= 0 ? "+" : ""}${p.synergy.toFixed(1)}）`).join("、"));
+    }
+    out.push(`  · ${e.note}`);
+    return out.join("\n");
+  } catch (err: any) {
+    // 归档为空等情况下静默降级：详情本身仍然可用，不因为补不上实证就报错
+    return base;
+  }
+}

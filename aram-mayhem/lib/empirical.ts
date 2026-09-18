@@ -340,6 +340,88 @@ export async function checkSynergySets(
   };
 }
 
+export interface AugmentEmpirical {
+  /** 该符文本身：全归档样本下的场次与胜率 */
+  self: { games: number; wins: number; winRate: number; delta: number } | null;
+  /** 和别人同局一起拿到时，协同最强/最弱的几个（样本够才列） */
+  topPairs: Array<{ with: string; games: number; winRate: number; synergy: number }>;
+  worstPairs: Array<{ with: string; games: number; winRate: number; synergy: number }>;
+  /** 一共扫了多少行 */
+  rows: number;
+  note: string;
+}
+
+/**
+ * 查单个符文的实证数据（符文详情页用）。
+ * 一次扫描同时拿到「它自己」和「它和谁一起拿更好/更差」，避免调两个函数扫两遍。
+ */
+export async function augmentEmpirical(officialId: number, opts: { minGames?: number } = {}): Promise<AugmentEmpirical> {
+  const d = loadData();
+  const { acc, rows } = await scan(
+    () => ({ singles: new Map<number, Tally>(), pairs: new Map<string, Tally>(), all: { games: 0, wins: 0 } }),
+    (acc, ids, win) => {
+      acc.all.games++;
+      if (win) acc.all.wins++;
+      for (const id of ids) {
+        const c = acc.singles.get(id) ?? { games: 0, wins: 0 };
+        c.games++;
+        if (win) c.wins++;
+        acc.singles.set(id, c);
+      }
+      // 只记和这个符文有关的组合，省掉无用的组合爆炸
+      if (!ids.includes(officialId)) return;
+      for (const other of ids) {
+        if (other === officialId) continue;
+        const k = String(other);
+        const c = acc.pairs.get(k) ?? { games: 0, wins: 0 };
+        c.games++;
+        if (win) c.wins++;
+        acc.pairs.set(k, c);
+      }
+    }
+  );
+
+  const base = rate(acc.all);
+  const selfTally = acc.singles.get(officialId);
+  const name = (id: number) => d.augments.find((x) => x.officialId === id)?.name ?? `未知符文#${id}`;
+
+  const minGames = opts.minGames ?? 60;
+  const pairs = [...acc.pairs.entries()]
+    .filter(([, t]) => t.games >= minGames)
+    // 本地符文库里查不到名字的不列：说不出名字的组合没法拿来指导选符文
+    .filter(([k]) => !name(Number(k)).startsWith("未知符文"))
+    .map(([k, t]) => {
+      const other = Number(k);
+      const solo = acc.singles.get(other) ?? { games: 0, wins: 0 };
+      const wr = rate(t);
+      return {
+        with: name(other),
+        games: t.games,
+        winRate: wr,
+        // 协同 = 一起拿 − 两件单拿的平均
+        synergy: wr - (rate(selfTally ?? { games: 0, wins: 0 }) + rate(solo)) / 2,
+      };
+    })
+    .sort((a, b) => b.synergy - a.synergy);
+
+  return {
+    self: selfTally
+      ? {
+          games: selfTally.games,
+          wins: selfTally.wins,
+          winRate: rate(selfTally),
+          delta: rate(selfTally) - base,
+        }
+      : null,
+    topPairs: pairs.slice(0, 5),
+    worstPairs: pairs.slice(-5).reverse(),
+    rows,
+    note:
+      `样本：本机归档里 ${rows} 行真实对局记录（每行 = 某玩家某局的符文与胜负），全员整体胜率 ${base.toFixed(1)}%。` +
+      `组合只列同局一起出现过 ≥${minGames} 次的。这是观察数据：符文由玩家自选，含选择偏差。`,
+  };
+}
+
 // ---------------------------------------------------------------- 文本输出
 
 const pct = (v: number) => `${v.toFixed(1)}%`;
