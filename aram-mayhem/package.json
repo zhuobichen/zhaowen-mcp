@@ -36,7 +36,9 @@
     "patches": "tsx lib/patches-probe.ts",
     "comps": "tsx lib/comps-probe.ts",
     "counters": "tsx lib/counters-probe.ts",
-    "contribution": "tsx lib/contribution-probe.ts"
+    "contribution": "tsx lib/contribution-probe.ts",
+    "tilt": "tsx lib/tilt-probe.ts",
+    "checkup": "tsx lib/checkup-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

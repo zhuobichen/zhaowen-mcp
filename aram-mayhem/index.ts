@@ -32,6 +32,8 @@ import { patchesText } from "./lib/patches.js";
 import { compsText } from "./lib/comps.js";
 import { countersText } from "./lib/counters.js";
 import { contributionText } from "./lib/contribution.js";
+import { tiltText } from "./lib/tilt.js";
+import { checkupText } from "./lib/checkup.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -305,13 +307,36 @@ async function main() {
       {
         name: "export_games_csv",
         description:
-          "把对局明细导成 CSV（写到仓库 reports/ 目录，带 BOM，Excel 直接打开不乱码）：日期/时间/队列/英雄/胜负/KDA/伤害/金币/符文/装备/多杀。可选 kind=mayhem(默认,只看海斗) / lol(所有模式) / tft(云顶)。可传 who 导好友的。读不到的字段留空而不是填 0。",
+          "把对局明细导成 CSV（写到仓库 reports/ 目录，带 BOM，Excel 直接打开不乱码）：日期/时间/队列/英雄/胜负/KDA/伤害/金币/符文/装备/多杀/队内伤害名次/对面阵容构成（各定位人数）。可选 kind=mayhem(默认,只看海斗) / lol(所有模式) / tft(云顶)。可传 who 导好友的。读不到的字段留空而不是填 0。",
         inputSchema: {
           type: "object",
           properties: {
             who: { type: "string", description: "可选：导出哪个账号（好友名，部分匹配）。不传就是自己" },
             kind: { type: "string", enum: ["mayhem", "lol", "tft"], description: "导什么：海斗 / 英雄联盟全部模式 / 云顶（默认 mayhem）" },
             out: { type: "string", description: "可选：自定义输出路径" },
+          },
+        },
+      },
+      {
+        name: "get_my_checkup",
+        description:
+          "一键体检：把各维度的结论收拢成一份「该看哪几条」，按偏离基准的幅度排序（连败影响、近期走势、补丁适应、要不要自己 carry、最怕的对手、符文相对同批人的优劣、该换的装备）。不做新统计，只做筛选排序；样本不够的维度会单独列出来而不是静默省略。想知道某条细节就再用对应工具。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+          },
+        },
+      },
+      {
+        name: "get_my_tilt",
+        description:
+          "连败/连胜之后的表现（tilt 分析）：输了之后继续打是打得更差还是照样、赢了之后会不会飘。也给出「上一把输了、30 分钟内接着开」这一更严格口径。输出里会说明胜率本来就会向 50% 回归，接近基准不等于有影响。默认查自己，可传 who。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            min_games: { type: "number", description: "每个分组至少多少局才下结论（默认 20）" },
           },
         },
       },
@@ -613,6 +638,17 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_my_checkup":
+          return text(await checkupText({ who: args.who ? String(args.who) : undefined }));
+
+        case "get_my_tilt":
+          return text(
+            await tiltText({
+              who: args.who ? String(args.who) : undefined,
+              minGames: args.min_games ? Number(args.min_games) : undefined,
             })
           );
 

@@ -127,6 +127,8 @@ export async function exportCsv(
     "双杀", "三杀", "四杀", "五杀", "首杀",
     "符文1", "符文2", "符文3", "符文4", "符文5", "符文6",
     "装备1", "装备2", "装备3", "装备4", "装备5", "装备6",
+    // 队内名次（伤害）与对面阵容构成，方便自己在 Excel 里做交叉切片
+    "队内伤害名次", "对面坦克", "对面战士", "对面刺客", "对面法师", "对面射手", "对面辅助",
   ];
   const d = loadData();
   // 少数 id 在本地符文库里查不到（实测是已轮换掉/别的不在池列表里的符文）——如实标成「未知符文#id」而不是留空
@@ -149,6 +151,30 @@ export async function exportCsv(
     const k = Number(s.kills ?? 0),
       dd = Number(s.deaths ?? 0),
       a = Number(s.assists ?? 0);
+
+    // 队内伤害名次（只在有队友数据时才算，LCU 那种只有自己一行的局留空）
+    const mates = (g.participants ?? []).filter(
+      (x: any) => x.teamId === p.teamId && x.puuid !== puuid
+    );
+    const myDmg = Number(s.totalDamageDealtToChampions ?? 0);
+    const dmgRank =
+      mates.length >= 2
+        ? 1 + mates.filter((x: any) => Number((x.stats as any)?.totalDamageDealtToChampions ?? 0) > myDmg).length
+        : "";
+
+    // 对面阵容构成（按 Riot 官方定位标签数人头；一名英雄可挂多个标签）
+    const foeRoles: Record<string, number> = {};
+    if (mates.length) {
+      for (const x of g.participants ?? []) {
+        if (x.teamId === p.teamId || !x.championId) continue;
+        const cid = d.championIds[String(x.championId)];
+        const roles = cid ? d.championById.get(cid.id)?.roles ?? [] : [];
+        for (const r of new Set(roles)) foeRoles[r] = (foeRoles[r] ?? 0) + 1;
+      }
+    }
+    const foeCols = ["tank", "fighter", "assassin", "mage", "marksman", "support"].map((r) =>
+      mates.length ? foeRoles[r] ?? 0 : ""
+    );
     const augs = [1, 2, 3, 4, 5, 6].map((i) => augName(s[`playerAugment${i}`]));
     const items = [0, 1, 2, 3, 4, 5].map((i) => itemName(s[`item${i}`]));
     lines.push(
@@ -166,6 +192,8 @@ export async function exportCsv(
         s.firstBloodKill === undefined ? "" : s.firstBloodKill ? 1 : 0,
         ...augs,
         ...items,
+        dmgRank,
+        ...foeCols,
       ])
     );
   }
