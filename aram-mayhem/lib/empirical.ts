@@ -621,10 +621,44 @@ export async function empiricalPairsText(
     return out.join("\n");
   }
 
+  // 这份榜单是**从 N 个候选里挑最大值** —— 而取极值本身就会造出大的差值：
+  // N 个独立标准正态的极值期望约 √(2·ln N)，N=455 时约 3.5。
+  // 也就是说，光靠噪声就能造出「3.5 个标准误」那么大的「最强协同」。
+  // 不把这层说出来，「协同最强」会被读成「这几对真的特别搭」。
+  // （是「门槛登记表」的扫描查出来的：组合有 22164 个单元，门槛 60 下仍留 455 条。）
+  const seOfPair = (p: EmpiricalPair) =>
+    Math.sqrt(Math.max(p.winRate * (100 - p.winRate), 1) / Math.max(p.games, 1));
+  const ses = r.pairs.map(seOfPair).sort((a, b) => a - b);
+  const medSE = ses.length ? ses[Math.floor(ses.length / 2)] : 0;
+  const maxZ = Math.sqrt(2 * Math.log(Math.max(r.pairs.length, 2)));
+  const noiseCeil = medSE * maxZ; // 纯噪声能造出的最大协同（百分点）
+  const kOf = (p: EmpiricalPair) => (seOfPair(p) > 0 ? Math.abs(p.synergy) / seOfPair(p) : 0);
+
   const line = (p: EmpiricalPair) =>
     `  · ${p.a} + ${p.b}：${p.games} 局 ${pct(p.winRate)}` +
-    `（单拿分别 ${pct(p.soloA)} / ${pct(p.soloB)} → 协同 ${signed(p.synergy)}）`;
+    `（单拿分别 ${pct(p.soloA)} / ${pct(p.soloB)} → 协同 ${signed(p.synergy)}，` +
+    `约是它自己噪声的 ${kOf(p).toFixed(1)} 倍）`;
 
+  const topPair = r.pairs[0];
+  const topIsNoise = topPair ? Math.abs(topPair.synergy) < noiseCeil : true;
+  out.push(
+    `候选 ${r.pairs.length} 对够样本。**这是从这么多对里挑最大值** —— ` +
+      `${r.pairs.length} 个候选的极值，光噪声就能造出约 ±${noiseCeil.toFixed(1)} 个百分点的「最强协同」` +
+      `（按 √(2·ln N) × 中等标准误 ${medSE.toFixed(1)} 估）。`
+  );
+  out.push(
+    topIsNoise
+      ? `所以「最高的那一对」这个事实本身不构成证据 —— 从 ${r.pairs.length} 条里挑最大，最大值本来就有这么大。`
+      : `最高的一对超过了这个量级，但那只说明它一条突出，不代表整份清单都可信。`
+  );
+  // 两个数字回答的是**不同的问题**，不写清楚会看着像自相矛盾：
+  //   · 每条后面的「几倍」= 这一条比不比 0 大（单次比较）
+  //   · 上面那个 ±X = 整份榜单的尺度（从 N 条里挑最大，最大值本来就这么大）
+  out.push(
+    `注意这两个尺度不是一回事：**逐条**看，某一条可能有 3~4 倍的自身信号（那条大概率是真的）；` +
+      `但「它是这 ${r.pairs.length} 条里最高的」这件事**本身**不构成额外证据。选的时候按前者判断，别按排名。`
+  );
+  out.push("");
   out.push(`协同最强（一起拿 > 分开拿）：`);
   for (const p of r.pairs.slice(0, top)) out.push(line(p));
   out.push("", `协同最弱（一起拿反而更差）：`);
@@ -632,6 +666,7 @@ export async function empiricalPairsText(
   out.push(
     "",
     "怎么读：「协同」是正数才说明 1+1>2；负数往往是两个符文抢同一件装备/同一个流派，或者只是样本少。",
+    "每条后面标了「约是它自己噪声的几倍」—— 不到 2 倍的跟 0 分不开。",
     "样本 < 阈值的一律不列，避免把两三局的偶然当结论。"
   );
   return out.join("\n");

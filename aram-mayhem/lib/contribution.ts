@@ -14,6 +14,7 @@
  */
 import { archivedGamesFor } from "./archive.js";
 import { isMayhemGame } from "./lcu.js";
+import { RANK_BUCKET_MIN_GAMES } from "./thresholds.js";
 
 export interface RankBucket {
   /** 队内排名（1 = 最高） */
@@ -123,7 +124,8 @@ export async function analyzeContribution(
   const n = rows.length;
   const wins = rows.filter((r) => r.win).length;
   const base = n ? (wins / n) * 100 : 0;
-  const minGames = opts.minGames ?? 15;
+  // 与 get_combat_profile 共用同一个常量（同一套「队内名次分档」）—— 见 lib/thresholds.ts
+  const minGames = opts.minGames ?? RANK_BUCKET_MIN_GAMES;
 
   const buildMetric = (metric: keyof Omit<Row, "win" | "mates">, label: string, note: string): MetricContribution => {
     // 队内排名 = 同队里比我高的人数 + 1（严格大于，并列算同名次）

@@ -20,6 +20,7 @@
  */
 import { archivedGamesFor } from "./archive.js";
 import { isMayhemGame } from "./lcu.js";
+import { RANK_BUCKET_MIN_GAMES } from "./thresholds.js";
 
 export interface MetricRow {
   key: string;
@@ -145,7 +146,8 @@ export async function analyzeCombat(
   const n = rows.length;
   const wins = rows.filter((r) => r.win).length;
   const base = n ? (wins / n) * 100 : 0;
-  const minGames = opts.minGames ?? 15;
+  // 与 get_my_contribution 共用同一个常量（同一套「队内名次分档」）—— 见 lib/thresholds.ts
+  const minGames = opts.minGames ?? RANK_BUCKET_MIN_GAMES;
 
   const metrics: MetricRow[] = METRICS.map((m) => {
     const bucket = new Map<number, { g: number; w: number }>();

@@ -45,12 +45,12 @@ const SAMPLE_REGISTRY = {
   "lib/contribution.ts:analyzeContribution:minGames": {
     tool: "get_my_contribution",
     splits: "队内名次档（第 1 / 2 / 3 / 4 及以后）",
-    why: "实测（thresholds:sweep）：5~80 之间取值都不改变结论的数值 —— 它只决定「够不够下结论」，不改变效应本身。效应 12.6pp / 标准误 6.4 / 比值 2.0，在临界。这个号 306 局的量级下，门槛定多少都一样",
+    why: "**已与 get_combat_profile 合并成共用常量** `RANK_BUCKET_MIN_GAMES`（lib/thresholds.ts）—— 两处是同一套「队内名次分档」，原先各写了一个 15，数值碰巧一样，但改一处忘另一处不会有任何提示。取值 15 本身仍然**未说明**：实测（thresholds:sweep）它在 5~80 之间都不改变结论，没有任何观测支持 15 比别的更好",
   },
   "lib/combat-profile.ts:analyzeCombat:minGames": {
     tool: "get_combat_profile",
     splits: "队内名次档（同上，6 个指标各分一次）",
-    why: "未说明。与 contribution / tilt 同为「队内名次分档」语义，三处用了 15 / 15 / 20 三个不同数字，看不出区别的依据",
+    why: "**已与 get_my_contribution 合并成共用常量** `RANK_BUCKET_MIN_GAMES`（lib/thresholds.ts）。get_my_tilt 的 20 是**有意独立**的（它分的是连败/连胜长度桶，不是队内名次，桶的含义与分布都不同），已在常量文件里注明。实测（thresholds:sweep）：这几处在 5~80 之间都不改变结论",
   },
   "lib/tilt.ts:analyzeTilt:minGames": {
     tool: "get_my_tilt",
@@ -99,12 +99,12 @@ const SAMPLE_REGISTRY = {
   "lib/empirical.ts:empiricalPairs:minGames": {
     tool: "get_augment_pairs",
     splits: "符文两两组合（组合数远多于单件）",
-    why: "实测（thresholds:sweep）：组合有 **22164 个单元**，门槛 60 下仍留 455 条（2%）—— 这个是**真的在 bind**。但方向是反的：组合的单元比单件多两个数量级、门槛反而更低（60 vs 100），从「单元越多越容易被噪声挑中」的角度应该更高",
+    why: "实测（thresholds:sweep）：组合有 **22164 个单元**，门槛 60 下仍留 455 条（2%）—— 这个是**真的在 bind**。数字本身仍未说明（方向还是反的：单元比单件多两个数量级、门槛反而更低），但**后果已经在输出里处理了**：现在会算出「从 455 条里挑最大、光噪声就有 ±19pp」并逐条标出各自的倍数",
   },
   "lib/empirical.ts:augmentEmpirical:minGames": {
     tool: "get_augment（本机实证段）",
     splits: "单件符文（与 empiricalAugments 同类）",
-    why: "**未说明**：与 empiricalAugments 是同一类统计，门槛却是 60 vs 100，两者的差别没有依据",
+    why: "**未说明**：与 empiricalAugments 是同一类统计（单件符文的胜率），门槛却是 60 vs 100。实测（thresholds:sweep）那边 100 保住 210/277 条（基本不 bind），这边 60 更松 —— 两者的差别没有依据，只是两处各写了一遍",
   },
   "lib/empirical.ts:othersAugmentRates:minGames": {
     tool: "get_augment / get_empirical_augments（对照口径）",
@@ -360,15 +360,35 @@ if (process.argv.includes("--selftest")) {
 // （符文榜 100 / 组合 60 / 羁绊 30 / 英雄×符文 20…）。只用 `文件:变量名` 当键，
 // 它们会被合并成一条，登记表里就只能写「同文件多个门槛，未说明为何不同」——
 // 而那个「为何不同」正是要回答的问题。
+// 共用常量也要认：`opts.minGames ?? RANK_BUCKET_MIN_GAMES` 这种写法没有裸数字，
+// 只有一条正则认数字的话，两条门槛会被报成「已不存在」——
+// 而把它们提成共用常量恰恰是这一版做的事（见 lib/thresholds.ts）。
+const sharedConsts = new Map();
+for (const m of read("lib/thresholds.ts").matchAll(/export const (\w+)[^=]*=\s*(\d+)/g)) {
+  sharedConsts.set(m[1], Number(m[2]));
+}
+
 const found = [];
+const unresolvedConsts = [];
 for (const f of readdirSync(path.join(ROOT, "lib")).filter((x) => x.endsWith(".ts"))) {
   let fn = "(顶层)";
   read(`lib/${f}`).split("\n").forEach((l, i) => {
     const fm = l.match(/^(?:export )?(?:async )?function (\w+)/);
     if (fm) fn = fm[1];
-    for (const m of l.matchAll(/opts\.(\w+)\s*\?\?\s*(\d+)/g)) {
+    for (const m of l.matchAll(/opts\.(\w+)\s*\?\?\s*(\d+|\w+)/g)) {
       if (!/^(min|verdictMin|perPair)/.test(m[1])) continue;
-      found.push({ file: `lib/${f}`, line: i + 1, name: m[1], value: Number(m[2]), fn, key: `lib/${f}:${fn}:${m[1]}` });
+      const raw = m[2];
+      let value;
+      let viaConst = null;
+      if (/^\d+$/.test(raw)) value = Number(raw);
+      else if (sharedConsts.has(raw)) {
+        value = sharedConsts.get(raw);
+        viaConst = raw;
+      } else {
+        unresolvedConsts.push(`lib/${f}:${i + 1} 的 ${m[1]} ?? ${raw} —— 常量 ${raw} 不在 lib/thresholds.ts 里`);
+        continue;
+      }
+      found.push({ file: `lib/${f}`, line: i + 1, name: m[1], value, fn, viaConst, key: `lib/${f}:${fn}:${m[1]}` });
     }
   });
 }
@@ -379,7 +399,7 @@ for (const t of found) {
   cur.lines.push(t.line);
   merged.set(t.key, cur);
 }
-const problems = [];
+const problems = [...unresolvedConsts];
 for (const k of merged.keys()) if (!SAMPLE_REGISTRY[k]) problems.push(`样本门槛没登记：${k} = ${[...merged.get(k).values].join("/")}（${merged.get(k).file}:${merged.get(k).lines.join(",")}）`);
 for (const k of Object.keys(SAMPLE_REGISTRY)) if (!merged.has(k)) problems.push(`登记表里的样本门槛已不存在：${k}`);
 
@@ -433,7 +453,7 @@ function render() {
   for (const r of sampleRows) {
     const vals = [...r.values].sort((a, b) => a - b);
     out.push(
-      `| \`${r.name}\` | ${vals.join(" / ")} | \`${r.file}:${r.lines.join(",")}\` | ${r.reg.splits} | ` +
+      `| \`${r.name}\`${r.viaConst ? "（共用常量）" : ""} | ${vals.join(" / ")} | \`${r.file}:${r.lines.join(",")}\` | ${r.reg.splits} | ` +
         `${vals.map((v) => `${detectable(v).toFixed(0)}pp`).join(" / ")} | ${r.reg.why} |`
     );
   }
