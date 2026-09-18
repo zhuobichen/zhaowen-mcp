@@ -67,7 +67,7 @@ const SAMPLE_REGISTRY = {
   "lib/patches.ts:analyzePatches:verdictMinGames": {
     tool: "get_my_patches",
     splits: "同上，但用于跨版本结论（第 216 行判定、第 294 行注释文本各读一次）",
-    why: "刻意比列明细的门槛高 —— 列出来是陈述事实，下结论才有样本要求",
+    why: "实测（thresholds:sweep）：**这个门槛在真干活** —— 扫 3/5/8 时它拿「11 局 81.8% vs 9 局 33.3%」报「新版好 48.5 个百分点」；到 15 才切到 27/40 局的窗口、如实说「基本持平」。低于 15 就会严重过度声称，所以它是必需的下限。原话「列出来是陈述事实，下结论才有样本要求」说的是意图，扫描补上的是证据",
   },
 
   // ---- 对面阵容
@@ -84,7 +84,7 @@ const SAMPLE_REGISTRY = {
   "lib/counters.ts:analyzeCounters:minBucketGames": {
     tool: "get_counter_items",
     splits: "对面阵容档 × 装备",
-    why: "全库最高的门槛 —— 二维交叉，单元最多",
+    why: "实测（thresholds:sweep）：门槛 30→1200 都是 **5 档 / 50 条** —— **从不 bind**（计数是按所有参与者行算的，每个阵容档本来就上千行）。原话「二维交叉，单元最多」是它**为什么定这么高**的理由，但在这个号的量级上它不起作用",
   },
 
   // ---- lib/empirical.ts：**一个文件 8 处、7 个函数**，之前只能合并成一行写「未说明为何不同」。
@@ -142,7 +142,7 @@ const SAMPLE_REGISTRY = {
   "lib/queue-stats.ts:queueStatsText:minGames": {
     tool: "get_queue_stats（输出层）",
     splits: "同上，注释文本里重读一次",
-    why: "是同一个选项在文案里重读，值一致（10）。**但两处各写了一遍默认值**，改一处忘另一处就会让文案和判定对不上",
+    why: "同一个选项在判定与文案里各读一次，值一致。原先**两处各写了一遍默认值**（都是 10）—— 已提成共用常量 `QUEUE_STATS_MIN_GAMES`（lib/thresholds.ts），改一处不会再忘另一处",
   },
   "lib/tft-detail.ts:tftDetail:minGames": {
     tool: "get_tft_detail",
@@ -162,7 +162,7 @@ const SAMPLE_REGISTRY = {
   "lib/social.ts:socialText:minGames": {
     tool: "get_my_teammates（结论段）",
     splits: "同上，判定用 1、下结论用 3",
-    why: "同一个分析里两个门槛：榜单用 1（全列）、结论用 3（只对够局的账号下结论）—— 这个分层是有意的，但两处默认值不同且没有共用常量",
+    why: "同一个分析里两个门槛：榜单用 1（全列）、结论用 3（只对够局的账号下结论）。这个分层是有意的；原先两处默认值各写一遍 —— 已提成 `SOCIAL_LIST_MIN_GAMES` / `SOCIAL_VERDICT_MIN_GAMES`（lib/thresholds.ts）",
   },
   "lib/trend.ts:analyzeTrend:minGamesPerWeek": {
     tool: "get_my_trend",
@@ -381,13 +381,13 @@ const INLINE_REGISTRY = {
     why: "实测（thresholds:sweep）：四个时段的场次是 46/11/51/198 把，**全部 ≥10** —— 从不 bind。而且它是硬编码，探针改不了、只能从输出里读当前值。两处同值（时段与英雄池各一处），互不相关却用同一个数",
   },
   "lib/report-tft.ts:weeklyPlacement:inline:<5": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
-  "lib/report-tft.ts:patchPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "同上" },
-  "lib/report-tft.ts:weekdayPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "同上" },
+  "lib/report-tft.ts:patchPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
+  "lib/report-tft.ts:weekdayPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
   "lib/report.ts:collect:inline:>=3": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）收集阶段的过滤，不直接对应某句话" },
   "lib/report.ts:weekdayChart:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
-  "lib/report.ts:damageRankBars:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
-  "lib/report.ts:patchChart:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
-  "lib/report.ts:weeklyChart:inline:<5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
+  "lib/report.ts:damageRankBars:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
+  "lib/report.ts:patchChart:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
+  "lib/report.ts:weeklyChart:inline:<5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
   "lib/report.ts:findings:inline:>=8": {
     tool: "（海斗 HTML 报告）",
     kind: "统计门槛",
@@ -403,7 +403,7 @@ const INLINE_REGISTRY = {
     kind: "统计门槛",
     why: "撑着「建议」那一段（「用得比旁人好」）。同样是挑差值最大：实测候选 14 个，已补上候选数 / 噪声尺度",
   },
-  "lib/report.ts:advice:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "统计门槛", why: "同上" },
+  "lib/report.ts:advice:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "统计门槛", why: "与「建议」那段的 >=8 同源（同一段文字里的两个门槛），未说明为何一个用 8 一个用 5" },
   "lib/report.ts:render:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）渲染阶段过滤" },
   "lib/tools.ts:championGuideAsync:inline:<30": {
     tool: "get_champion_guide",
@@ -692,11 +692,16 @@ function reasonStats() {
   // tools 的「有意独立于符文层」也给了理由。真正该分的是**统计上相不相关**：
   //   · 统计上无关 —— 图表里标不标数字、列不列进明细，本来就不需要统计依据
   //   · 有实测 / 说明了用途 —— 涉及统计判断，理由给了但没量
+  // 第五版标记法：用「实测」这个词，不用「有没有数字」。
+  // 「有没有数字」被**引用的门槛值**骗过 —— 例如 `advice:>=5` 的说明里写着
+  // 「未说明为何一个用 8 一个用 5」，那两个数字是门槛值、不是实测读数，
+  // 却让它被算成了「有实测」。
+  // 而本仓库写实测条目时一律以「实测（thresholds:sweep…）」开头，这个词才是可靠标记。
   const neutral = whys.filter((w) => w.startsWith("（统计上无关）")).length;
-  const measured = whys.filter((w) => !w.startsWith("（统计上无关）") && /\d/.test(w)).length;
   const unexplained = whys.filter((w) => !/\d/.test(w) && w.startsWith("未说明")).length;
+  const measured = whys.filter((w) => w.includes("实测")).length;
   const byDesign = whys.filter(
-    (w) => !w.startsWith("（统计上无关）") && !/\d/.test(w) && !w.startsWith("未说明")
+    (w) => !w.startsWith("（统计上无关）") && !w.includes("实测") && !w.startsWith("未说明")
   ).length;
   return (
     `${measured} 条有实测 · ${byDesign} 条说明了理由但未量 · ` +

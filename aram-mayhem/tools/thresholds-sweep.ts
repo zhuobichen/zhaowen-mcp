@@ -21,6 +21,7 @@ import { analyzeBuilds } from "../lib/builds.js";
 import { queueStats } from "../lib/queue-stats.js";
 import { tftDetail } from "../lib/tft-detail.js";
 import { analyzeCounters } from "../lib/counters.js";
+import { analyzePatches } from "../lib/patches.js";
 import { analyzeSocial } from "../lib/social.js";
 import { augmentEmpirical, championAugmentEmpirical, checkSynergySets, empiricalAugments, empiricalPairs, othersAugmentRates } from "../lib/empirical.js";
 import { resolveMe } from "../lib/identity.js";
@@ -563,5 +564,26 @@ function belowNoise(items: unknown[]): boolean {
     );
     console.log(`  噪声尺度（从 ${prefs.length} 个里挑胜率极值）：±${ceil.toFixed(1)} 个百分点`);
     console.log("  注：门槛 5 硬编码在 profileOf 里，探针改不了 —— 只能量候选池形状，量不了拐点。");
+  }
+}
+
+// ---- 20. 剩下两条「说明了理由但没量」的：verdictMinGames(15) / minBucketGames(300)
+{
+  console.log("\n=== (a) patches.verdictMinGames（跨补丁下结论的样本门槛，默认 15）===");
+  console.log("  门槛   够样本的补丁数   结论句");
+  for (const n of [3, 5, 8, 15, 25, 40]) {
+    const r = await analyzePatches({ ...WHO, kind: "mayhem", verdictMinGames: n });
+    const usable = r.buckets.filter((b) => b.games >= n && b.patch);
+    const v = r.verdict.replace(/\s+/g, " ");
+    console.log(`  ${String(n).padStart(4)}   ${String(usable.length).padStart(12)}   ${v.slice(0, 78)}`);
+  }
+
+  console.log("\n=== (b) counters.minBucketGames（阵容档的样本门槛，默认 300）===");
+  console.log("  门槛   够样本的阵容档数   装备条目数");
+  for (const n of [30, 100, 300, 600, 1200]) {
+    const r = await analyzeCounters({ ...WHO, minBucketGames: n });
+    const withItems = r.buckets.filter((b) => (b.best?.length ?? 0) + (b.worst?.length ?? 0) > 0);
+    const items = r.buckets.reduce((s, b) => s + (b.best?.length ?? 0) + (b.worst?.length ?? 0), 0);
+    console.log(`  ${String(n).padStart(4)}   ${String(withItems.length).padStart(14)}   ${String(items).padStart(8)}`);
   }
 }

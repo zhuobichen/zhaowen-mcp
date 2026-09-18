@@ -11,6 +11,7 @@ import { loadLolGames } from "./games.js";
 import { resolveAccountByName, resolveMe } from "./identity.js";
 import { isMayhemGame } from "./lcu.js";
 import { loadData } from "./store.js";
+import { SOCIAL_LIST_MIN_GAMES, SOCIAL_VERDICT_MIN_GAMES } from "./thresholds.js";
 
 export interface CoPlayer {
   puuid: string;
@@ -127,8 +128,8 @@ export async function analyzeSocial(
     name,
     games: all.length,
     gamesWithFullRoster: fullRoster,
-    teammates: rank([...mates.values()], opts.minGames ?? 1, "games"),
-    opponents: rank([...opps.values()], opts.minGames ?? 1, "games"),
+    teammates: rank([...mates.values()], opts.minGames ?? SOCIAL_LIST_MIN_GAMES, "games"),
+    opponents: rank([...opps.values()], opts.minGames ?? SOCIAL_LIST_MIN_GAMES, "games"),
     note:
       `${all.length} 把海斗里，${fullRoster} 把有完整 10 人数据可分析队友/对手` +
       (fullRoster < all.length ? `（其余 ${all.length - fullRoster} 把来自本地客户端，只记录了自己那一行）` : ""),
@@ -149,7 +150,7 @@ export async function socialText(opts: { who?: string; games?: number; minGames?
   out.push(r.note);
   out.push("");
 
-  const minGames = opts.minGames ?? 3;
+  const minGames = opts.minGames ?? SOCIAL_VERDICT_MIN_GAMES;
   const mates = r.teammates.filter((m) => m.games >= minGames);
   out.push(`最常一起打的人（同队 ≥${minGames} 局，共 ${mates.length} 人）：`);
   for (const m of mates.slice(0, 12)) {

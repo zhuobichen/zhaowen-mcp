@@ -59,3 +59,21 @@ export function noiseMultiple(games: number, rate: number, base = 50): number {
   const se = Math.sqrt(Math.max(rate * (100 - rate), 1) / Math.max(games, 1));
   return se > 0 ? Math.abs(rate - base) / se : 0;
 }
+
+/**
+ * 「同一个门槛在判定层和文案层各写一遍」时用的常量。
+ *
+ * 起因：门槛登记表里两条注记 —— `queue-stats` 的判定和文案各写了一个 `?? 10`、
+ * `social` 的榜单用 1 而下结论用 3。两处各写一遍的后果是**改一处忘另一处**，
+ * 文案说的门槛和判定用的门槛会悄悄对不上，而且不会有任何提示。
+ *
+ * 提到这里之后，判定和文案引的是同一个数。
+ */
+
+/** get_queue_stats：队列至少多少局才下结论（判定与文案共用） */
+export const QUEUE_STATS_MIN_GAMES = 10;
+
+/** get_my_teammates：榜单列全部（≥1 局），但只有 ≥3 局才参与结论 */
+export const SOCIAL_LIST_MIN_GAMES = 1;
+/** get_my_teammates：下结论的样本门槛（比榜单门槛高，是有意的分层） */
+export const SOCIAL_VERDICT_MIN_GAMES = 3;

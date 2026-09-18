@@ -12,6 +12,7 @@ import { resolveAccountByName, resolveMe } from "./identity.js";
 import { isMayhemGame } from "./lcu.js";
 import { isRankedQueue, QUEUE_FALLBACK, queueName } from "./queues.js";
 import { loadData } from "./store.js";
+import { QUEUE_STATS_MIN_GAMES } from "./thresholds.js";
 
 export interface QueueBucket {
   queueId: number;
@@ -120,7 +121,7 @@ export async function queueStats(
     }
   }
 
-  const minGames = opts.minGames ?? 10;
+  const minGames = opts.minGames ?? QUEUE_STATS_MIN_GAMES;
   const totalGames = [...map.values()].reduce((s, c) => s + c.games, 0);
   const buckets: QueueBucket[] = [...map.entries()]
     .map(([queueId, c]) => {
@@ -194,7 +195,7 @@ export async function queueStatsText(opts: { who?: string; kind?: "lol" | "tft";
   if (thin.length) {
     out.push(
       "",
-      `说明：${thin.map((b) => b.name).join("、")} 都不到 ${opts.minGames ?? 10} 局，所以只报数字不下结论。`,
+      `说明：${thin.map((b) => b.name).join("、")} 都不到 ${opts.minGames ?? QUEUE_STATS_MIN_GAMES} 局，所以只报数字不下结论。`,
       "为什么要拆开：不同队列的规则与数值并不一样（海斗的巅峰赛、经典模式版，和普通海斗是两个池子），",
       "混在一起算胜率会把它们搅在一起；而且一个队列打了 1~2 把的胜率本身也没有意义。"
     );
