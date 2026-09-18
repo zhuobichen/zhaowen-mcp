@@ -96,15 +96,51 @@ export async function buildsText(opts: { minGames?: number } = {}): Promise<stri
   out.push("最常出的装备（按出现局数）：");
   for (const it of byGames) out.push(`  · ${it.name}（${it.price} 金）：${it.games} 把 · 胜率 ${it.winRate.toFixed(0)}%`);
 
-  const strong = [...r.items].filter((x) => x.games >= 10).sort((a, b) => b.winRate - a.winRate).slice(0, 6);
+  // 这两段都是**从 N 条里挑最大值**，和 get_augment_pairs 那处是同一类问题 ——
+  // 「出了它胜率最高」在几十件装备里挑最高，光噪声就能造出不小的极差。
+  // 门槛扫描量过（npm run thresholds:sweep）：门槛 5→15→30 时榜首的样本 / 倍数是
+  // 6 局 83.3%（2.2 倍）→ 18 局 77.8%（2.8 倍）→ 69 局 59.4%（1.6 倍）——
+  // 也就是说「≥10 把」这一档的榜首多半只有十来局，2 倍出头正是「挑最大」能造出的水平。
+  // 所以两段都带上候选数、噪声尺度、以及逐条的倍数。
+  const seOf = (it: ItemStat) => Math.sqrt(Math.max(it.winRate * (100 - it.winRate), 1) / Math.max(it.games, 1));
+  const kOf = (it: ItemStat) => (seOf(it) > 0 ? Math.abs(it.winRate - 50) / seOf(it) : 0);
+  /** N 条里挑最大时，纯噪声能造出的最大偏离（百分点），按 √(2·ln N) × 中等标准误估 */
+  const noiseCeil = (list: ItemStat[]) => {
+    const ses = list.map(seOf).sort((a, b) => a - b);
+    if (!ses.length) return 0;
+    return ses[Math.floor(ses.length / 2)] * Math.sqrt(2 * Math.log(Math.max(list.length, 2)));
+  };
+  const fmt = (it: ItemStat) => `${it.name}：${it.games} 把 ${it.winRate.toFixed(0)}%（约是噪声的 ${kOf(it).toFixed(1)} 倍）`;
+
+  const strongPool = r.items.filter((x) => x.games >= 10);
+  const strong = [...strongPool].sort((a, b) => b.winRate - a.winRate).slice(0, 6);
   if (strong.length) {
-    out.push("", "出了它胜率最高（≥10 把）：");
-    for (const it of strong) out.push(`  · ${it.name}：${it.games} 把 ${it.winRate.toFixed(0)}%`);
+    const ceil = noiseCeil(strongPool);
+    const over = Math.abs(strong[0].winRate - 50) >= ceil;
+    out.push(
+      "",
+      `出了它胜率最高（≥10 把，候选 ${strongPool.length} 件）：` +
+        (over
+          ? "最高的一件超过了噪声能造出的水平，但逐条看各自的倍数更可靠。"
+          : `**都还在噪声范围内** —— 从 ${strongPool.length} 件里挑最高，光噪声就能造出约 ${ceil.toFixed(1)} 个百分点的差距，先当线索。`)
+    );
+    for (const it of strong) out.push(`  · ${fmt(it)}`);
   }
-  const weak = [...r.items].filter((x) => x.games >= 15).sort((a, b) => a.winRate - b.winRate).slice(0, 6);
+  const weakPool = r.items.filter((x) => x.games >= 15);
+  const weak = [...weakPool].sort((a, b) => a.winRate - b.winRate).slice(0, 6);
   if (weak.length) {
-    out.push("", "出得多但胜率偏低（≥15 把，可以考虑换）：");
-    for (const it of weak) out.push(`  · ${it.name}：${it.games} 把 ${it.winRate.toFixed(0)}%`);
+    const ceil = noiseCeil(weakPool);
+    const under = Math.abs(weak[0].winRate - 50) >= ceil;
+    out.push(
+      "",
+      `出得多但胜率偏低（≥15 把，候选 ${weakPool.length} 件）：` +
+        (under
+          ? "可以考虑换。"
+          : // 全在噪声里时不能再说「可以考虑换」—— 那是在让人照着噪声改出装。
+            `**不要据此换装**：这一档全都还在噪声范围内（从 ${weakPool.length} 件里挑最低，` +
+            `光噪声就能造出约 ${ceil.toFixed(1)} 个百分点的差距），下面这些「偏低」跟 50% 分不开。`)
+    );
+    for (const it of weak) out.push(`  · ${fmt(it)}`);
   }
   out.push("", "说明：装备按「在你背包里出现过」统计（数据是槽位不是购买顺序）；只算成装与二级鞋，散件、消耗品与饰品都不计入。");
   return out.join("\n");
