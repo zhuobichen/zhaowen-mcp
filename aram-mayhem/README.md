@@ -35,6 +35,7 @@
 | `get_my_trend` | **周趋势**：按自然周分桶看场次/胜率/KDA/伤害的逐周变化，并对比「最近 4 个有效周 vs 之前 4 个」；未达样本门槛的周不参与结论 |
 | `get_queue_stats` | **按队列拆分**：海斗不止一个队列（2400 普通 / 2410 巅峰赛 / 2450 经典模式版 / 4310 官方无名），云顶也有排位与活动队列；各自场次、胜率或平均名次。样本 <10 局只报数字不下结论 |
 | `get_game_detail` | **单局详情（复盘）**：把一局的 10 个人摊开（双方阵容/KDA/伤害/装备）、两队伤害对比、我全场第几，以及这局符文在归档里的实证胜率。可按「最近第 N 把 / 日期 / 英雄名 / gameId」选局，命中多把时列出来让你指定 |
+| `export_self_compare_report` | 生成**跨时间对比报告**：同一账号「最近 N 把 vs 紧挨着的前 N 把」并排（按局数对称切）。和 `get_my_trend` 的窗口不同，两者不一致时不会替你调和 |
 | `export_compare_report` | 生成**双账号对比报告**（HTML）：核心指标对照表 · 逐周胜率双线图 · 英雄池并列 · 符文偏好差异 · 两人都出过的装备 |
 | `export_report_markdown` | 生成 **Markdown 版小结**（核心数字 + 逐周 + 常玩英雄 + 体检结论），一屏看完、可直接贴出去 |
 | `get_my_checkup` | **一键体检**：把各维度结论收拢成一份「该看哪几条」，按偏离基准的幅度排序；样本不够的维度单独列出，不静默省略 |
@@ -134,6 +135,7 @@ npx tsx lcuprobe.ts  # 客户端探测：连接状态、最近对局里实际有
 npm run report:html  # 生成个人战绩报告（单文件 HTML，输出到 reports/）
 npm run report:tft   # 生成云顶战绩报告
 npm run report:compare -- 丁ding   # 生成双账号对比报告（不传第二个账号就是「我 vs 他」）
+npm run report:self                # 生成跨时间对比（最近 100 把 vs 之前 100 把）
 npm run archive:sync # 把当前账号（--friends 连好友）的对局并进本地归档
 npm run mlol:capture # 抓掌盟登录态（mitmproxy，自动存 cookie 与请求样本）
 npm run mlol:probe   # 验证掌盟接口可行性（闸口在哪一步）

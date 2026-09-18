@@ -37,7 +37,7 @@ import { checkupText } from "./lib/checkup.js";
 import { gameDetailText } from "./lib/game-detail.js";
 import { reportMarkdownText } from "./lib/report-md.js";
 import { combatText } from "./lib/combat-profile.js";
-import { reportCompareText } from "./lib/report-compare.js";
+import { reportCompareText, reportSelfCompareText } from "./lib/report-compare.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -345,6 +345,19 @@ async function main() {
             out: { type: "string", description: "可选：自定义输出路径" },
           },
           required: ["b"],
+        },
+      },
+      {
+        name: "export_self_compare_report",
+        description:
+          "生成跨时间对比报告（HTML）：同一个账号「最近 N 把 vs 紧挨着的前 N 把」并排 —— 逐周双线、英雄池变化、符文偏好变化、出装变化。两边按**局数对称切**（不是按时间），样本量相等才有可比性。注意这和 get_my_trend 的窗口不同，两者结论不一致时报告里不会替你调和。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：看哪个账号（好友名，部分匹配）。不传就是自己" },
+            window: { type: "number", description: "每段多少把（默认 100；不足以切两段时按一半）" },
+            out: { type: "string", description: "可选：自定义输出路径" },
+          },
         },
       },
       {
@@ -710,6 +723,15 @@ async function main() {
             await reportCompareText({
               a: args.a ? String(args.a) : undefined,
               b: String(args.b),
+              out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "export_self_compare_report":
+          return text(
+            await reportSelfCompareText({
+              who: args.who ? String(args.who) : undefined,
+              window: args.window ? Number(args.window) : undefined,
               out: args.out ? String(args.out) : undefined,
             })
           );
