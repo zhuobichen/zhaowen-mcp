@@ -26,6 +26,7 @@ import { matchupsText } from "./lib/matchups.js";
 import { exportText } from "./lib/export.js";
 import { empiricalAugmentsText, empiricalPairsText, synergyCheckText } from "./lib/empirical.js";
 import { tftDetailText } from "./lib/tft-detail.js";
+import { trendText } from "./lib/trend.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -310,6 +311,19 @@ async function main() {
         },
       },
       {
+        name: "get_my_trend",
+        description:
+          "周趋势：把对局按自然周（周一起算）分桶，看场次/胜率/KDA/场均伤害的逐周变化，并给出「最近 4 个有效周 vs 之前 4 个有效周」的结论。用归档数据，攒得越久越能看出长期走势。可查云顶（kind=tft）或好友（who）。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            kind: { type: "string", enum: ["mayhem", "tft"], description: "看海斗（默认）还是云顶" },
+            min_games_per_week: { type: "number", description: "一周至少多少局才算有效样本（默认 5），未达标的周不参与结论" },
+          },
+        },
+      },
+      {
         name: "get_tft_detail",
         description:
           "云顶棋子与装备维度：你最终阵容里带某个棋子/某件装备时平均名次如何、前四率多少，以及追到过三星的棋子。注意这是「最终阵容」统计（带着它收场时的成绩），不是「拿了它就能赢」。默认查自己，可传 who 查好友。",
@@ -531,6 +545,15 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_my_trend":
+          return text(
+            await trendText({
+              who: args.who ? String(args.who) : undefined,
+              kind: args.kind === "tft" ? "tft" : args.kind === "mayhem" ? "mayhem" : undefined,
+              minGamesPerWeek: args.min_games_per_week ? Number(args.min_games_per_week) : undefined,
             })
           );
 

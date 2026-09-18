@@ -29,7 +29,8 @@
     "wegame:probe": "tsx lib/wegame-probe.ts",
     "wegame:enum": "tsx lib/wegame-enum-cli.ts",
     "empirical": "tsx lib/empirical-probe.ts",
-    "tft:detail": "tsx lib/tft-detail-probe.ts"
+    "tft:detail": "tsx lib/tft-detail-probe.ts",
+    "trend": "tsx lib/trend-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

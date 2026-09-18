@@ -30,6 +30,8 @@ interface TftRow {
   queue: string;
   traits: string[];
   units: string[];
+  /** 最终阵容里的成装名（占位条目已在取数时过滤） */
+  items: string[];
 }
 
 const esc = (s: string) =>
@@ -42,6 +44,7 @@ async function collect(demo: boolean, who?: { puuid: string; name: string }) {
   const d = loadData();
   const traitCn = (id: string) => tftName("traits", id) ?? id.replace(/^TFT\d+_/i, "");
   const champCn = (id?: string) => (id ? tftName("champions", id) ?? id.replace(/^TFT\d+_/i, "") : "?");
+  const itemCn = (id?: string) => (id ? tftName("items", id) ?? id.replace(/^TFT_Item_/i, "").replace(/^TFT\d+_/i, "") : "?");
 
   if (demo) return demoData(traitCn, champCn);
 
@@ -70,6 +73,15 @@ async function collect(demo: boolean, who?: { puuid: string; name: string }) {
           .sort((a: any, b: any) => (b.tier ?? 0) - (a.tier ?? 0) || (b.rarity ?? 0) - (a.rarity ?? 0))
           .slice(0, 8)
           .map((u: any) => champCn(u.character_id)),
+        // 只收成装；EmptyBag 这类占位不是玩家出的装备，收了会让「平均名次 1.20」霸榜
+        items: [
+          ...new Set<string>(
+            (p.units ?? [])
+              .flatMap((u: any) => u.itemNames ?? [])
+              .filter((it: any) => it && !/^(emptybag|empty|placeholder)$/i.test(String(it)))
+              .map((it: any) => itemCn(it))
+          ),
+        ],
       } as TftRow;
     })
     .filter((x: TftRow | null): x is TftRow => !!x && x.placement > 0)
@@ -96,6 +108,7 @@ function demoData(traitCn: (s: string) => string, champCn: (s: string) => string
       queue: i % 3 === 0 ? "云顶之弈（排位）" : "云顶之弈（匹配）",
       traits: [traitPool[i % traitPool.length], traitPool[(i * 3) % traitPool.length]].filter(Boolean),
       units: [champPool[i % champPool.length], champPool[(i * 5) % champPool.length]].filter(Boolean),
+      items: [`示例装备${i % 5}`, `示例装备${(i * 2) % 5}`],
     } as TftRow);
   }
   return { name: "（演示数据）", rows, note: "⚠ 这是 --demo 生成的演示数据，不是真实战绩", demo: true };
@@ -325,7 +338,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
   });
   const fmtTime = (t: number) => new Date(t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short", timeStyle: "short" });
 
-  const pref = (key: "traits" | "units") => {
+  const pref = (key: "traits" | "units" | "items") => {
     const m = new Map<string, { g: number; sum: number }>();
     for (const r of rows) {
       for (const item of r[key]) {
@@ -397,9 +410,10 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
   </section>
 
   <section>
-    <h2>阵容与棋子偏好</h2>
+    <h2>阵容、棋子与装备偏好</h2>
     ${preferenceBars("羁绊偏好", "常见羁绊（按平均名次排序；蓝色=平均名次好于 4.5，红色=更差）", pref("traits"))}
     ${preferenceBars("棋子偏好", "常见棋子（同样按平均名次排序，蓝=好于 4.5）", pref("units"))}
+    ${preferenceBars("装备偏好", "常见成装（你最终阵容里带过它的局，平均名次如何；占位条目已过滤）", pref("items"))}
     ${traitPairs(rows)}
   </section>
 
