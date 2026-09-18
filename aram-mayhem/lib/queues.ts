@@ -40,6 +40,11 @@ export const QUEUE_FALLBACK: Record<number, string> = {
   // 4310：客户端队列表里**没有名称**，但实测 gameMode=KIWI（即海斗）。
   // 保留此条目并标注清楚，避免它被当成"未知队列"反复提示。
   4310: "（队列 4310，官方无名称；实测 gameMode=KIWI，按海斗计入）",
+  // 以下来自客户端自带的 queues.json（不是猜的）：
+  870: "人机 入门级",
+  880: "人机 新手级",
+  890: "人机 一般级",
+  1750: "斗魂竞技场 3x6",
 };
 
 let cache: Map<number, string> | null = null;
@@ -52,7 +57,11 @@ export async function clientQueueNames(): Promise<Map<number, string>> {
     const raw: any = await lcuGet<any>("/lol-game-data/assets/v1/queues.json");
     const list: any[] = Array.isArray(raw) ? raw : Object.values(raw ?? {});
     for (const q of list) {
-      if (q && typeof q.id === "number") map.set(q.id, String(q.name ?? q.shortName ?? q.id).trim());
+      if (!q || typeof q.id !== "number") continue;
+      // 客户端里有些队列 name 是**空串**（如 4310）。空串不能用 `??` 兜住，
+      // 得显式判空 —— 否则会把兜底表里那句「官方无名称」的说明盖成空字符串。
+      const name = String(q.name ?? "").trim() || String(q.shortName ?? "").trim();
+      if (name) map.set(q.id, name);
     }
   } catch {
     /* 客户端没开：下面用兜底表 */
@@ -102,6 +111,24 @@ export function unknownQueues(queueIds: Iterable<number>): number[] {
   const out: number[] = [];
   for (const id of new Set(queueIds)) {
     if (id && !(id in QUEUE_FALLBACK)) out.push(id);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/**
+ * 同上的异步版：**先问客户端的队列表**，它才是权威来源。
+ * 同步版只查内置兜底表，客户端明明有名字的队列（例如人机 870/880/890）会被误报成「未登记」，
+ * 于是每次同步都弹一堆没意义的警告 —— 警告喊多了就没人看了。
+ * 客户端没开时退回同步版的判断（此时会偏保守，宁可多报也不漏掉真正的新队列）。
+ */
+export async function unknownQueuesAsync(queueIds: Iterable<number>): Promise<number[]> {
+  const known = await clientQueueNames();
+  const out: number[] = [];
+  for (const id of new Set(queueIds)) {
+    if (!id) continue;
+    if (known.has(id)) continue;
+    if (id in QUEUE_FALLBACK) continue;
+    out.push(id);
   }
   return out.sort((a, b) => a - b);
 }

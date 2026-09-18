@@ -477,9 +477,13 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
 
   // 数字英雄 id（本地客户端对局记录用）→ 英文 id + 官方中文名
   const championIdMap: Record<string, { id: string; name: string }> = {};
+  // 官方定位标签：数字 id → roles（如 ["mage","support"]），供「对面阵容构成」分析用
+  const rolesByChampionId = new Map<number, string[]>();
   for (const c of championSummary) {
     if (!c || typeof c.id !== "number" || c.id <= 0) continue;
     championIdMap[String(c.id)] = { id: c.alias || String(c.id), name: c.name || c.alias || String(c.id) };
+    const roles = Array.isArray((c as any).roles) ? (c as any).roles.filter((r: any) => typeof r === "string") : [];
+    if (roles.length) rolesByChampionId.set(c.id, roles);
   }
 
   const validation: Meta["validation"] = {
@@ -874,6 +878,7 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
       cnRank: num(cn?.rank),
       icon: iconUrl(c.icon),
       aliases: aliasById.get(c.id) ?? [],
+      roles: Number.isFinite(numeric) ? rolesByChampionId.get(numeric) ?? [] : [],
     };
   });
 

@@ -108,6 +108,12 @@ export interface Champion {
   icon: string | null;
   /** 手动维护的国服常用外号（data/aliases.json），如 火男 / 剑圣 */
   aliases: string[];
+  /**
+   * Riot 官方英雄定位标签（champion-summary.json 的 roles）：
+   * mage / support / fighter / tank / marksman / assassin，一名英雄可挂多个。
+   * 粒度很粗（辅助也会带 mage），所以只用来做「对面大概是什么构成」的粗分类，别当精确克制用。
+   */
+  roles?: string[];
 }
 
 /** 社区站「英雄×符文」单件评价卡片（带 神级/陷阱 等类型标签与中文攻略） */

@@ -181,6 +181,8 @@ export function expandGame(g: ArchivedGame): any {
     gameDuration: g.gameDuration,
     gameMode: g.gameMode,
     gameVersion: g.gameVersion ?? null,
+    // 归档里记着「这局是替谁查的」，离线分析要靠它认人
+    puuidName: g.puuidName ?? null,
     queueId: g.queueId,
     participants: g.participants.map((p) => ({
       participantId: p.participantId,

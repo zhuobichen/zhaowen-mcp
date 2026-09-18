@@ -13,7 +13,7 @@ import { clientStatus } from "./lcu.js";
 import { loadLolGames, loadTftGames } from "./games.js";
 import { listFriends } from "./friends.js";
 import { resolveMe } from "./identity.js";
-import { unknownQueues } from "./queues.js";
+import { unknownQueuesAsync } from "./queues.js";
 
 const fmt = (t: number | null) => (t ? new Date(t).toLocaleDateString("zh-CN") : "—");
 
@@ -71,7 +71,7 @@ async function main() {
   console.log(`云顶：${tft.total} 局（${fmt(tft.from)} ~ ${fmt(tft.to)}），账号 ${tft.accounts.length} 个`);
   const friendHint = withFriends ? "" : "加 --friends 可把好友的一并同步；";
   // 防漏判自检：数据里出现过、但我们不认识的队列
-  const unknown = unknownQueues(Object.keys(lol.byQueue ?? {}).map(Number));
+  const unknown = await unknownQueuesAsync(Object.keys(lol.byQueue ?? {}).map(Number));
   if (unknown.length) {
     console.log("⚠ 出现未登记队列（可能是官方新增的队列，海斗识别可能漏判）：");
     for (const q of unknown) console.log(`   ${q}：${lol.byQueue[String(q)]} 局`);

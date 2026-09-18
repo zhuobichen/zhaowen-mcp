@@ -8,7 +8,7 @@
  */
 import { archivedGamesFor, archiveStats, mergeIntoArchive, type ArchiveKind } from "./archive.js";
 import { clientStatus, getMatchHistory } from "./lcu.js";
-import { unknownQueues } from "./queues.js";
+import { clientQueueNames, QUEUE_FALLBACK } from "./queues.js";
 
 export interface GamesResult {
   /** 客户端摘要形态的对局（可能来自归档），时间倒序 */
@@ -153,6 +153,13 @@ export async function archiveInfo(): Promise<string> {
   const tft = await archiveStats("tft");
   const fmt = (t: number | null) => (t ? new Date(t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short" }) : "—");
   const status = await clientStatus();
+  // 客户端队列表只取一次（它是权威来源），下面两个 kind 共用；
+  // 客户端没开时拿到空表，判断会退回内置兜底表 —— 那时偏保守，宁可多报也不漏。
+  const clientQueues = await clientQueueNames();
+  const unknownOf = (byQueue: Record<string, number> | undefined) =>
+    [...new Set(Object.keys(byQueue ?? {}).map(Number))]
+      .filter((q) => q && !clientQueues.has(q) && !(q in QUEUE_FALLBACK))
+      .sort((a, b) => a - b);
   const kindLines = (label: string, st: Awaited<ReturnType<typeof archiveStats>>) => [
     `${label}：${st.total} 局`,
     `  覆盖面 ${fmt(st.from)} ~ ${fmt(st.to)}${st.updatedAt ? `（最后更新 ${fmt(Date.parse(st.updatedAt))}）` : ""}`,
@@ -167,7 +174,7 @@ export async function archiveInfo(): Promise<string> {
       : "",
     st.total ? `  来源：${Object.entries(st.bySource ?? {}).map(([k, v]) => `${k} ${v}`).join(" · ")}` : "",
     (() => {
-      const unknown = unknownQueues(Object.keys(st.byQueue ?? {}).map(Number));
+      const unknown = unknownOf(st.byQueue);
       return unknown.length
         ? `  ⚠ 未登记队列（可能是新队列，识别会漏判）：${unknown.map((q) => `${q}（${st.byQueue[String(q)]} 局）`).join("、")}`
         : "";
