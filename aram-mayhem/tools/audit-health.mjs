@@ -21,6 +21,8 @@ const flag = (f) => {
 
 // 每个审计：脚本、跑几次（有的要正反两个方向）、最后一行是结论行
 const AUDITS = [
+  { key: "protocol_self", title: "协议判据自测", cmd: ["tools/audit-protocol.mjs", "--selftest"], what: "描述符判据本身会不会报警" },
+  { key: "protocol", title: "协议层", cmd: ["tools/audit-protocol.mjs"], what: "服务起得来吗、握手、实际服务出去的工具描述符、错误路径、连调后还活着吗" },
   { key: "fields", title: "字段审计", cmd: ["tools/audit-fields.mjs"], what: "归档采集的字段有没有「采了但从没被读」的" },
   { key: "analysis", title: "分析审计", cmd: ["tools/audit-analysis.mjs"], what: "字段是「被读过」还是「真被分析过」" },
   { key: "wiring", title: "接线审计", cmd: ["tools/audit-wiring.mjs"], what: "游离文件/死代码、工具↔文档↔scripts 是否对得上、每个 script 有没有交代、审计进程有没有设写盘闸" },
@@ -149,9 +151,9 @@ if (md) {
     "",
     "每个审计的详细输出见 `npm run audit` 或对应的 `tools/audit-*.mjs`。",
     "",
-    "说明：这 13 个审计分四类 —— 结构（字段/分析/接线/引导/长度）、自洽（跨工具/结论/方向/置信）、",
-    "行为（冷启动正反）、对账（与原始数据独立重算）。前两类查「内部一致」，",
-    "只有最后那一类有外部真值。",
+    `说明：这 ${rows.length} 项分五类 —— 协议（服务起得来吗、描述符完整吗）、`,
+    "结构（字段/分析/接线/引导/长度）、自洽（跨工具/结论/方向/置信）、行为（冷启动正反）、",
+    "对账（与原始数据独立重算）。前四类查的是「内部一致」，只有最后那一类有外部真值。",
   ];
   writeFileSync(md, lines.join("\n") + "\n", "utf8");
   console.log(`已写出：${md}`);

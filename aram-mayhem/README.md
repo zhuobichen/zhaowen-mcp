@@ -142,7 +142,8 @@ npm run refresh      # 联网抓取 + 合并 + 写 data/ + 归档当前补丁快
 npm run report       # 不联网，只打印现有数据的校验报告
 npm run typecheck    # TypeScript 类型检查
 npx tsx smoke.ts     # 冒烟测试：直接调用各工具，检查输出
-npm run smoke        # 端到端：起真服务、走一遍 MCP stdio 握手、列出工具、调几个只读工具
+npm run smoke        # 端到端冒烟：起真服务、走一遍 MCP stdio 握手、列出工具、调几个只读工具（人工确认用）
+npm run audit:protocol # 协议层：服务起得来吗、握手、**实际服务出去**的工具描述符、未知工具的错误路径、连调一圈后还活着吗
 npm run audit:fields # 字段审计：归档采集的统计字段有没有「采了但从没被分析」的
 npm run audit:analysis # 分析审计：字段是「被读过」还是「真被分析过」（只在 CSV 里露过面不算）
 npm run audit:surfaced # 可见性审计：分析的结果有没有进报告（只在工具输出里 = 不问就看不到）
@@ -156,8 +157,8 @@ npm run audit:confidence # 置信措辞：说「可以当真」时，点名的�
 npm run audit:recompute # 与原始数据对账：工具报的数，跟直接读归档独立算出来的对得上吗
 npm run audit:coldstart # 冷启动：归档为空 + 客户端离线时，工具会不会只回一个空壳（跑两遍：冷启动该提示、健康模式不该提示）
 npm run audit:wiring # 接线审计：游离文件/死代码、工具↔文档↔scripts 对得上吗、每个 script 有没有交代、审计进程有没有设写盘闸
-npm run audit           # 上面 13 个依次跑一遍（约 3 分钟，任一失败即中断）
-npm run audit:health    # 健康报告：把上面 13 个各跑一遍，只留每份的结论行汇成一张表（约 165 秒）
+npm run audit           # 上面这些依次跑一遍（约 3 分钟，任一失败即中断）
+npm run audit:health    # 健康报告：把上面这些各跑一遍，只留每份的结论行汇成一张表（约 3 分钟）
 npm run audit:health:md # 同上，并写一份 HEALTH.md 存下来对照历史
 npm run audit:health:selftest # 健康报告自己的判据自测（合成输出验 ✓/⚠/✗ 三档分得对不对）
 npx tsx lcuprobe.ts  # 客户端探测：连接状态、最近对局里实际有哪些字段
