@@ -12,7 +12,14 @@
     "report:tft": "tsx lib/report-tft.ts",
     "archive:sync": "tsx lib/archive-sync.ts",
     "mlol:probe": "tsx lib/mlol-probe.ts",
-    "mlol:capture": "mitmdump -s tools/mlol-capture.py --listen-port 8080 --set console_eventlog_verbosity=warn"
+    "mlol:capture": "mitmdump -s tools/mlol-capture.py --listen-port 8080 --set console_eventlog_verbosity=warn",
+    "pc:capture": "mitmdump -s tools/pc-capture.py --listen-port 8080 --set console_eventlog_verbosity=warn",
+    "pc:trust-ca": "bash tools/pc-ca.sh install",
+    "pc:untrust-ca": "bash tools/pc-ca.sh uninstall",
+    "pc:proxy-on": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/pc-proxy.ps1 on",
+    "pc:proxy-off": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/pc-proxy.ps1 off",
+    "pc:proxy-status": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/pc-proxy.ps1 status",
+    "pc:analyze": "node tools/analyze-pc-samples.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

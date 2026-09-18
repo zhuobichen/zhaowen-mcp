@@ -9,3 +9,4 @@ reports/
 # 掌盟登录态（含账号凭据），绝不入库
 data/mlol-cookie.txt
 data/mlol-samples/
+data/pc-samples/

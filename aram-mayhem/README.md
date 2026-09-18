@@ -107,6 +107,8 @@ npm run report:tft   # 生成云顶战绩报告
 npm run archive:sync # 把当前账号（--friends 连好友）的对局并进本地归档
 npm run mlol:capture # 抓掌盟登录态（mitmproxy，自动存 cookie 与请求样本）
 npm run mlol:probe   # 验证掌盟接口可行性（闸口在哪一步）
+npm run pc:capture   # 纯 PC 抓包：找 WeGame 战绩接口（配合 pc:trust-ca / pc:proxy-on）
+npm run pc:analyze   # 分析抓到的样本，排序指出最像对局记录的接口
 ```
 
 每次 `npm run refresh` 会按补丁号在 `data/patch-snapshots/<补丁>.json` 存一份快照，攒够两个版本后 `compare_patches` 就能做版本对比。
@@ -150,6 +152,27 @@ data/profile.json     绑定的账号（运行时生成，含召唤师名/puuid�
 data/friends-*.json   好友相关数据不落盘，全部按需从客户端读取
 reports/              生成的个人战绩报告（含账号名，已在 .gitignore 中排除）
 ```
+
+## 纯 PC 抓包：找 WeGame「我的战绩」的接口
+
+目标：在**只用这台电脑**的前提下，拿到比本地客户端更长的历史。
+思路：WeGame 客户端（已装在本机）的「我的战绩」背后一定有接口，用本机代理把它抓出来。
+
+```sh
+npm run pc:trust-ca    # ① 把 mitmproxy 的 CA 装进【当前用户】证书库（可撤销）
+npm run pc:proxy-on    # ② 系统代理指向 127.0.0.1:8080（会先备份你原来的代理，如 Clash）
+npm run pc:capture     # ③ 启动抓包（保持窗口开着）
+# ④ 打开 WeGame → 我的战绩 → 随便翻一翻
+# ⑤ 回到抓包窗口按 Ctrl+C 停止
+npm run pc:analyze     # ⑥ 自动排序，指出哪个接口最像对局记录
+npm run pc:proxy-off   # ⑦ 还原系统代理
+npm run pc:untrust-ca  # ⑧ 撤掉 CA（不撤销会一直信任 mitmproxy 的根证书）
+```
+
+- 样本存在 `data/pc-samples/`（已 gitignore），分析器会给每个候选接口打分（响应里是否含 `gameId`/`championId`/`participants` 等）。
+- **可能失败的情况**：WeGame 不读系统代理、或对证书做了固定（pinning）→ 抓不到东西。
+  那时按提示换路（例如安卓模拟器跑掌盟，可装系统级证书）。
+- 安全边界：CA 只装进**当前用户**证书库、代理只改 HKCU，两者都有对应的还原命令；抓包期间理论上能看到本机其它应用的 HTTPS 流量，所以抓完就关。
 
 ## 掌盟（更长的历史）—— 已搭好抓包与探针，待取登录态
 
