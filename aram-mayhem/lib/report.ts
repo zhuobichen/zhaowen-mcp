@@ -51,6 +51,14 @@ const fmtPct = (v: number, d = 1) => `${v.toFixed(d)}%`;
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 
+/**
+ * 各分析模块的结论句是按终端可读写的，里面带 Markdown 的 **粗体**。
+ * 直接 esc 进 HTML 会原样显示成星号 —— 先转成 <strong>，再转义其余字符。
+ */
+const escMd = (s: string) =>
+  esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
 // ---------------------------------------------------------------- 数据
 
 async function collect(gamesLimit: number, who?: { puuid: string; name: string }) {
@@ -283,6 +291,98 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     return { label, games: c.g, wins: c.w, winRate: pctNum(c.w, c.g) };
   }).filter((x) => x.games > 0);
 
+  // 深入分析：这几个维度原先只有 MCP 工具能问，报告里看不到。
+  // 是「可见性审计」查出来的 —— 分析做了但用户不问就看不到、也没法对比留档。
+  // 都是聚合结果，用表格比画图清楚（而且其中几项的结论常常是「没影响」，画图反而误导）。
+  const deep: Array<{ title: string; note: string; verdict?: string; rows: Array<[string, string]> }> = [];
+  try {
+    const [{ analyzeComps }, { analyzeCounters }, { analyzeCombat }, { analyzeTilt }, { queueStats }] =
+      await Promise.all([
+        import("./comps.js"),
+        import("./counters.js"),
+        import("./combat-profile.js"),
+        import("./tilt.js"),
+        import("./queue-stats.js"),
+      ]);
+    const [comps, counters, combat, tilt, queues] = await Promise.all([
+      analyzeComps({ puuid: me.puuid, name }).catch(() => null),
+      analyzeCounters().catch(() => null),
+      analyzeCombat({ puuid: me.puuid, name }).catch(() => null),
+      analyzeTilt({ puuid: me.puuid, name }).catch(() => null),
+      queueStats({ who: undefined }).catch(() => null),
+    ]);
+
+    if (comps?.present.length) {
+      deep.push({
+        title: "对面阵容构成",
+        note: comps.note,
+        verdict: comps.verdict,
+        rows: comps.present.map((x) => [
+          `对面有${x.roleCn}`,
+          `${x.games} 局 · ${x.winRate.toFixed(1)}%（${x.delta >= 0 ? "+" : ""}${x.delta.toFixed(1)}）${x.enough ? "" : " · 样本少"}`,
+        ]),
+      });
+    }
+    if (counters?.buckets.length) {
+      for (const b of counters.buckets.slice(0, 3)) {
+        deep.push({
+          title: `${b.label}时，赢家出什么`,
+          note: "对照组内基准；只统计成装（散件是「结束得早」的信号，不是出装选择）",
+          rows: [
+            ...b.best.slice(0, 3).map((it) => [`出 ${it.name}`, `${it.games} 次 ${it.winRate.toFixed(1)}%（${it.delta >= 0 ? "+" : ""}${it.delta.toFixed(1)}）`] as [string, string]),
+            ...b.worst.slice(0, 2).map((it) => [`出 ${it.name}`, `${it.games} 次 ${it.winRate.toFixed(1)}%（${it.delta >= 0 ? "+" : ""}${it.delta.toFixed(1)}）`] as [string, string]),
+          ],
+        });
+      }
+    }
+    if (combat?.metrics.length) {
+      deep.push({
+        title: "伤害以外的贡献（队内名次 → 胜率）",
+        note: "承伤/控制/治疗/存活/目标伤害这几项原先只采不分析，现在按队内名次分组看",
+        rows: combat.metrics.map((m) => {
+          const top = m.byRank.find((b) => b.rank === 1);
+          return [
+            m.label,
+            top && m.spread != null
+              ? `队内第一 ${top.games} 局 ${top.winRate.toFixed(1)}% · 与垫底差 ${m.spread >= 0 ? "+" : ""}${m.spread.toFixed(1)}`
+              : "无区分度或样本不足",
+          ];
+        }),
+      });
+    }
+    if (tilt?.afterLoss.length) {
+      deep.push({
+        title: "连败 / 连胜之后的表现",
+        note: tilt.note,
+        verdict: tilt.verdict,
+        rows: [
+          ...tilt.afterLoss.map((b) => [
+            `连输 ${-b.before} 把及以上之后`,
+            `${b.games} 局 ${b.winRate.toFixed(1)}%（${b.delta >= 0 ? "+" : ""}${b.delta.toFixed(1)}）`,
+          ] as [string, string]),
+          ...tilt.afterWin.map((b) => [
+            `连赢 ${b.before} 把及以上之后`,
+            `${b.games} 局 ${b.winRate.toFixed(1)}%（${b.delta >= 0 ? "+" : ""}${b.delta.toFixed(1)}）`,
+          ] as [string, string]),
+        ],
+      });
+    }
+    if (queues?.buckets.length) {
+      deep.push({
+        title: "按队列拆分",
+        note: "海斗不止一个队列；样本 <10 局的只列数字不下结论",
+        rows: queues.buckets.map((b) => [
+          `${b.name}${b.ranked ? "（排位）" : ""} [${b.queueId}]`,
+          b.avgPlacement != null
+            ? `${b.games} 局 · 平均名次 ${b.avgPlacement.toFixed(2)}`
+            : `${b.games} 局 · 胜率 ${b.winRate.toFixed(1)}%${b.enough ? "" : " · 样本少"}`,
+        ]),
+      });
+    }
+  } catch {
+    /* 拿不到就整节省略，不编内容 */
+  }
+
   // 连败段（≥4 连败），在走势图上标出来
   const streaks: Array<{ startIdx: number; endIdx: number; len: number }> = [];
   let cur = 0;
@@ -388,6 +488,7 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     damageRanks,
     rankGames,
     weekdays,
+    deep,
     streaks,
     pairs,
     teammates,
@@ -586,6 +687,51 @@ function demoData() {
       { rank: 5, games: 30, wins: 13, winRate: 43.3 },
     ],
     rankGames: 212,
+    // 演示用的深入分析（真实数据来自 comps/counters/combat/tilt/queue-stats）
+    // 显式标注元组类型：否则 rows 会被推成 string[][]，和外层的 [string, string][] 对不上
+    deep: [
+      {
+        title: "对面阵容构成",
+        note: "定位标签取自 Riot 官方数据，一名英雄可挂多个标签",
+        verdict: "对面阵容构成对你没有明显影响：六类标签之间的胜率极差只有 2.8 个百分点。",
+        rows: [
+          ["对面有坦克", "142 局 · 52.1%（+1.2）"],
+          ["对面有刺客", "118 局 · 49.3%（-1.6）"],
+        ],
+      },
+      {
+        title: "对面 ≥2 个坦克标签时，赢家出什么",
+        note: "对照组内基准；只统计成装",
+        rows: [
+          ["出 毁坏仪式", "192 次 58.3%（+7.5）"],
+          ["出 兰顿之兆", "435 次 40.5%（-10.4）"],
+        ],
+      },
+      {
+        title: "伤害以外的贡献（队内名次 → 胜率）",
+        note: "按队内名次分组看",
+        rows: [
+          ["承伤", "队内第一 92 局 56.5% · 与垫底差 +11.2"],
+          ["控制时间", "无区分度或样本不足"],
+        ],
+      },
+      {
+        title: "连败 / 连胜之后的表现",
+        note: "按「打这把之前已连输/连赢几把」分组",
+        rows: [
+          ["连输 1 把及以上之后", "143 局 50.3%（-2.9）"],
+          ["连输 3 把及以上之后", "36 局 47.2%（-6.0）"],
+        ],
+      },
+      {
+        title: "按队列拆分",
+        note: "海斗不止一个队列",
+        rows: [
+          ["海克斯大乱斗 [2400]", "302 局 · 胜率 53.6%"],
+          ["海克斯大乱斗 经典模式版 [2450]", "3 局 · 胜率 33.3% · 样本少"],
+        ],
+      },
+    ] as Array<{ title: string; note: string; verdict?: string; rows: Array<[string, string]> }>,
     weekdays: [
       { label: "周一", games: 30, wins: 16, winRate: 53.3 },
       { label: "周二", games: 34, wins: 21, winRate: 61.8 },
@@ -1688,6 +1834,29 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
       }
       <li><strong>怎么读：</strong>残差 = 你对它的胜率 − 它自己的胜率。敌方英雄本身强也会拉低你的胜率，直接看原始胜率会把「它强」误当成「你打不过」，所以这里减掉了。样本 ≥12 次才上榜。</li>
     </ul>
+  </section>`
+      : ""
+  }
+
+  ${
+    data.deep.length
+      ? `<section>
+    <h2>深入分析</h2>
+    <p style="font-size:12.5px;color:var(--text-secondary);margin:2px 0 0">
+      这一节是「可见性审计」补上的：下面这几项分析早就做成了工具，但只有当场问才看得到，
+      报告里一直没有 —— 于是没法跟历史对比、也没法留档。现在它们跟着报告一起出来。
+    </p>
+    ${data.deep
+      .map(
+        (d) => `<h3 style="font-size:13.5px;margin:18px 0 2px;font-weight:650">${esc(d.title)}</h3>
+    ${d.verdict ? `<p style="font-size:12.5px;margin:4px 0 0">${escMd(d.verdict)}</p>` : ""}
+    <table><caption>${escMd(d.note)}</caption>
+      <tbody>${d.rows
+        .map((r) => `<tr><td>${esc(r[0])}</td><td class="num">${esc(r[1])}</td></tr>`)
+        .join("")}</tbody>
+    </table>`
+      )
+      .join("")}
   </section>`
       : ""
   }
