@@ -146,6 +146,7 @@ npm run audit:consistency # 跨工具一致性：同一个数（我的总局数/
 npm run audit:verdict  # 结论自洽：结论里引用的数字，能不能在它自己的明细里找到
 npm run audit:direction # 结论方向：说「变强了」时差值真是正的吗；说「最吃力的是 X」时 X 真是极值吗
 npm run audit:confidence # 置信措辞：说「可以当真」时，点名的那个对象样本够吗
+npm run audit:recompute # 与原始数据对账：工具报的数，跟直接读归档独立算出来的对得上吗
 npm run audit:coldstart # 冷启动：归档为空 + 客户端离线时，工具会不会只回一个空壳（跑两遍：冷启动该提示、健康模式不该提示）
 npm run audit:wiring # 接线审计：有没有游离文件/死代码、工具与文档是否对得上、scripts 指向的文件在不在
 npm run audit        # 上面两个一起跑
@@ -393,6 +394,9 @@ npx tsx lib/report.ts --demo              # 合成数据，客户端没开时也
 - `npm run audit:analysis` —— 当前 **34/34 个字段都被分析过**（判据更严：只在导出层搬过数据的**不算**）
 - `npm run audit:surfaced` —— 当前 **13/13 个分析都进了报告**（含「跨账号对比」这种有自己的独立报告、不挤进单人报告的）
 - `npm run audit:help` —— 当前 **44/44 个工具都能从场景引导里被找到**
+- `npm run audit:recompute` —— **唯一一个有外部真值**的检查：不复用 lib/ 任何代码，
+  直接读 `data/archive/lol-matches.json` 自己 filter 自己数，再跟工具打印的数字比。
+  当前：4 个工具报的局数、2 个报的胜率全部与独立重算一致（306 把 / 53.3%）。
 - `npm run audit:confidence` —— 8 处结论的置信措辞都与样本相符（修掉 1 处过度声称，见下）。
   带 `--selftest`（6 条）。
 - `npm run audit:direction` —— 检查了 9 处结论，**方向词与数字符号全部一致**；
@@ -413,6 +417,12 @@ npx tsx lib/report.ts --demo              # 合成数据，客户端没开时也
 
 写这两个脚本的过程本身值得记一笔：**它们各自误报过 3~4 次**，每次都差点让我删掉正常代码。
 记在脚本注释里了（文本判据太naive就会喊狼来了，喊多了这个检查本身也没人看）。
+- **独立验证要复现完整的规格**：`npm run audit:recompute` 第一次跑报了「工具多算 1 局」
+  （306 vs 305）。查下来**是我的审计错了**：海斗的判据是「queueId 在白名单 **或** gameMode 属于 KIWI 系」，
+  我的独立实现只写了 queueId 那条，漏掉的那局是 `queueId 4310 + gameMode JADE` ——
+  正是我自己早先在 `queues.ts` 里注释过的 4310 特例。
+  教训：独立验证要复现**完整的规格**，不是复现我脑子里那个简化版；
+  不然「独立」反而会把你带偏。
 - **置信措辞不能超出样本撑得起的程度**：`get_my_matchups` 原先写「样本量够，这几条可以当真」，
   可它点名的是**只遇到过 12 把**的英雄 —— n=12 时胜率的 95% 区间约 ±28 个百分点，
   残差 −20.3 跟 0 区分不开。原因是我按总局数（306）判的置信度，而不是按结论点名的那个对象。
