@@ -35,7 +35,8 @@
     "queue:stats": "tsx lib/queue-stats-probe.ts",
     "patches": "tsx lib/patches-probe.ts",
     "comps": "tsx lib/comps-probe.ts",
-    "counters": "tsx lib/counters-probe.ts"
+    "counters": "tsx lib/counters-probe.ts",
+    "contribution": "tsx lib/contribution-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

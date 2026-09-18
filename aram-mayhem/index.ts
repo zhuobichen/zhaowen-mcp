@@ -31,6 +31,7 @@ import { queueStatsText } from "./lib/queue-stats.js";
 import { patchesText } from "./lib/patches.js";
 import { compsText } from "./lib/comps.js";
 import { countersText } from "./lib/counters.js";
+import { contributionText } from "./lib/contribution.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -311,6 +312,18 @@ async function main() {
             who: { type: "string", description: "可选：导出哪个账号（好友名，部分匹配）。不传就是自己" },
             kind: { type: "string", enum: ["mayhem", "lol", "tft"], description: "导什么：海斗 / 英雄联盟全部模式 / 云顶（默认 mayhem）" },
             out: { type: "string", description: "可选：自定义输出路径" },
+          },
+        },
+      },
+      {
+        name: "get_my_contribution",
+        description:
+          "贡献度与胜负：你在队里打第几（伤害/金币/KDA/补刀的真实队内名次）跟赢不赢有没有关系 —— 回答「我是必须 carry 才能赢，还是躺着也能赢」。也会给「全队都顺」的对照，用来区分「你 carry」和「赢得顺所以数据好」。注意是相关性不是因果。默认查自己，可传 who。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            min_games: { type: "number", description: "每个名次至少多少局才下结论（默认 15）" },
           },
         },
       },
@@ -600,6 +613,14 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_my_contribution":
+          return text(
+            await contributionText({
+              name: args.who ? String(args.who) : undefined,
+              minGames: args.min_games ? Number(args.min_games) : undefined,
             })
           );
 
