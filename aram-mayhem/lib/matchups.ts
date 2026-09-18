@@ -222,6 +222,30 @@ export async function matchupsText(
   out.push(r.note);
   out.push("");
 
+  // 结论行放在最前：其他工具都有，这个原先只列清单不说结论 —— 是「结论自洽审计」
+  // （tools/audit-verdict.mjs）查出来的。引用的数字刻意和下面列表打印的格式对齐，
+  // 读者能一行行核对。
+  {
+    const fmt = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}`;
+    const byResidual = [...r.versusAll].sort(
+      (x, y) => (x.residual ?? x.delta) - (y.residual ?? y.delta)
+    );
+    const w0 = byResidual[0];
+    const b0 = byResidual[byResidual.length - 1];
+    if (w0 && b0 && w0.champion !== b0.champion) {
+      const wv = w0.residual ?? w0.delta;
+      const bv = b0.residual ?? b0.delta;
+      out.push(
+        `结论：最吃力的是对面有 ${w0.champion}（${w0.games} 把，残差 ${fmt(wv)}）；` +
+          `最稳的是对面有 ${b0.champion}（${b0.games} 把，残差 ${fmt(bv)}）—— 两者差 ${(bv - wv).toFixed(1)} 个百分点。` +
+          (r.gamesWithFullRoster < 60 ? "但样本还不多，先当参考。" : "样本量够，这几条可以当真。")
+      );
+    } else {
+      out.push("结论：样本不足，列不出稳定的克星与提款机。");
+    }
+    out.push("");
+  }
+
   // 主榜按「残差」排：扣掉该英雄本身强度之后你还打不过的，才是真的克星
   const worst = r.versusAll.slice(0, 8);
   const best = [...r.versusAll]
@@ -262,5 +286,6 @@ export async function matchupsText(
     "「残差」= 你对它的胜率 − 它自己的社区站胜率。一个英雄本身胜率就高（比如 56%），你打不过它很正常；",
     "残差才是超出它自身强度的部分。注意这是近似：社区站胜率统计的是该英雄在**己方**时的表现。"
   );
+
   return out.join("\n");
 }

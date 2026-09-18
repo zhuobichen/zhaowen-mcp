@@ -168,7 +168,8 @@ export async function analyzeCombat(
     const lastG = last.reduce((s, x) => s + x.games, 0);
     const lastW = last.reduce((s, x) => s + x.wins, 0);
     const okLast = lastG >= minGames;
-    const spread = first?.enough && okLast ? first.winRate - (lastW / lastG) * 100 : null;
+    const lastRate = lastG ? (lastW / lastG) * 100 : 0;
+    const spread = first?.enough && okLast ? first.winRate - lastRate : null;
 
     // 互斥度：这项队内第一的人里，对英雄伤害也第一的比例
     const firstRows = rows.filter((r) => 1 + r.mates.filter((x) => x[m.key] > r.me[m.key]).length === 1);
@@ -195,6 +196,11 @@ export async function analyzeCombat(
     const topShare = first && n ? first.games / n : 0;
     const degenerate = topShare > 0.6;
 
+    // 把两个被减数都写出来（第一 X% / 垫底合并 Y% / 差 Z）—— 只说「差 12.7」
+    // 读者在表里找不到 12.7 这个数，没法核对。是结论自洽审计提的同一类问题。
+    const pair = (a: number, b: number) =>
+      `队内第一 ${a.toFixed(1)}% / 第 4 名及以后合并 ${b.toFixed(1)}%`;
+
     let verdict: string;
     if (degenerate) {
       verdict =
@@ -204,11 +210,11 @@ export async function analyzeCombat(
     } else if (spread == null) {
       verdict = "样本不足（队内第一或垫底的场次不够），不下结论。";
     } else if (Math.abs(spread) < 5) {
-      verdict = `队内第一和垫底差 ${spread.toFixed(1)} 个百分点 —— 看不出这项与胜负有关。`;
+      verdict = `${pair(first!.winRate, lastRate)}，差 ${spread.toFixed(1)} 个百分点 —— 看不出这项与胜负有关。`;
     } else if (spread > 0) {
-      verdict = `队内第一比垫底高 ${spread.toFixed(1)} 个百分点 —— 这项做得多，赢得更多。`;
+      verdict = `${pair(first!.winRate, lastRate)}，差 ${spread.toFixed(1)} 个百分点 —— 这项做得多，赢得更多。`;
     } else {
-      const parts = [`队内第一反而比垫底低 ${Math.abs(spread).toFixed(1)} 个百分点`];
+      const parts = [`${pair(first!.winRate, lastRate)}，第一反而低 ${Math.abs(spread).toFixed(1)} 个百分点`];
       if (durSame) parts.push(`两队的中位时长几乎一样（${durationFirst?.toFixed(0)} 分），所以不是「久局拖出来的」`);
       if (overlaps != null && overlaps < 0.7) {
         parts.push(
@@ -291,6 +297,14 @@ export async function combatText(opts: { puuid?: string; name?: string; minGames
       out.push(
         `  队内第 ${b.rank} 名：${b.games} 局 ${b.winRate.toFixed(1)}%（比整体 ${b.delta >= 0 ? "+" : ""}${b.delta.toFixed(1)}）${b.enough ? "" : " ← 样本少"}`
       );
+    }
+    // 结论里说的「与垫底差 X 个百分点」是**第 4/5 名合并**算的，表里只有分开的两行 ——
+    // 不把这行打出来，读者没法核对结论（结论自洽审计查出来的，和 contribution 同一类问题）。
+    const low = m.byRank.filter((b) => b.rank >= 4);
+    const lg = low.reduce((s2, b) => s2 + b.games, 0);
+    if (lg > 0) {
+      const lw = low.reduce((s2, b) => s2 + b.wins, 0);
+      out.push(`  └ 第 4 名及以后合并：${lg} 局 ${((lw / lg) * 100).toFixed(1)}%`);
     }
     out.push("");
   }

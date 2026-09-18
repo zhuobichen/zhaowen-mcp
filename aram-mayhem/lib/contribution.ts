@@ -231,6 +231,17 @@ export async function contributionText(opts: { puuid?: string; name?: string; mi
           `（比整体 ${b.delta >= 0 ? "+" : ""}${b.delta.toFixed(1)}）${b.enough ? "" : " ← 样本少"}`
       );
     }
+    // 结论里引用的是「排到第三及以后」这个**合并**口径的数字。如果不把它也打出来，
+    // 读者在表里只能看到第 3/4/5 三行分开的数，没法核对结论 —— 是结论自洽审计查出来的。
+    const low = m.buckets.filter((b) => b.rank >= 3);
+    const lg = low.reduce((s, b) => s + b.games, 0);
+    if (lg > 0) {
+      const lw = low.reduce((s, b) => s + b.wins, 0);
+      const wr = (lw / lg) * 100;
+      out.push(
+        `  └ 第 3 名及以后合并：${lg} 局 ${wr.toFixed(1)}%（比整体 ${wr - r.baseWinRate >= 0 ? "+" : ""}${(wr - r.baseWinRate).toFixed(1)}）`
+      );
+    }
   }
   return out.join("\n");
 }

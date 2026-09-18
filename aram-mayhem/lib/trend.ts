@@ -269,9 +269,14 @@ export async function trendText(
   out.push("");
   out.push(`结论：${r.verdict}`);
   if (r.recent && r.earlier) {
+    // 结论里引用了这两段的胜率（如「最近 50.0% / 之前 40.5%」），所以这里必须把它们
+    // 明确列出来 —— 上面的逐周表里没有「4 个有效周合并」这一行，不列就没法核对。
+    // 是结论自洽审计查出来的（只给「胜率差」不够）。
+    const f = (x: number) => `${x.toFixed(1)}%`;
     out.push(
-      `（最近有效周 ${r.recent.games} 把 / 之前有效周 ${r.earlier.games} 把；` +
-        `胜率差 ${(r.recent.winRate - r.earlier.winRate >= 0 ? "+" : "")}${(r.recent.winRate - r.earlier.winRate).toFixed(1)} 个百分点）`
+      `  最近 ${r.recent.weeks} 个有效周：${r.recent.games} 把 ${f(r.recent.winRate)}` +
+        `　之前 ${r.earlier.weeks} 个：${r.earlier.games} 把 ${f(r.earlier.winRate)}` +
+        `　差 ${r.recent.winRate - r.earlier.winRate >= 0 ? "+" : ""}${(r.recent.winRate - r.earlier.winRate).toFixed(1)} 个百分点`
     );
   }
   return out.join("\n");
