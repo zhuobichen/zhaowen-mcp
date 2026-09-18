@@ -36,6 +36,7 @@ import { tiltText } from "./lib/tilt.js";
 import { checkupText } from "./lib/checkup.js";
 import { gameDetailText } from "./lib/game-detail.js";
 import { reportMarkdownText } from "./lib/report-md.js";
+import { combatText } from "./lib/combat-profile.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -316,6 +317,18 @@ async function main() {
             who: { type: "string", description: "可选：导出哪个账号（好友名，部分匹配）。不传就是自己" },
             kind: { type: "string", enum: ["mayhem", "lol", "tft"], description: "导什么：海斗 / 英雄联盟全部模式 / 云顶（默认 mayhem）" },
             out: { type: "string", description: "可选：自定义输出路径" },
+          },
+        },
+      },
+      {
+        name: "get_combat_profile",
+        description:
+          "伤害以外的贡献：控制时间、治疗量、最长存活、对目标伤害这几项做成队内第几时你的胜率如何。这几项是字段审计查出来的 —— 归档采集了 34 个统计字段，这批从来没被任何模块读过。对负相关的项会额外给两个对照（对局时长是不是混淆、以及这项和「输出」的互斥度），而不是直接下「做这个会输」的结论。视野分与死亡时长不做分析，原因在输出里写明。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            min_games: { type: "number", description: "每个名次分组至少多少局才下结论（默认 15）" },
           },
         },
       },
@@ -665,6 +678,14 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_combat_profile":
+          return text(
+            await combatText({
+              name: args.who ? String(args.who) : undefined,
+              minGames: args.min_games ? Number(args.min_games) : undefined,
             })
           );
 

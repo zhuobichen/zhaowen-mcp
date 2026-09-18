@@ -40,7 +40,8 @@
     "tilt": "tsx lib/tilt-probe.ts",
     "checkup": "tsx lib/checkup-probe.ts",
     "game": "tsx lib/game-detail-probe.ts",
-    "report:md": "tsx lib/report-md-probe.ts"
+    "report:md": "tsx lib/report-md-probe.ts",
+    "combat": "tsx lib/combat-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

@@ -79,7 +79,9 @@ export async function analyzeComps(
 
   // 只看归档里「这个账号自己打过」的局：优先用显式 puuid，否则取出现次数最多的那个账号
   let puuid = opts.puuid ?? null;
+  let fallback = false;
   if (!puuid) {
+    fallback = true;
     const tally = new Map<string, number>();
     for (const g of games) for (const p of g.participants ?? []) if (p.puuid) tally.set(p.puuid, (tally.get(p.puuid) ?? 0) + 1);
     puuid = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
@@ -210,7 +212,10 @@ export async function analyzeComps(
       .filter((x): x is RoleStat => !!x)
       .sort((a, b) => a.winRate - b.winRate),
     note:
-      `样本：归档里 ${total} 把有完整 10 人名单的海斗对局，你的整体胜率 ${base.toFixed(1)}%。` +
+      (fallback
+        ? `⚠ 没有指定账号、也解析不出身份，以下用的是**归档里出现最多的那个账号**（可能是好友，不一定是本人）。`
+        : "") +
+      `样本：归档里 ${total} 把有完整 10 人名单的海斗对局，该账号整体胜率 ${base.toFixed(1)}%。` +
       `定位标签取自 Riot 官方数据，一名英雄可挂多个标签，所以「对面有 2 个坦克」是` +
       `「对面有 2 个人的标签里有坦克」，不是「2 个纯坦克」。` +
       `这也是观察数据：对面阵容强本来就会压低你的胜率，两边都在变，不能只归因到你这边。` +
