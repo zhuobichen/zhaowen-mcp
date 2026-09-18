@@ -1,8 +1,10 @@
-// 健康报告：把 13 个审计跑一遍，汇成一张表 + 一份 Markdown。
+// 健康报告：把 AUDITS 里那串审计跑一遍，汇成一张表 + 一份 Markdown。
 //
-// 为什么要它：`npm run audit` 已经把 13 个审计串起来了，但输出是十几段各自为政的文本，
+// 为什么要它：`npm run audit` 已经把审计串起来了，但输出是十几段各自为政的文本，
 // 想看「现在到底什么状态」得从头读到尾。这份只保留**每个审计的结论行**，
 // 一眼看全，并且能存成文件对照历史。
+//
+// （数字不写死在注释里 —— 这里原本写着「13 个审计」，加到 22 项之后那句就成了假的。）
 //
 // 用法：
 //   node tools/audit-health.mjs              # 跑全部（约 3~5 分钟）
@@ -42,7 +44,7 @@ const AUDITS = [
   { key: "direction_self", title: "方向判据自测", cmd: ["tools/audit-verdict-direction.mjs", "--selftest"], what: "方向判据本身会不会报警" },
   { key: "direction", title: "结论方向", cmd: ["tools/audit-verdict-direction.mjs"], what: "方向词与数字符号是否一致、点名的是否极值" },
   { key: "confidence_self", title: "置信判据自测", cmd: ["tools/audit-confidence.mjs", "--selftest"], what: "置信判据本身会不会报警" },
-  { key: "confidence", title: "置信措辞", cmd: ["tools/audit-confidence.mjs"], what: "说「可以当真」时点名的对象样本够不够" },
+  { key: "confidence", title: "置信措辞", cmd: ["tools/audit-confidence.mjs"], what: "两层：点名的对象样本够不够 + 效应有没有超过噪声（样本够≠撑得住）" },
   { key: "recompute", title: "与原始数据对账", cmd: ["tools/audit-recompute.mjs"], what: "工具报的数 vs 独立重算（唯一有外部真值的一层）" },
 ];
 const MARK = { pass: "✓", warn: "⚠", fail: "✗" };

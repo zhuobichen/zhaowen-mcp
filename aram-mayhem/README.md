@@ -159,7 +159,7 @@ npm run audit:length   # 输出长度：真的把每个工具调一遍量行数�
 npm run audit:consistency # 跨工具一致性：同一个数（我的总局数/胜率）在各工具里是否一致
 npm run audit:verdict  # 结论自洽：结论里引用的数字，能不能在它自己的明细里找到
 npm run audit:direction # 结论方向：说「变强了」时差值真是正的吗；说「最吃力的是 X」时 X 真是极值吗
-npm run audit:confidence # 置信措辞：说「可以当真」时，点名的那个对象样本够吗
+npm run audit:confidence # 置信措辞（两层）：点名的对象样本够吗 + 效应有没有超过噪声（样本够≠撑得住）
 npm run audit:recompute # 与原始数据对账：工具报的数，跟直接读归档独立算出来的对得上吗
 npm run audit:coldstart # 冷启动：归档为空 + 客户端离线时，工具会不会只回一个空壳（跑两遍：冷启动该提示、健康模式不该提示）
 npm run audit:wiring # 接线审计：游离文件/死代码、工具↔文档↔scripts 对得上吗、每个 script 有没有交代、审计进程有没有设写盘闸

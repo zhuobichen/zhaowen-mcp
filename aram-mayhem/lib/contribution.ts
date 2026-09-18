@@ -178,11 +178,34 @@ export async function analyzeContribution(
     verdict =
       `你伤害**全队第一**时 ${top.games} 局 ${top.winRate.toFixed(1)}%（比整体 ${top.delta >= 0 ? "+" : ""}${top.delta.toFixed(1)}），` +
       `**排到第三及以后**时 ${lowGames} 局 ${lowWr.toFixed(1)}%（${lowWr - base >= 0 ? "+" : ""}${(lowWr - base).toFixed(1)}）。` +
-      (Math.abs(top.winRate - lowWr) < 5
-        ? "两者差不多 —— 你赢不赢跟「你是不是输出第一」关系不大，队伍整体更重要。"
-        : top.winRate > lowWr
-          ? "差得明显 —— 你打出全队最高伤害时赢面更大，说明你偏向「得自己 carry」的打法。"
-          : "反过来了：伤害第一时反而更容易输 —— 可能是你吃了太多资源却没转化成胜势，或者队友跟不上。");
+      (() => {
+        // 判据要跟**噪声**比，不能跟一个固定的 5 个百分点比 ——
+        // 同样是 5pp，在 400 局的组里是实的，在 36 局的组里连一个标准误都不到。
+        // 和 lib/tilt.ts 同一个毛病、同一个改法（那边是「门槛扫描」先量出来的）。
+        const gap = Math.abs(top.winRate - lowWr);
+        const se = Math.sqrt(
+          Math.max(top.winRate * (100 - top.winRate), 1) / top.games +
+            Math.max(lowWr * (100 - lowWr), 1) / lowGames
+        );
+        const k = se > 0 ? gap / se : 0;
+        // 分三档，不是两档：卡在 2 倍线上时（比如 1.97）说「差不多」太轻、说「明显」太重，
+        // 得如实说是「卡在线上」。第一版只有两档，这个号正好落在 1.97，就被讲成了「差不多」。
+        if (k < 1.5) {
+          return (
+            `两者差不多（差 ${gap.toFixed(1)} 个百分点，约是噪声的 ${k.toFixed(2)} 倍，2 倍才算分得开）—— ` +
+            "你赢不赢跟「你是不是输出第一」关系不大，队伍整体更重要。"
+          );
+        }
+        if (k < 2.5) {
+          return (
+            `差 ${gap.toFixed(1)} 个百分点，约是噪声的 ${k.toFixed(2)} 倍 —— **正好卡在「分得开」的线上**，` +
+            `先当倾向，别当结论。方向上：${top.winRate > lowWr ? "你打出全队最高伤害时赢面更大一些" : "伤害第一时反而略低"}。`
+          );
+        }
+        return top.winRate > lowWr
+          ? `差得明显（差 ${gap.toFixed(1)} 个百分点，约是噪声的 ${k.toFixed(1)} 倍）—— 你打出全队最高伤害时赢面更大，说明你偏向「得自己 carry」的打法。`
+          : `反过来了（差 ${gap.toFixed(1)} 个百分点，约是噪声的 ${k.toFixed(1)} 倍）：伤害第一时反而更容易输 —— 可能是你吃了太多资源却没转化成胜势，或者队友跟不上。`;
+      })();
     if (teamAlsoStrong) {
       verdict +=
         `\n补充对照：你伤害最高、且队友最高伤害也过 2 万（全队都顺）时 ${teamAlsoStrong.games} 局 ${teamAlsoStrong.winRate.toFixed(1)}% —— ` +

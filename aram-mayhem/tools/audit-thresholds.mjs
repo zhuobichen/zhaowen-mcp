@@ -115,10 +115,23 @@ const DIFF_REGISTRY = [
     key: "contribution",
     file: "lib/contribution.ts",
     tool: "get_my_contribution",
-    what: "伤害队内第一 vs 第三及以后，胜率差几个百分点才算「有关系」",
-    find: /Math\.abs\(top\.winRate - lowWr\) < (\d+(?:\.\d+)?)/,
-    unit: "pp",
-    why: "未说明",
+    what: "伤害队内第一 vs 第三及以后：差多少才算「有关系」（现在按标准误倍数，不再用固定百分点）",
+    find: /if \(k < (\d+(?:\.\d+)?)\)/,
+    unit: "se",
+    // 原先是固定的 `Math.abs(top.winRate - lowWr) < 5`。门槛扫描（thresholds:sweep）量出
+    // 这个号是 12.6pp / 标准误 6.4 = 1.97 倍 —— 固定 5pp 判它「差得明显」，太满。
+    // 已改成按标准误倍数，与 lib/tilt.ts、lib/comps.ts 一致。
+    why: "从固定 5pp 改成 2.5 倍标准误：固定阈值在 400 局的组里和 36 局的组里含义完全不同",
+    hedged: false,
+  },
+  {
+    key: "tilt",
+    file: "lib/tilt.ts",
+    tool: "get_my_tilt",
+    what: "连败之后偏离基准多少才算「明显走低」（按标准误倍数）",
+    find: /const significant = k > (\d+(?:\.\d+)?)/,
+    unit: "se",
+    why: "从固定 5pp 改成 2 倍标准误：原来的写法在 36 局的桶上会拿 6.0pp 当「明显」，而它的标准误有 8.3",
     hedged: false,
   },
   {
