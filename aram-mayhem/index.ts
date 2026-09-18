@@ -39,7 +39,7 @@ import { scoutTeammates, sendChampSelectMessage } from "./lib/teammates.js";
 import { resolveMe } from "./lib/identity.js";
 import {
   analyzeSynergy,
-  championGuide,
+  championGuideAsync,
   comparePatches,
   dataInfo,
   getAugmentToolAsync,
@@ -137,7 +137,7 @@ async function main() {
       {
         name: "get_champion_guide",
         description:
-          "英雄视角推荐：输入英雄（中文常用名/昵称/称号/英文名），返回梯队与胜率、推荐符文搭配（含社区站推荐理由）、该英雄进入强度榜前列的符文、相关羁绊。",
+          "英雄视角推荐：输入英雄（中文常用名/昵称/称号/英文名），返回梯队与胜率、推荐符文搭配（含社区站推荐理由）、该英雄进入强度榜前列的符文、相关羁绊，外加**本机实证**（归档里这个英雄拿到哪些符文胜率更高；用「专属」列扣掉符文本身的强度，区分「跟这英雄特别搭」和「这符文本来就强」）。",
         inputSchema: {
           type: "object",
           properties: {
@@ -268,7 +268,7 @@ async function main() {
       {
         name: "compare_accounts",
         description:
-          "跨账号对比：把两个账号的海斗核心指标并排比（局数/胜率/近期状态/KDA/伤害/常玩英雄/常用符文），并给一句克制的结论。a 不传就是自己。",
+          "跨账号对比：两个账号的海斗核心指标并排比（局数/胜率/近期状态/KDA/伤害/常玩英雄/常用符文），外加**符文偏好差异**（谁更爱拿什么）和**两人都拿过的符文里胜率差最大的几件**，最后给一句克制的结论。a 不传就是自己。",
         inputSchema: {
           type: "object",
           properties: {
@@ -524,7 +524,7 @@ async function main() {
         case "get_champion_guide":
           if (!args.champion) return text("请提供英雄名 champion");
           return text(
-            championGuide({
+            await championGuideAsync({
               champion: String(args.champion),
               limit: args.limit ? Number(args.limit) : undefined,
             })

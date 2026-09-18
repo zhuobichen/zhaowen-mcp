@@ -422,6 +422,136 @@ export async function augmentEmpirical(officialId: number, opts: { minGames?: nu
   };
 }
 
+export interface ChampionAugmentStat {
+  augmentId: number;
+  name: string;
+  games: number;
+  wins: number;
+  winRate: number;
+  /** 相对该英雄整体胜率的差（百分点） */
+  delta: number;
+  /** 该符文在全体的胜率，用来区分「这英雄专属强」还是「符文本身就强」 */
+  overallWinRate: number | null;
+  /** 英雄内 − 全体（百分点），正数才是「跟这个英雄特别搭」 */
+  specific: number | null;
+}
+
+export interface ChampionEmpirical {
+  championId: number;
+  championName: string;
+  games: number;
+  wins: number;
+  winRate: number;
+  /** 这个英雄拿到后胜率最高的符文 */
+  best: ChampionAugmentStat[];
+  /** 拿到后胜率最低的 */
+  worst: ChampionAugmentStat[];
+  note: string;
+}
+
+/**
+ * 英雄 × 符文的实证：玩这个英雄时，拿到哪些符文胜率更高。
+ *
+ * 关键的一步是**减掉符文本身的强度**（`specific` 列）：
+ * 「亮出你的剑」在全服就 61% 胜率，某个英雄拿它 60% 说明不了它跟这英雄搭。
+ * 只有「英雄内胜率 − 该符文整体胜率」为正，才说明是这英雄的专属好事。
+ *
+ * 样本来自归档全部参与者行（不只你自己），所以量够。
+ */
+export async function championAugmentEmpirical(
+  championId: number,
+  opts: { minGames?: number } = {}
+): Promise<ChampionEmpirical> {
+  const d = loadData();
+  const cid = d.championIds[String(championId)];
+  const championName = cid ? d.championById.get(cid.id)?.name ?? cid.name : `英雄#${championId}`;
+
+  // 这里要按「英雄 × 符文」交叉，而通用 scan() 不带 championId，所以自己走一遍
+  const games = (await archivedGamesFor("lol")).filter(isMayhemGame);
+  const augs = new Map<number, Tally>();
+  const champ: Tally = { games: 0, wins: 0 };
+  const all = new Map<number, Tally>();
+  let n = 0;
+  for (const g of games) {
+    for (const p of g.participants ?? []) {
+      const s: any = p.stats ?? {};
+      const ids: number[] = [];
+      for (let i = 1; i <= 6; i++) {
+        const v = Number(s[`playerAugment${i}`] ?? 0);
+        if (v) ids.push(v);
+      }
+      if (!ids.length || s.win === undefined) continue;
+      n++;
+      const uniq = [...new Set(ids)];
+      for (const id of uniq) {
+        const c = all.get(id) ?? { games: 0, wins: 0 };
+        c.games++;
+        if (s.win === true) c.wins++;
+        all.set(id, c);
+      }
+      if (Number(p.championId) !== championId) continue;
+      champ.games++;
+      if (s.win === true) champ.wins++;
+      for (const id of uniq) {
+        const c = augs.get(id) ?? { games: 0, wins: 0 };
+        c.games++;
+        if (s.win === true) c.wins++;
+        augs.set(id, c);
+      }
+    }
+  }
+
+  const base = rate(champ);
+  const minGames = opts.minGames ?? 20;
+  const list: ChampionAugmentStat[] = [...augs.entries()]
+    .filter(([, t]) => t.games >= minGames)
+    .map(([id, t]) => {
+      const a = d.augments.find((x) => x.officialId === id);
+      const wr = rate(t);
+      const overall = all.get(id);
+      const owr = overall ? rate(overall) : null;
+      return {
+        augmentId: id,
+        name: a?.name ?? `未知符文#${id}`,
+        games: t.games,
+        wins: t.wins,
+        winRate: wr,
+        delta: wr - base,
+        overallWinRate: owr,
+        specific: owr == null ? null : wr - owr,
+      };
+    })
+    // 说不出名字的符文没法指导选符文，不进榜
+    .filter((x) => !x.name.startsWith("未知符文"));
+
+  const bySpecific = [...list].filter((x) => x.specific != null).sort((a, b) => (b.specific ?? 0) - (a.specific ?? 0));
+  // 两个榜必须互斥：直接取头尾会在条目少的时候把同一件符文同时列进「最搭」和「最不搭」
+  const best = bySpecific.slice(0, 8);
+  const bestIds = new Set(best.map((x) => x.augmentId));
+  // 「最不搭」只在**真的低于该符文全体胜率**（specific < 0）里挑；
+  // 挑不出来就空着 —— 硬取倒数几条会把一堆正数说成「不搭」。
+  const worst = bySpecific
+    .filter((x) => (x.specific ?? 0) < 0 && !bestIds.has(x.augmentId))
+    .sort((a, b) => (a.specific ?? 0) - (b.specific ?? 0))
+    .slice(0, 6);
+
+  return {
+    championId,
+    championName,
+    games: champ.games,
+    wins: champ.wins,
+    winRate: base,
+    best,
+    worst,
+    note:
+      `${championName}：归档里 ${champ.games} 局（全部参与者行共 ${n} 行），该英雄整体胜率 ${base.toFixed(1)}%。` +
+      `只列在这个英雄身上出现 ≥${minGames} 次的符文。` +
+      `「专属」列 = 该英雄拿它的胜率 − 它在所有人手里的胜率 —— 正数才是「跟这个英雄特别搭」，` +
+      `不是「这个符文本身强」（符文本身强的话所有人都强）。` +
+      `⚠ 观察数据：符文是自选的，英雄与符文的选择本身相关。`,
+  };
+}
+
 // ---------------------------------------------------------------- 文本输出
 
 const pct = (v: number) => `${v.toFixed(1)}%`;

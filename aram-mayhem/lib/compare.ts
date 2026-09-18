@@ -21,6 +21,8 @@ export interface AccountProfile {
   recentWinRate: number | null;
   topChampions: Array<{ name: string; games: number; winRate: number }>;
   topAugments: Array<{ name: string; games: number; winRate: number }>;
+  /** 符文偏好明细：每件出现过 ≥5 次的符文，share = 出现次数 / 总符文槽位（含重复拿多次的局） */
+  augmentPrefs: Array<{ name: string; games: number; winRate: number; share: number }>;
   from: number | null;
   to: number | null;
 }
@@ -76,6 +78,17 @@ export async function profileOf(puuid: string, name: string, limit = 2000): Prom
   }
   const recent = rows.slice(-20);
 
+  const totalSlots = rows.reduce((s2, r) => s2 + r.augments.length, 0);
+  const augmentPrefs = [...augStat.entries()]
+    .filter(([, v]) => v.games >= 5)
+    .map(([id, v]) => ({
+      name: d.augments.find((a) => a.officialId === id)?.name ?? `未知符文#${id}`,
+      games: v.games,
+      winRate: (v.wins / v.games) * 100,
+      share: totalSlots ? v.games / totalSlots : 0,
+    }))
+    .filter((x) => !x.name.startsWith("未知符文")); // 说不出名字的不参与对比
+
   return {
     name,
     games: n,
@@ -89,6 +102,7 @@ export async function profileOf(puuid: string, name: string, limit = 2000): Prom
     minutes: avg((r) => r.min),
     recentWinRate: recent.length ? (recent.filter((r) => r.win).length / recent.length) * 100 : null,
     topChampions: bucket((r) => r.champ).slice(0, 5),
+    augmentPrefs,
     topAugments: [...augStat.entries()]
       .map(([id, v]) => ({
         name: d.augments.find((a) => a.officialId === id)?.name ?? `#${id}`,
@@ -147,6 +161,56 @@ export async function compareAccounts(a: string | undefined, b: string): Promise
   out.push("");
   out.push(`${pa.name} 常用符文：${pa.topAugments.map((a) => `${a.name}(${a.games}把${a.winRate.toFixed(0)}%)`).join("、") || "—"}`);
   out.push(`${pb.name} 常用符文：${pb.topAugments.map((a) => `${a.name}(${a.games}把${a.winRate.toFixed(0)}%)`).join("、") || "—"}`);
+
+  // 符文偏好差异：两边各自出现的比例差最大的是哪些
+  const prefA = new Map(pa.augmentPrefs.map((x) => [x.name, x]));
+  const prefB = new Map(pb.augmentPrefs.map((x) => [x.name, x]));
+  const allNames = new Set([...prefA.keys(), ...prefB.keys()]);
+  const diffs = [...allNames]
+    .map((name) => {
+      const a = prefA.get(name);
+      const b = prefB.get(name);
+      return {
+        name,
+        shareA: a?.share ?? 0,
+        shareB: b?.share ?? 0,
+        wrA: a?.winRate ?? null,
+        wrB: b?.winRate ?? null,
+        gap: (a?.share ?? 0) - (b?.share ?? 0),
+      };
+    })
+    .filter((x) => Math.abs(x.gap) >= 0.02) // 至少差 2 个百分点才值得说
+    .sort((x, y) => Math.abs(y.gap) - Math.abs(x.gap));
+
+  if (diffs.length) {
+    out.push("", "符文偏好差异（按出现比例差排，只看差 ≥2 个百分点的）：");
+    for (const x of diffs.slice(0, 8)) {
+      const who = x.gap > 0 ? pa.name : pb.name;
+      const sA = `${(x.shareA * 100).toFixed(0)}%`;
+      const sB = `${(x.shareB * 100).toFixed(0)}%`;
+      const wr = (v: number | null) => (v == null ? "—" : `${v.toFixed(0)}%`);
+      out.push(
+        `  · ${x.name}：${pa.name} ${sA} / ${pb.name} ${sB} —— ${who} 拿得多` +
+          `（各自拿到时的胜率 ${wr(x.wrA)} vs ${wr(x.wrB)}）`
+      );
+    }
+  }
+
+  // 两人都常拿的符文，胜率差最大的
+  const both = [...allNames]
+    .filter((name) => prefA.has(name) && prefB.has(name))
+    .map((name) => ({ name, a: prefA.get(name)!, b: prefB.get(name)! }))
+    .filter((x) => x.a.games >= 10 && x.b.games >= 10)
+    .sort((x, y) => Math.abs(y.a.winRate - y.b.winRate) - Math.abs(x.a.winRate - x.b.winRate));
+  if (both.length) {
+    out.push("", "两人都拿过的符文里，胜率差最大的几件：");
+    for (const x of both.slice(0, 5)) {
+      const better = x.a.winRate >= x.b.winRate ? pa.name : pb.name;
+      out.push(
+        `  · ${x.name}：${pa.name} ${x.a.winRate.toFixed(0)}%（${x.a.games} 把） vs ${pb.name} ${x.b.winRate.toFixed(0)}%（${x.b.games} 把）—— ${better} 用得好`
+      );
+    }
+  }
 
   // 一句结论（基于样本量给出克制判断）
   const diff = pa.winRate - pb.winRate;

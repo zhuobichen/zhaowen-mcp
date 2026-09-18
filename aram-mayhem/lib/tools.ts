@@ -500,3 +500,54 @@ export async function getAugmentToolAsync(args: { name: string; empirical?: bool
     return base;
   }
 }
+
+/**
+ * 英雄推荐 + **本机实证**：这个英雄在归档里拿到哪些符文胜率高。
+ *
+ * 和社区站的推荐是两种东西：社区站给的是「大家认为该拿什么」，
+ * 这里给的是「在本地这几千把里，真拿到它的人赢了多少」。
+ * 关键指标是 `specific`（英雄内胜率 − 该符文在所有人手里的胜率）——
+ * 只有它为正才说明是这英雄的专属好事，否则只是那个符文本身强。
+ */
+export async function championGuideAsync(args: { champion: string; limit?: number }): Promise<string> {
+  const base = championGuide(args);
+  const matches = findChampions(args.champion);
+  if (!matches.length) return base;
+  const c = matches[0];
+  const numeric = Number(
+    Object.entries(loadData().championIds).find(([, v]) => v.id === c.id)?.[0] ?? NaN
+  );
+  if (!Number.isFinite(numeric)) {
+    return base + "\n\n本机实证：本地对局记录里认不出这个英雄的数字 id，无法统计。";
+  }
+
+  try {
+    const { championAugmentEmpirical } = await import("./empirical.js");
+    const e = await championAugmentEmpirical(numeric, { minGames: 25 });
+    const out = [base, "", "本机实证（数据来自本地归档，非社区站口径）："];
+    out.push(`  · ${e.note}`);
+    if (e.games < 30) {
+      out.push(`  · 这个英雄在你归档里只打过 ${e.games} 局，样本太少，不下结论。`);
+      return out.join("\n");
+    }
+    if (e.best.length) {
+      out.push("  · 和它特别搭（「专属」= 该英雄拿它的胜率 − 它在所有人手里的胜率）：");
+      for (const x of e.best.slice(0, 6)) {
+        out.push(
+          `      ${x.name}：${x.games} 局 ${x.winRate.toFixed(1)}%` +
+            `（英雄内 ${x.delta >= 0 ? "+" : ""}${x.delta.toFixed(1)} · 专属 ${(x.specific ?? 0) >= 0 ? "+" : ""}${(x.specific ?? 0).toFixed(1)}）`
+        );
+      }
+    }
+    if (e.worst.length) {
+      out.push("  · 拿了反而低于该符文平均水平（不是符文弱，是这英雄不合适）：");
+      for (const x of e.worst) {
+        out.push(`      ${x.name}：${x.games} 局 ${x.winRate.toFixed(1)}%（专属 ${(x.specific ?? 0).toFixed(1)}）`);
+      }
+    }
+    return out.join("\n");
+  } catch {
+    // 归档为空等情况下静默降级：原推荐照常返回
+    return base;
+  }
+}
