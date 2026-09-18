@@ -244,6 +244,30 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
       winRate: pctNum(c.w, c.g),
     }));
 
+  // 队内名次 vs 胜负（伤害）：我这一局的伤害在全队排第几
+  const rankMap = new Map<number, { g: number; w: number }>();
+  let rankGames = 0;
+  for (const g of all.filter(isMayhemGame)) {
+    const parts = g.participants ?? [];
+    // 注意别写成 const me = ... me.puuid —— 那样引用的是正在声明的自己（TDZ），
+    // 而且会盖住外层那个「报告对象」的 me。这里换个名字。
+    const myRow = parts.find((x: any) => x.puuid === me.puuid) as any;
+    const st: any = myRow?.stats ?? {};
+    if (!myRow || st.win === undefined) continue;
+    const mates = parts.filter((x: any) => x.teamId === myRow.teamId && x.puuid !== me.puuid) as any[];
+    if (mates.length < 2) continue;
+    const mine = Number(st.totalDamageDealtToChampions ?? 0);
+    const rank = 1 + mates.filter((x) => Number((x.stats as any)?.totalDamageDealtToChampions ?? 0) > mine).length;
+    const c = rankMap.get(rank) ?? { g: 0, w: 0 };
+    c.g++;
+    if (st.win === true) c.w++;
+    rankMap.set(rank, c);
+    rankGames++;
+  }
+  const damageRanks = [...rankMap.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([rank, c]) => ({ rank, games: c.g, wins: c.w, winRate: pctNum(c.w, c.g) }));
+
   // 连败段（≥4 连败），在走势图上标出来
   const streaks: Array<{ startIdx: number; endIdx: number; len: number }> = [];
   let cur = 0;
@@ -346,6 +370,8 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     weekly,
     patches,
     noPatch,
+    damageRanks,
+    rankGames,
     streaks,
     pairs,
     teammates,
@@ -535,6 +561,15 @@ function demoData() {
       { patch: "16.3", playerPatch: "26.3", games: 48, wins: 22, winRate: 45.8 },
     ],
     noPatch: 0,
+    // 演示队内名次（真实数据来自对局里同队 5 人的伤害排名）
+    damageRanks: [
+      { rank: 1, games: 52, wins: 32, winRate: 61.5 },
+      { rank: 2, games: 48, wins: 24, winRate: 50.0 },
+      { rank: 3, games: 44, wins: 22, winRate: 50.0 },
+      { rank: 4, games: 38, wins: 18, winRate: 47.4 },
+      { rank: 5, games: 30, wins: 13, winRate: 43.3 },
+    ],
+    rankGames: 212,
     streaks,
     // 演示队友（真实数据来自 social.js）
     opponents: [
@@ -1032,6 +1067,58 @@ function itemBars(items: Array<{ name: string; price: number; games: number; win
 }
 
 /**
+ * 队内名次 vs 胜率（伤害）：柱=该名次下的胜率，柱下是局数。
+ * 用来看「你是不是得自己 carry」——第一名的胜率如果明显高于后面，说明依赖你输出。
+ * 注意这是相关性：赢的局大家数据都好看，所以图注里点明了这一点。
+ */
+function damageRankBars(
+  rows: Array<{ rank: number; games: number; wins: number; winRate: number }>
+): string {
+  const H = 200,
+    padL = 44,
+    padR = 16,
+    padT = 20,
+    padB = 44;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const slot = plotW / Math.max(1, rows.length);
+  const barW = Math.min(56, slot * 0.52);
+  const y = (v: number) => padT + plotH * (1 - v / 100);
+  const grid = [0, 25, 50, 75, 100]
+    .map(
+      (v) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`
+    )
+    .join("");
+  const bars = rows
+    .map((r, i) => {
+      const cx = padL + slot * i + slot / 2;
+      const h = Math.max(2, (plotH * r.winRate) / 100);
+      const color = r.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      const thin = r.games < 15;
+      return (
+        `<rect class="bar" x="${(cx - barW / 2).toFixed(1)}" y="${y(r.winRate).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4"` +
+        ` fill="${color}"${thin ? ' fill-opacity="0.45"' : ""}` +
+        ` data-tip="队内第 ${r.rank} 名|${r.wins}/${r.games} 胜 · ${fmtPct(r.winRate, 1)}${thin ? "（样本少）" : ""}"/>` +
+        `<text class="row-value" x="${cx.toFixed(1)}" y="${(y(r.winRate) - 5).toFixed(1)}" text-anchor="middle">${r.winRate.toFixed(0)}%</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 26}" text-anchor="middle">第 ${r.rank} 名</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 12}" text-anchor="middle">${r.games} 局</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>你这一局的伤害在队内排第几 → 胜率（柱=该名次胜率；半透明=不足 15 局）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="队内伤害名次与胜率">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(50)}" y2="${y(50)}"/>
+    ${bars}
+  </svg>
+</figure>`;
+}
+
+/**
  * 按补丁看：柱=该补丁胜率（50% 基准、背离着色），柱下标注局数，样本少的用空心顶。
  * 补丁是平衡性调整的单位，比「按月」更贴近「游戏变了没」这个问题。
  */
@@ -1421,6 +1508,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
   <section>
     <h2>走势与分布</h2>
     ${lineChart(data.rolling, data.streaks)}
+    ${data.damageRanks.length > 2 ? damageRankBars(data.damageRanks) : ""}
     ${data.weekly.length > 1 ? weeklyChart(data.weekly) : ""}
     ${data.patches.length > 1 ? patchChart(data.patches, data.noPatch) : ""}
     ${monthlyChart(data.months)}
