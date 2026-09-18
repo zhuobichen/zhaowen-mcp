@@ -22,6 +22,7 @@ import { archiveInfo } from "./lib/games.js";
 import { analyzeMyPlaystyle } from "./lib/playstyle.js";
 import { socialText } from "./lib/social.js";
 import { buildsText } from "./lib/builds.js";
+import { compareAccounts } from "./lib/compare.js";
 import { myRanked } from "./lib/ranked.js";
 import { scoutTeammates, sendChampSelectMessage } from "./lib/teammates.js";
 import { resolveMe } from "./lib/identity.js";
@@ -242,6 +243,19 @@ async function main() {
         },
       },
       {
+        name: "compare_accounts",
+        description:
+          "跨账号对比：把两个账号的海斗核心指标并排比（局数/胜率/近期状态/KDA/伤害/常玩英雄/常用符文），并给一句克制的结论。a 不传就是自己。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            a: { type: "string", description: "第一个账号（好友名/部分匹配）；不传=自己" },
+            b: { type: "string", description: "第二个账号（好友名/部分匹配）" },
+          },
+          required: ["b"],
+        },
+      },
+      {
         name: "get_my_builds",
         description:
           "出装分析：你最常出哪些装备、它们的胜率；哪些出得多但胜率偏低（该换）。数据来自对局里的 item0..item6（消耗品与饰品不计入）。",
@@ -396,6 +410,10 @@ async function main() {
               minGames: args.min_games ? Number(args.min_games) : undefined,
             })
           );
+
+        case "compare_accounts":
+          if (!args.b) return text("请提供第二个账号 b");
+          return text(await compareAccounts(args.a ? String(args.a) : undefined, String(args.b)));
 
         case "get_my_builds":
           return text(await buildsText({ minGames: args.min_games ? Number(args.min_games) : undefined }));
