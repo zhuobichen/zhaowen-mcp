@@ -94,7 +94,7 @@ await send("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
 
 // 先调几个会报「我的总局数 / 胜率」的工具 —— 顺带把它们看到的新对局并进归档
-const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend"];
+const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution"];
 const reported = {};
 for (const tool of PROBES) {
   const r = await send("tools/call", { name: tool, arguments: {} });
@@ -422,6 +422,96 @@ function isBuildItem(it) {
     );
   } else {
     console.log(`· 趋势分周：没在输出里找到该句（有效周 ${usable.length} 个），跳过`);
+  }
+}
+
+// ⑦ 补丁维度：get_my_patches 的按版本聚合
+//    这一项依赖 parsePatch() —— 而那个解析我自己踩过坑（漏了「只有两段」的形态）。
+//    所以独立实现必须按**完整规格**来：既认归档里归一化后的 "16.18"，
+//    也认原始记录里的 "16.18.817.4437" 与云顶那种构建串。
+{
+  const patchOf = (v) => {
+    if (typeof v !== "string" || !v) return null;
+    const rel = /<Releases\/(\d{1,4}\.\d{1,2})>/.exec(v);
+    if (rel) return rel[1];
+    const head = /^\s*(\d{1,4}\.\d{1,2})(?:\.|$)/.exec(v);
+    if (head) return head[1];
+    const m = /(\d{1,4}\.\d{1,2})\.\d/.exec(v);
+    return m ? m[1] : null;
+  };
+  const byPatch = new Map();
+  for (const g of mayhemGames) {
+    const me = (g.participants ?? []).find((p) => p.puuid === ME);
+    if (!me?.stats || me.stats.win === undefined) continue;
+    const p = patchOf(g.gameVersion);
+    if (!p) continue;
+    const c = byPatch.get(p) ?? { g: 0, w: 0 };
+    c.g++;
+    if (me.stats.win === true) c.w++;
+    byPatch.set(p, c);
+  }
+  // 取样本最多的那个补丁来对（工具的明细里每个补丁都列了局数与胜率）
+  const top = [...byPatch.entries()].sort((a, b) => b[1].g - a[1].g)[0];
+  if (top) {
+    const [patch, c] = top;
+    const text = reported["get_my_patches"] ?? "";
+    const re = new RegExp(patch.replace(".", "\\.") + "[^\\n]*?\\s(\\d+)\\s+局");
+    const m = re.exec(text);
+    const ok = m && Number(m[1]) === c.g;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 补丁：样本最多的 ${patch}　工具报 ${m ? m[1] : "—"} 局　独立重算 ${c.g} 局（胜 ${c.w}）`
+        + `　共 ${byPatch.size} 个补丁有版本号`
+    );
+  }
+}
+
+// ⑧ 战斗细节 / 贡献度：队内名次 → 胜率
+//    两者用的是同一套「队内真实名次」逻辑，只是指标不同（承伤 vs 伤害）。
+{
+  const rankDist = (valueOf) => {
+    const m = new Map();
+    for (const g of mayhemGames) {
+      const parts = g.participants ?? [];
+      const me = parts.find((p) => p.puuid === ME);
+      const s = me?.stats;
+      if (!s || s.win === undefined) continue;
+      const mates = parts.filter((p) => p.teamId === me.teamId && p.puuid !== ME);
+      if (mates.length < 2) continue; // 和 lib 一样：至少要有队友才能排名次
+      const mine = valueOf(s);
+      const rank = 1 + mates.filter((p) => valueOf(p.stats ?? {}) > mine).length;
+      const c = m.get(rank) ?? { g: 0, w: 0 };
+      c.g++;
+      if (s.win === true) c.w++;
+      m.set(rank, c);
+    }
+    return m;
+  };
+  // 承伤（combat-profile）
+  const dmgTaken = rankDist((s) => Number(s.totalDamageTaken ?? 0));
+  const t1 = dmgTaken.get(1);
+  const cp = reported["get_combat_profile"] ?? "";
+  const mc = /承伤（[^）]*）：队内第一 ([\d.]+)%/.exec(cp);
+  if (t1 && mc) {
+    const rate = (t1.w / t1.g) * 100;
+    const ok = Math.abs(rate - Number(mc[1])) < 0.06;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 战斗细节：承伤队内第一　工具报 ${mc[1]}%　独立重算 ${rate.toFixed(1)}%（${t1.w}/${t1.g}）`
+    );
+  }
+  // 伤害（contribution）
+  const dmg = rankDist((s) => Number(s.totalDamageDealtToChampions ?? 0));
+  const d1 = dmg.get(1);
+  const ctr = reported["get_my_contribution"] ?? "";
+  const md = /伤害\*\*全队第一\*\*时 (\d+) 局 ([\d.]+)%/.exec(ctr);
+  if (d1 && md) {
+    const rate = (d1.w / d1.g) * 100;
+    const ok = Number(md[1]) === d1.g && Math.abs(rate - Number(md[2])) < 0.06;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 贡献度：伤害队内第一　工具报 ${md[1]} 局 ${md[2]}%　独立重算 ${d1.g} 局 ${rate.toFixed(1)}%`
+    );
   }
 }
 
