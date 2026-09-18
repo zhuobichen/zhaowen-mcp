@@ -8,6 +8,7 @@ import { loadLolGames } from "./games.js";
 import { resolveMe } from "./identity.js";
 import { augmentIdsOf, isMayhemGame, myParticipantId } from "./lcu.js";
 import { loadData } from "./store.js";
+import { noiseCeiling, noiseMultiple } from "./thresholds.js";
 
 const fmtPct = (v: number, d = 1) => `${v.toFixed(d)}%`;
 
@@ -75,17 +76,28 @@ export async function analyzeMyPlaystyle(): Promise<string> {
     return { label: b.label, games: s.length, wins: s.filter((r) => r.win).length };
   });
   const busiest = [...hourBuckets].sort((a, b) => b.games - a.games)[0];
-  const best = [...hourBuckets].filter((b) => b.games >= 10).sort((a, b) => b.wins / b.games - a.wins / a.games)[0];
-  const worst = [...hourBuckets].filter((b) => b.games >= 10).sort((a, b) => a.wins / a.games - b.wins / b.games)[0];
+  // 「哪个时段打得最好 / 最差」是**从 ≥10 局的时段里挑胜率极值** —— 最大值统计量。
+  const hourPool = hourBuckets.filter((b) => b.games >= 10);
+  const hp = hourPool.map((b) => ({ games: b.games, rate: (b.wins / b.games) * 100 }));
+  const hourCeil = noiseCeiling(hp);
+  const best = [...hourPool].sort((a, b) => b.wins / b.games - a.wins / a.games)[0];
+  const worst = [...hourPool].sort((a, b) => a.wins / a.games - b.wins / b.games)[0];
   out.push("① 什么时候打");
   out.push(
     `  ${hourBuckets.map((b) => `${b.label} ${b.games} 把${b.games ? `（${fmtPct((b.wins / b.games) * 100, 0)}）` : ""}`).join(" · ")}`
   );
   out.push(`  最常打：${busiest.label}（${busiest.games} 把）`);
   if (best && worst && best.label !== worst.label) {
+    // 「样本小，仅供参考」太笼统 —— 现在给出具体量级：从 N 个时段里挑极值，
+    // 光噪声就能造出多大差距，以及最好那个时段本身是几倍噪声。
+    const bestRate = (best.wins / best.games) * 100;
+    const bestK = noiseMultiple(best.games, bestRate);
+    const spread = bestRate - (worst.wins / worst.games) * 100;
     out.push(
-      `  样本 ≥10 把的时段里，最好 ${best.label} ${fmtPct((best.wins / best.games) * 100, 0)}、最差 ${worst.label} ${fmtPct((worst.wins / worst.games) * 100, 0)}` +
-        `（样本小，仅供参考；想看更稳的结论就多攒几把）`
+      `  样本 ≥10 把的时段里，最好 ${best.label} ${fmtPct(bestRate, 0)}、最差 ${worst.label} ${fmtPct((worst.wins / worst.games) * 100, 0)}` +
+        `（差 ${spread.toFixed(1)} 个百分点；最好的那个约是噪声的 ${bestK.toFixed(1)} 倍，` +
+        `而从 ${hourPool.length} 个时段里挑极值、光噪声就能造出约 ${hourCeil.toFixed(1)} 个百分点的差距 —— ` +
+        `${Math.abs(spread) >= hourCeil ? "超过了噪声线，但仍要多攒几把才稳" : "分不开，先别照它调作息"}）`
     );
   }
   out.push("");
@@ -131,9 +143,13 @@ export async function analyzeMyPlaystyle(): Promise<string> {
   const bestChamps = sortedChamps.filter(([, v]) => v.g >= 5).sort((a, b) => b[1].w / b[1].g - a[1].w / a[1].g);
   const worstChamps = [...bestChamps].reverse();
   if (bestChamps.length) {
+    // 同样是「从 ≥5 把的英雄里挑极值」—— 而且英雄池通常有几十个候选，
+    // 极值被噪声主导的程度比时段那处更重（候选越多、挑出来的最值越大）。
+    const champCeil = noiseCeiling(bestChamps.map(([, v]) => ({ games: v.g, rate: (v.w / v.g) * 100 })));
     out.push(
       `  样本 ≥5 把里：最顺 ${bestChamps.slice(0, 3).map(([k, v]) => `${k} ${fmtPct((v.w / v.g) * 100, 0)}`).join("、")}` +
-        `；最卡 ${worstChamps.slice(0, 3).map(([k, v]) => `${k} ${fmtPct((v.w / v.g) * 100, 0)}`).join("、")}`
+        `；最卡 ${worstChamps.slice(0, 3).map(([k, v]) => `${k} ${fmtPct((v.w / v.g) * 100, 0)}`).join("、")}` +
+        `（候选 ${bestChamps.length} 个，从这么多里挑极值、光噪声就能造出约 ${champCeil.toFixed(1)} 个百分点的差距）`
     );
   }
   out.push("");

@@ -21,6 +21,7 @@ import { resolveMe } from "./identity.js";
 import { loadLolGames } from "./games.js";
 import { isMayhemGame } from "./lcu.js";
 import { loadData } from "./store.js";
+import { noiseCeiling, noiseMultiple } from "./thresholds.js";
 
 export interface CheckupItem {
   /** 维度名 */
@@ -185,14 +186,23 @@ export async function checkup(opts: { puuid?: string; name?: string; games?: num
     if (!worstName && !bestName) skipped.push("符文对比（单件样本不足 10 把）");
   } else skipped.push("符文对比（归档里没有同批其他人的数据）");
 
-  // 出装：出得多但胜率低的
+  // 出装：出得多但胜率低的。
+  // 这是**从 ≥15 把的装备里挑胜率最低**—— 最大值统计量。体检会把这条按「偏离基准的幅度」
+  // 排进「该看哪几条」，而挑出来的最低值本身就有噪声放大的成分，所以要把噪声尺度说清楚。
   if (builds?.items.length) {
-    const weak = builds.items.filter((x) => x.games >= 15).sort((a, b) => a.winRate - b.winRate)[0];
+    const pool = builds.items.filter((x) => x.games >= 15);
+    const weak = [...pool].sort((a, b) => a.winRate - b.winRate)[0];
     if (weak) {
+      const ceil = noiseCeiling(pool.map((x) => ({ games: x.games, rate: x.winRate })));
+      const over = Math.abs(base - weak.winRate) >= ceil;
+      const k = noiseMultiple(weak.games, weak.winRate, base);
       items.push({
         area: "该换的装备",
-        finding: `${weak.name}：出了 ${weak.games} 把只有 ${weak.winRate.toFixed(0)}%`,
-        weight: Math.abs(base - weak.winRate),
+        finding:
+          `${weak.name}：出了 ${weak.games} 把只有 ${weak.winRate.toFixed(0)}%` +
+          `（从 ${pool.length} 件里挑最低，约是噪声的 ${k.toFixed(1)} 倍` +
+          (over ? "）" : `；噪声本身就能造出 ${ceil.toFixed(1)} 个百分点的差距，这条跟基准分不开）`),
+        weight: over ? Math.abs(base - weak.winRate) : 0, // 分不开的不参与排序
         concluded: true,
       });
     }

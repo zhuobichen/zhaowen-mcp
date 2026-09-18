@@ -6,6 +6,7 @@ import { loadLolGames } from "./games.js";
 import { resolveAccountByName, resolveMe } from "./identity.js";
 import { augmentIdsOf, isMayhemGame, myParticipantId } from "./lcu.js";
 import { loadData } from "./store.js";
+import { noiseCeiling } from "./thresholds.js";
 
 export interface AccountProfile {
   name: string;
@@ -203,11 +204,27 @@ export async function compareAccounts(a: string | undefined, b: string): Promise
     .filter((x) => x.a.games >= 10 && x.b.games >= 10)
     .sort((x, y) => Math.abs(y.a.winRate - y.b.winRate) - Math.abs(x.a.winRate - x.b.winRate));
   if (both.length) {
-    out.push("", "两人都拿过的符文里，胜率差最大的几件：");
+    // 「胜率差最大的几件」是**从两人都拿过的符文里挑差值最大**—— 最大值统计量。
+    // 候选多的时候，光噪声就能造出不小的差值。所以候选数、噪声尺度、逐条倍数都要给。
+    const ceil = noiseCeiling(both.flatMap((x) => [{ games: x.a.games, rate: x.a.winRate }, { games: x.b.games, rate: x.b.winRate }]));
+    const topDiff = Math.abs(both[0].a.winRate - both[0].b.winRate);
+    out.push(
+      "",
+      `两人都拿过的符文里，胜率差最大的几件（候选 ${both.length} 件）：` +
+        (topDiff >= ceil
+          ? "最大的一件超过了噪声能造出的水平，但仍要逐条看各自的局数。"
+          : `**都还在噪声范围内** —— 从 ${both.length} 件里挑差值最大，光噪声就能造出约 ${ceil.toFixed(1)} 个百分点的差距，先当线索。`)
+    );
     for (const x of both.slice(0, 5)) {
       const better = x.a.winRate >= x.b.winRate ? pa.name : pb.name;
+      const d = Math.abs(x.a.winRate - x.b.winRate);
+      const seDiff = Math.sqrt(
+        Math.max(x.a.winRate * (100 - x.a.winRate), 1) / Math.max(x.a.games, 1) +
+          Math.max(x.b.winRate * (100 - x.b.winRate), 1) / Math.max(x.b.games, 1)
+      );
       out.push(
-        `  · ${x.name}：${pa.name} ${x.a.winRate.toFixed(0)}%（${x.a.games} 把） vs ${pb.name} ${x.b.winRate.toFixed(0)}%（${x.b.games} 把）—— ${better} 用得好`
+        `  · ${x.name}：${pa.name} ${x.a.winRate.toFixed(0)}%（${x.a.games} 把） vs ${pb.name} ${x.b.winRate.toFixed(0)}%（${x.b.games} 把）` +
+          `—— ${better} 用得好（差 ${d.toFixed(1)} 个百分点，约是噪声的 ${seDiff > 0 ? (d / seDiff).toFixed(1) : "—"} 倍）`
       );
     }
   }

@@ -358,7 +358,7 @@ const INLINE_REGISTRY = {
   "lib/checkup.ts:checkup:inline:>=15": {
     tool: "get_my_checkup",
     kind: "统计门槛",
-    why: "未说明。它决定体检里哪些维度够格进「该看哪几条」",
+    why: "从 ≥15 把的装备里挑胜率最低那条进体检。实测：候选 25 件，噪声线 22.8 个百分点，而挑出来的那条只有 0.3~0.7 倍噪声 —— **分不开**。已改成：分不开的这条 weight 记为 0（不参与「该看哪几条」的排序），并在文字里写明噪声线",
   },
   "lib/compare.ts:profileOf:inline:>=5": {
     tool: "compare_accounts",
@@ -368,7 +368,7 @@ const INLINE_REGISTRY = {
   "lib/compare.ts:compareAccounts:inline:>=10": {
     tool: "compare_accounts",
     kind: "统计门槛",
-    why: "未说明。两处同值，决定「两人都拿过的符文」里胜率差最大的那几件从哪些里挑",
+    why: "决定「两人都拿过的符文里胜率差最大的那几件」从哪些候选里挑。**也是最大值统计量** —— 已按同一套补上候选数 / 噪声尺度 / 逐条倍数（「胜率差最大的几件」= 从 N 件里挑差值最大）",
   },
   "lib/comps.ts:analyzeComps:inline:>=30": {
     tool: "get_enemy_comps",
