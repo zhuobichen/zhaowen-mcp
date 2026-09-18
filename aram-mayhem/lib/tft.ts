@@ -12,7 +12,7 @@
 import { loadTftGames } from "./games.js";
 import { getSummoner, lcuGet, type LcuSummoner } from "./lcu.js";
 import { clientQueueNames, isRankedQueue, QUEUE_FALLBACK } from "./queues.js";
-import { loadData } from "./store.js";
+import { tftName } from "./store.js";
 
 export interface TftGame {
   gameId: number;
@@ -147,12 +147,15 @@ export async function tftStats(args: { friend?: string; limit?: number } = {}): 
     : "上次排位：本次窗口里没有排位对局（国服排位队列名带「排位」，如「云顶之弈 (自然之力 排位 BETA测试)」）";
 
   // 官方中文名（来自 CloudDragon 的云顶数据，refresh 时只留了最近几个赛季；取不到就退回内部标识）
-  const names = loadData().tftNames;
-  const cn = (map: Record<string, string>, id?: string) =>
-    id ? map[id] ?? id.replace(/^TFT\d+_/, "").replace(/^TFT_Item_/, "") : "?";
-  const traitCn = (id: string) => cn(names.traits, id);
-  const champCn = (id?: string) => cn(names.champions, id);
-  const itemCn = (id?: string) => cn(names.items, id);
+  // 对局记录里的标识是小写的（tft16_atakhan），官方文件里是 TFT16_Atakhan，
+  // 所以走 tftName() 的大小写无关查找，而不是直接查表（直查会整片落空）。
+  const cn = (kind: "traits" | "champions" | "items", id?: string) => {
+    if (!id) return "?";
+    return tftName(kind, id) ?? id.replace(/^TFT\d+_/i, "").replace(/^TFT_Item_/i, "");
+  };
+  const traitCn = (id: string) => cn("traits", id);
+  const champCn = (id?: string) => cn("champions", id);
+  const itemCn = (id?: string) => cn("items", id);
 
   const fmtTime = (t: number) => new Date(t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short", timeStyle: "short" });
   const detail = rows

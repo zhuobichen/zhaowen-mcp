@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { loadTftGames } from "./games.js";
 import { resolveMe } from "./identity.js";
 import { REPORT_CSS, reflowFigures } from "./report-style.js";
-import { loadData } from "./store.js";
+import { loadData, tftName } from "./store.js";
 import { clientQueueNames } from "./queues.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -40,9 +40,8 @@ const fmtPct = (v: number, d = 0) => `${v.toFixed(d)}%`;
 
 async function collect(demo: boolean, who?: { puuid: string; name: string }) {
   const d = loadData();
-  const names = d.tftNames;
-  const traitCn = (id: string) => names.traits[id] ?? id.replace(/^TFT\d+_/, "");
-  const champCn = (id?: string) => (id ? names.champions[id] ?? id.replace(/^TFT\d+_/, "") : "?");
+  const traitCn = (id: string) => tftName("traits", id) ?? id.replace(/^TFT\d+_/i, "");
+  const champCn = (id?: string) => (id ? tftName("champions", id) ?? id.replace(/^TFT\d+_/i, "") : "?");
 
   if (demo) return demoData(traitCn, champCn);
 

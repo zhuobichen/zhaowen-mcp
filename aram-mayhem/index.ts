@@ -25,6 +25,7 @@ import { buildsText } from "./lib/builds.js";
 import { matchupsText } from "./lib/matchups.js";
 import { exportText } from "./lib/export.js";
 import { empiricalAugmentsText, empiricalPairsText, synergyCheckText } from "./lib/empirical.js";
+import { tftDetailText } from "./lib/tft-detail.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -309,6 +310,18 @@ async function main() {
         },
       },
       {
+        name: "get_tft_detail",
+        description:
+          "云顶棋子与装备维度：你最终阵容里带某个棋子/某件装备时平均名次如何、前四率多少，以及追到过三星的棋子。注意这是「最终阵容」统计（带着它收场时的成绩），不是「拿了它就能赢」。默认查自己，可传 who 查好友。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            min_games: { type: "number", description: "棋子/装备至少出现多少局才列入（默认 12）" },
+          },
+        },
+      },
+      {
         name: "get_empirical_augments",
         description:
           "符文实证榜：用**本机归档里的真实对局**算符文胜率（每局都带全部 10 人的符文，当前样本约两千局两万行），并与社区站口径并列对照。这是观察数据不是实验数据 —— 符文是玩家自选的，含选择偏差，输出里会写明。",
@@ -518,6 +531,14 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_tft_detail":
+          return text(
+            await tftDetailText({
+              who: args.who ? String(args.who) : undefined,
+              minGames: args.min_games ? Number(args.min_games) : undefined,
             })
           );
 

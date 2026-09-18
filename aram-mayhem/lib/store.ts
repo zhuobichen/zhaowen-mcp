@@ -22,6 +22,31 @@ const DATA_DIR = fileURLToPath(new URL("../data/", import.meta.url));
 const SNAPSHOT_DIR = path.join(DATA_DIR, "patch-snapshots");
 
 /** 名称归一化：全角半角、大小写、空格与常见标点都不影响匹配 */
+/**
+ * 云顶内部标识 → 中文名（大小写无关）。
+ *
+ * 对局记录里的标识是**小写**的（`tft16_atakhan`），而官方文件里是 `TFT16_Atakhan`，
+ * 直接查表必然全部落空 —— 所以这里建一张归一化（小写、去下划线）索引兜底。
+ * 查不到就返回 null，由调用方决定怎么显示，不编一个看着像中文名的假名。
+ */
+export function tftName(kind: "traits" | "champions" | "items", id: string | undefined | null): string | null {
+  if (!id) return null;
+  const map = loadData().tftNames[kind];
+  if (!map) return null;
+  const direct = map[id];
+  if (direct) return direct;
+  // 归一化索引只建一次，之后走缓存
+  let norm = tftNormCache[kind];
+  if (!norm) {
+    norm = new Map();
+    for (const [k, v] of Object.entries(map)) norm.set(k.toLowerCase().replace(/[_\s]/g, ""), v);
+    tftNormCache[kind] = norm;
+  }
+  return norm.get(id.toLowerCase().replace(/[_\s]/g, "")) ?? null;
+}
+
+const tftNormCache: Partial<Record<"traits" | "champions" | "items", Map<string, string>>> = {};
+
 export function normalize(s: unknown): string {
   return String(s ?? "")
     .normalize("NFKC")
