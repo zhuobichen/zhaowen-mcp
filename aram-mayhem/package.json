@@ -32,7 +32,8 @@
     "tft:detail": "tsx lib/tft-detail-probe.ts",
     "trend": "tsx lib/trend-probe.ts",
     "smoke": "node mcp-smoke.mjs",
-    "queue:stats": "tsx lib/queue-stats-probe.ts"
+    "queue:stats": "tsx lib/queue-stats-probe.ts",
+    "patches": "tsx lib/patches-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

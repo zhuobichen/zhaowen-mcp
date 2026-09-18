@@ -28,6 +28,7 @@ import { empiricalAugmentsText, empiricalPairsText, synergyCheckText } from "./l
 import { tftDetailText } from "./lib/tft-detail.js";
 import { trendText } from "./lib/trend.js";
 import { queueStatsText } from "./lib/queue-stats.js";
+import { patchesText } from "./lib/patches.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -312,6 +313,20 @@ async function main() {
         },
       },
       {
+        name: "get_my_patches",
+        description:
+          "按补丁看自己的表现：每个版本打了多少局、胜率/平均名次、常玩英雄，以及「当前补丁 vs 上一个补丁」的变化。版本号取自对局记录的 gameVersion（只有 SGP 会给）。注意 Riot 的赛季号比客户端版本号大 10（游戏写 16.18 = 玩家说的 26.18），两个号都会标出来。跨版本结论要求补丁样本 ≥15 局，够不上就直说比不出来。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            kind: { type: "string", enum: ["mayhem", "tft"], description: "看海斗（默认）还是云顶" },
+            min_games: { type: "number", description: "补丁至少多少局才列进明细（默认 3）" },
+            verdict_min_games: { type: "number", description: "跨版本结论要求的样本下限（默认 15）" },
+          },
+        },
+      },
+      {
         name: "get_queue_stats",
         description:
           "按队列拆分看：海斗其实不止一个队列（2400 普通 / 2410 巅峰赛 / 2450 经典模式版 / 4310 官方无名的那个），云顶也有排位与各种活动队列。列出每个队列的场次、胜率或平均名次、时长、英雄数。样本 <10 局的队列只报数字不下结论。",
@@ -559,6 +574,16 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_my_patches":
+          return text(
+            await patchesText({
+              who: args.who ? String(args.who) : undefined,
+              kind: args.kind === "tft" ? "tft" : "mayhem",
+              minGames: args.min_games ? Number(args.min_games) : undefined,
+              verdictMinGames: args.verdict_min_games ? Number(args.verdict_min_games) : undefined,
             })
           );
 

@@ -27,6 +27,11 @@ export interface ArchivedGame {
   gameDuration: number;
   gameMode: string;
   queueId: number;
+  /**
+   * 对局版本（如 "26.18.635.1234" → 补丁 26.18）。
+   * 只有 SGP 会给；LCU 的历史摘要没有这个字段，所以老数据可能没有。
+   */
+  gameVersion?: string | null;
   /** 这局是替哪个账号存的（我们的查询目标） */
   puuid?: string | null;
   /** 查询目标当时的显示名（离线时用来认人） */
@@ -159,6 +164,8 @@ export function slimGame(
     gameDuration: Math.round(raw?.gameDuration ?? raw?.game_length ?? 0),
     gameMode: String(raw?.gameMode ?? (kind === "tft" ? "TFT" : "")),
     queueId: Number(raw?.queueId ?? 0),
+    // LCU 的摘要没有这个字段，取不到就是 null —— 不编一个版本号出来
+    gameVersion: typeof raw?.gameVersion === "string" && raw.gameVersion ? raw.gameVersion : null,
     puuid: puuid ?? null,
     puuidName: puuidName ?? null,
     source,
@@ -173,6 +180,7 @@ export function expandGame(g: ArchivedGame): any {
     gameCreation: g.gameCreation,
     gameDuration: g.gameDuration,
     gameMode: g.gameMode,
+    gameVersion: g.gameVersion ?? null,
     queueId: g.queueId,
     participants: g.participants.map((p) => ({
       participantId: p.participantId,
@@ -253,7 +261,12 @@ export async function mergeIntoArchive(
         (x.participants?.some((pp) => pp.name) ? 1 : 0) +
         (who && x.participants?.some((pp) => pp.puuid === who) ? 3 : 0);
       if (score(incoming, puuid) > score(existing, puuid)) {
-        cur.games[key] = incoming;
+        // incoming 更全 → 换成它，但别把已有的对局版本号弄丢了
+        cur.games[key] = { ...incoming, gameVersion: incoming.gameVersion ?? existing.gameVersion ?? null };
+        added++;
+      } else if (!existing.gameVersion && incoming.gameVersion) {
+        // 保留更全的那份（LCU 有符文细节但**没有版本号**），只把版本补上
+        existing.gameVersion = incoming.gameVersion;
         added++;
       }
       continue;

@@ -194,6 +194,8 @@ export function sgpToGame(item: SgpSummary, puuid: string): any {
     gameDuration: j.gameDuration,
     gameMode: j.gameMode ?? "",
     queueId,
+    // 补丁号：形如 "26.18.635.1234"，取前两段就是 26.18
+    gameVersion: typeof j.gameVersion === "string" ? j.gameVersion : null,
     participants: parts,
     participantIdentities: parts.map((p: any) => ({
       participantId: p.participantId,
@@ -229,6 +231,7 @@ export function sgpTftToGame(item: SgpSummary, puuid: string): any {
     gameDuration: Math.round(j.game_length ?? 0),
     gameMode: "TFT",
     queueId: j.queueId ?? 0,
+    gameVersion: typeof j.gameVersion === "string" ? j.gameVersion : null,
     participants: parts,
     participantIdentities: parts.map((p: any) => ({ participantId: p.participantId, player: { puuid: p.puuid } })),
   };
