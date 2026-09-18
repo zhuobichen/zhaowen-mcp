@@ -23,6 +23,7 @@ import { analyzeMyPlaystyle } from "./lib/playstyle.js";
 import { socialText } from "./lib/social.js";
 import { buildsText } from "./lib/builds.js";
 import { compareAccounts } from "./lib/compare.js";
+import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
 import { scoutTeammates, sendChampSelectMessage } from "./lib/teammates.js";
 import { resolveMe } from "./lib/identity.js";
@@ -243,6 +244,18 @@ async function main() {
         },
       },
       {
+        name: "get_friend_leaderboard",
+        description:
+          "小圈子榜单：把本地归档里出现过的账号按海斗胜率排名（含你自己和所有同场过的玩家）。可设最低样本局数。注意这不是全服排名。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            min_games: { type: "number", description: "上榜最低局数（默认 10）" },
+            top: { type: "number", description: "显示前多少名（默认 20）" },
+          },
+        },
+      },
+      {
         name: "compare_accounts",
         description:
           "跨账号对比：把两个账号的海斗核心指标并排比（局数/胜率/近期状态/KDA/伤害/常玩英雄/常用符文），并给一句克制的结论。a 不传就是自己。",
@@ -408,6 +421,14 @@ async function main() {
             await socialText({
               who: args.who ? String(args.who) : undefined,
               minGames: args.min_games ? Number(args.min_games) : undefined,
+            })
+          );
+
+        case "get_friend_leaderboard":
+          return text(
+            await leaderboard({
+              minGames: args.min_games ? Number(args.min_games) : undefined,
+              top: args.top ? Number(args.top) : undefined,
             })
           );
 
