@@ -212,16 +212,32 @@ export async function compareAccounts(a: string | undefined, b: string): Promise
     }
   }
 
-  // 一句结论（基于样本量给出克制判断）
+  // 一句结论。判据按**标准误倍数**，不用固定的 1.5 个百分点 ——
+  // 两个账号各自局数常常差很多，同一个 1.5pp，在 1000 局 vs 900 局上是实的，
+  // 在 30 局 vs 20 局上连一个标准误都不到。和 tilt / contribution / combat-profile 同一类毛病。
   const diff = pa.winRate - pb.winRate;
   const winner = diff >= 0 ? pa : pb;
   const loser = diff >= 0 ? pb : pa;
-  if (Math.abs(diff) < 1.5) {
-    out.push("", `结论：两人胜率几乎持平（差 ${Math.abs(diff).toFixed(1)} 个百分点），属于同一档；差异更多体现在英雄与符文偏好上。`);
+  const se = Math.sqrt(
+    Math.max(pa.winRate * (100 - pa.winRate), 1) / Math.max(pa.games, 1) +
+      Math.max(pb.winRate * (100 - pb.winRate), 1) / Math.max(pb.games, 1)
+  );
+  const k = se > 0 ? Math.abs(diff) / se : 0;
+  // 措辞刻意不把「约是噪声的 X 倍」塞进括号里 —— 外面已经有一层括号时会变成
+  // 「（差 1.9 个百分点，标准误 3.2（约是噪声的 0.60 倍））」，读起来很绕。
+  const nums = `差 ${Math.abs(diff).toFixed(1)} 个百分点，噪声（一个标准误）${se.toFixed(1)} 个百分点`;
+  if (k < 1.5) {
+    out.push("", `结论：两人胜率几乎持平 —— ${nums}，两者分不开；属于同一档，差异更多体现在英雄与符文偏好上。`);
+  } else if (k < 2.5) {
+    out.push(
+      "",
+      `结论：${winner.name} 胜率高一些 —— ${nums}，约是噪声的 ${k.toFixed(2)} 倍，**正好卡在「分得开」的线上**，` +
+        `先当倾向，别当结论。（样本 ${winner.games} vs ${loser.games} 把）`
+    );
   } else {
     out.push(
       "",
-      `结论：${winner.name} 胜率高 ${Math.abs(diff).toFixed(1)} 个百分点（样本 ${winner.games} vs ${loser.games} 把）` +
+      `结论：${winner.name} 胜率高 ${Math.abs(diff).toFixed(1)} 个百分点（样本 ${winner.games} vs ${loser.games} 把，约是噪声的 ${k.toFixed(1)} 倍）` +
         `；${pa.kda > pb.kda ? pa.name : pb.name} 的 KDA 更好（${Math.max(pa.kda, pb.kda).toFixed(2)} vs ${Math.min(pa.kda, pb.kda).toFixed(2)}）。` +
         "样本量差异较大时请谨慎解读。"
     );

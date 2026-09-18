@@ -26,6 +26,8 @@ export interface PatchBucket {
   /** 海斗：场均伤害；云顶：平均名次 */
   avgDamage: number | null;
   avgPlacement: number | null;
+  /** 平均名次的**标准差**（云顶用）。名次不是比例，均值差的噪声要由它推 */
+  sdPlacement: number | null;
   avgMinutes: number;
   /** 玩过的不同英雄数 */
   champions: number;
@@ -180,6 +182,13 @@ export async function analyzePatches(
       kda: rs.reduce((s, r) => s + r.k + r.a, 0) / Math.max(rs.reduce((s, r) => s + r.dd, 0), 1),
       avgDamage: rs.length ? rs.reduce((s, r) => s + r.dmg, 0) / rs.length : null,
       avgPlacement: places.length ? places.reduce((a, b) => a + b, 0) / places.length : null,
+      // 平均名次的标准差（样本标准差）。判「名次变化是不是噪声」要用它推标准误 ——
+      // 名次不是比例，不能像胜率那样用 p(1-p)/n。
+      sdPlacement: (() => {
+        if (places.length < 2) return null;
+        const mean = places.reduce((a, b) => a + b, 0) / places.length;
+        return Math.sqrt(places.reduce((s2, x) => s2 + (x - mean) ** 2, 0) / (places.length - 1));
+      })(),
       avgMinutes: rs.length ? rs.reduce((s, r) => s + r.minutes, 0) / rs.length : 0,
       champions: champMap.size,
       firstPlayed: rs.length ? Math.min(...rs.map((r) => r.t)) : null,
@@ -215,23 +224,41 @@ export async function analyzePatches(
     const a = cur.avgPlacement ?? 0;
     const b = prev.avgPlacement ?? 0;
     const diff = b - a; // 正数=名次变小=变好
+    // 名次差的判据也要跟**噪声**比，不能用固定的 0.2 ——
+    // 名次的标准差约 2.2（云顶 8 人，名次 1~8），均值差的标准误 ≈ sd/√n：
+    // 15 局时约 0.57，50 局时约 0.31。固定的 0.2 在这个量级上根本分不开。
+    // 和 tilt / contribution / combat-profile / compare_accounts 同一类毛病。
+    const sePlace = (bk: typeof cur) =>
+      bk.sdPlacement != null && bk.games > 0 ? bk.sdPlacement / Math.sqrt(bk.games) : Number.NaN;
+    const se = Math.sqrt(Math.pow(sePlace(cur), 2) + Math.pow(sePlace(prev), 2));
+    const k = Number.isFinite(se) && se > 0 ? Math.abs(diff) / se : 0;
+    const nums =
+      Number.isFinite(se) && se > 0
+        ? `，差 ${Math.abs(diff).toFixed(2)} 名（噪声约 ${se.toFixed(2)}，${k.toFixed(2)} 倍）`
+        : `，差 ${Math.abs(diff).toFixed(2)} 名`;
     verdict =
       `当前补丁 ${pn(cur)}：${cur.games} 局平均名次 ${a.toFixed(2)}；` +
       `上一个补丁 ${pn(prev)}：${prev.games} 局平均名次 ${b.toFixed(2)} —— ` +
-      (Math.abs(diff) < 0.2
-        ? "基本持平。"
+      (k <= 2
+        ? `基本持平${nums}。`
         : diff > 0
-          ? `新版名次好了 ${diff.toFixed(2)}。`
-          : `新版名次差了 ${Math.abs(diff).toFixed(2)}。`);
+          ? `新版名次好了${nums}。`
+          : `新版名次差了${nums}。`);
   } else if (usable.length >= 2) {
     const cur = usable[usable.length - 1];
     const prev = usable[usable.length - 2];
     const diff = cur.winRate - prev.winRate;
+    // 同样按噪声判，不用固定的 3 个百分点（同一个 3pp，在 300 局里是实的，在 15 局里不是）
+    const seW = Math.sqrt(
+      Math.max(cur.winRate * (100 - cur.winRate), 1) / Math.max(cur.games, 1) +
+        Math.max(prev.winRate * (100 - prev.winRate), 1) / Math.max(prev.games, 1)
+    );
+    const kW = seW > 0 ? Math.abs(diff) / seW : 0;
     verdict =
       `当前补丁 ${pn(cur)}：${cur.games} 局 ${cur.winRate.toFixed(1)}%；` +
       `上一个补丁 ${pn(prev)}：${prev.games} 局 ${prev.winRate.toFixed(1)}% —— ` +
-      (Math.abs(diff) < 3
-        ? "基本持平。"
+      (kW <= 2
+        ? `基本持平（差 ${Math.abs(diff).toFixed(1)} 个百分点，噪声约 ${seW.toFixed(1)}，${kW.toFixed(2)} 倍）。`
         : diff > 0
           ? `新版好 ${diff.toFixed(1)} 个百分点。`
           : `新版差 ${Math.abs(diff).toFixed(1)} 个百分点，这个版本还没找到手感。`);
