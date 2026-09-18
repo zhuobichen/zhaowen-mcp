@@ -159,10 +159,43 @@ export async function socialText(opts: { who?: string; games?: number; minGames?
   }
   if (!mates.length) out.push("  （没有同队 ≥3 局的玩家）");
 
-  const good = rank(mates.map((x) => ({ ...x })), Math.max(5, minGames), "winRate").slice(0, 5);
+  // 这一栏是**从一起打过的账号里挑共同胜率最高的**，属于最大值统计量 ——
+  // 而它原先没有任何噪声上下文。实测（npm run thresholds:sweep）：12 个候选时榜首是
+  // 23 局 69.6%（2.0 倍），而 12 个候选的极值线是 √(2·ln 12) ≈ 2.2 —— **榜首刚好在线上**。
+  // 所以候选数、噪声尺度、逐条倍数都要给出来。
+  const goodPool = rank(mates.map((x) => ({ ...x })), Math.max(5, minGames), "winRate");
+  const good = goodPool.slice(0, 5);
+  const seOf = (x: { games: number; winRate: number }) =>
+    Math.sqrt(Math.max(x.winRate * (100 - x.winRate), 1) / Math.max(x.games, 1));
+  const kOf = (x: { games: number; winRate: number }) => (seOf(x) > 0 ? Math.abs(x.winRate - 50) / seOf(x) : 0);
   if (good.length) {
-    out.push("", `和这些人一起打最稳（≥5 局，按共同胜率）：`);
-    for (const m of good) out.push(`  · ${m.name}：${m.games} 局 ${m.winRate.toFixed(0)}%`);
+    const ses = goodPool.map(seOf).sort((a, b) => a - b);
+    const med = ses.length ? ses[Math.floor(ses.length / 2)] : 0;
+    const ceil = med * Math.sqrt(2 * Math.log(Math.max(goodPool.length, 2)));
+    // 表头这句要用**证据最强的**那一条来判断，不能用列表第一行 ——
+    // 列表是按共同胜率排的，而胜率最高 ≠ 倍数最高（局数不同）：
+    // 这个号的首行是 23 局 70%（2.0 倍），而第三行是 50 局 66%（2.4 倍），
+    // 后者才是真正过线的那个。用首行判断会漏掉它、把话说小。
+    const strongest = good.reduce((a, b) => (kOf(b) > kOf(a) ? b : a));
+    const anyOver = Math.abs(strongest.winRate - 50) >= ceil;
+    out.push(
+      "",
+      `和这些人一起打最稳（≥5 局，候选 ${goodPool.length} 人）：` +
+        (anyOver
+          ? `其中${strongest.name}那条超过了噪声能造出的水平（约是噪声的 ${kOf(strongest).toFixed(1)} 倍），其余仍要逐条看倍数。`
+          : `**都还在噪声范围内** —— 从 ${goodPool.length} 人里挑最高，光噪声就能造出约 ${ceil.toFixed(1)} 个百分点的差距，先当线索。`)
+    );
+    // 两个尺度不是一回事，不写清楚会看着自相矛盾（表头说「都在噪声内」，某条却标 2.4 倍）：
+    //   · 逐条的「几倍」= 这一条比不比 0 大（单次比较，只看它自己的样本量）
+    //   · 上面那个 X 个百分点 = 整份榜单的尺度（从 N 人里挑最高，最高本来就有这么大）
+    out.push(
+      `  （两个尺度不同：逐条的「几倍」是那一条比不比 0 大；` +
+        `而 ${ceil.toFixed(1)} 个百分点是「从 ${goodPool.length} 人里挑最高」这个动作本身能造出的差距。` +
+        `按前者判断哪个人真跟你合拍，别按排名。）`
+    );
+    for (const m of good) {
+      out.push(`  · ${m.name}：${m.games} 局 ${m.winRate.toFixed(0)}%（约是噪声的 ${kOf(m).toFixed(1)} 倍）`);
+    }
   }
 
   // 对手：海斗匹配随机性高，往往没有稳定对手 —— 如实说明，不硬凑样本

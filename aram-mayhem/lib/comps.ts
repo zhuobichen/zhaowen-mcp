@@ -181,7 +181,14 @@ export async function analyzeComps(
     verdict = `样本不够：只有 ${strong.length} 类标签攒到 ${minGames} 局以上，看不出对面构成的影响。`;
   } else {
     const spread = strong[strong.length - 1].winRate - strong[0].winRate;
-    // 二项比例在这个样本量下的粗噪声线：4 个标准误（≈95% 区间宽）
+    // 二项比例在这个样本量下的粗噪声线。
+    //
+    // 这里刻意用了 `2 × (SE_下 + SE_上)` 而不是差的标准误 `√(SE_下² + SE_上²)` ——
+    // 前者是后者的 1.4~2 倍，也就是**更保守**，不会把噪声当结论。
+    // 另外这处是「六类标签里挑极差最大」，属于最大值统计量：6 个候选下，
+    // 纯噪声能造出的最大偏离约 √(2·ln 6) ≈ 1.9 个标准误 —— 而这里的门槛是 4 个，
+    // 比极值线还严一倍多。**这是全库唯一一处「门槛已经高于噪声能造出的水平」的判据**，
+    // 其余几处（builds / augment_pairs / championAugment）都是这次才发现门槛偏低的。
     const se = (p: number, n: number) => Math.sqrt((p * (100 - p)) / Math.max(n, 1));
     const noise = 2 * (se(base, strong[0].games) + se(base, strong[strong.length - 1].games));
     if (spread <= noise) {
