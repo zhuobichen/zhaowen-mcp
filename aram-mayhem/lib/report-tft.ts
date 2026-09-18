@@ -326,6 +326,72 @@ function patchPlacement(rows: TftRow[]): string {
 </figure>`;
 }
 
+/**
+ * 按星期几的平均名次：柱=该天平均名次，柱下标注局数。
+ * 云顶一局 30 多分钟，一周七天里每天的场次比海斗少得多，所以不足 15 局画半透明。
+ */
+function weekdayPlacement(rows: TftRow[]): string {
+  const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const m = new Map<number, { g: number; sum: number }>();
+  for (const r of rows) {
+    const dow = (new Date(r.t).getDay() + 6) % 7;
+    const c = m.get(dow) ?? { g: 0, sum: 0 };
+    c.g++;
+    c.sum += r.placement;
+    m.set(dow, c);
+  }
+  const days = WEEKDAYS.map((label, i) => {
+    const c = m.get(i);
+    return c ? { label, games: c.g, avg: c.sum / c.g } : null;
+  }).filter((x): x is { label: string; games: number; avg: number } => !!x);
+  if (days.length < 3) return "";
+
+  const H = 200,
+    padL = 44,
+    padR = 16,
+    padT = 20,
+    padB = 42;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const slot = plotW / days.length;
+  const barW = Math.min(56, slot * 0.5);
+  // 名次轴固定 1~8，和其他图一致
+  const y = (p: number) => padT + plotH * ((p - 1) / 7);
+  const grid = [1, 2, 3, 4, 5, 6, 7, 8]
+    .map(
+      (p) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(p)}" y2="${y(p)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${y(p) + 4}" text-anchor="end">${p}</text>`
+    )
+    .join("");
+  const bars = days
+    .map((d, i) => {
+      const cx = padL + slot * i + slot / 2;
+      const top = y(d.avg);
+      const h = Math.max(2, padT + plotH - top);
+      const color = d.avg <= 4.5 ? "var(--pos)" : "var(--neg)";
+      const thin = d.games < 15;
+      return (
+        `<rect class="bar" x="${(cx - barW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4"` +
+        ` fill="${color}"${thin ? ' fill-opacity="0.45"' : ""}` +
+        ` data-tip="${d.label}|${d.games} 局 · 平均名次 ${d.avg.toFixed(2)}${thin ? "（样本少）" : ""}"/>` +
+        `<text class="row-value" x="${cx.toFixed(1)}" y="${(top - 5).toFixed(1)}" text-anchor="middle">${d.avg.toFixed(2)}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 24}" text-anchor="middle">${d.label}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 10}" text-anchor="middle">${d.games} 局</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>按星期几的平均名次（柱越短越好；虚线为 4.5 名基准；半透明=不足 15 局）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="云顶按星期几的平均名次">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(4.5)}" y2="${y(4.5)}"/>
+    ${bars}
+  </svg>
+</figure>`;
+}
+
 function placementTrend(rows: TftRow[]): string {
   const H = 220,
     padL = 34,
@@ -585,6 +651,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
     <h2>名次与走势</h2>
     ${placementBars(dist)}
     ${placementTrend(rows)}
+    ${weekdayPlacement(rows)}
     ${weeklyPlacement(rows)}
     ${patchPlacement(rows)}
     ${levelPlacementScatter(rows)}
