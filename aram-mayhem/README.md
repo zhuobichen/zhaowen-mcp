@@ -113,7 +113,7 @@ npm run refresh      # 联网抓取 + 合并 + 写 data/ + 归档当前补丁快
 npm run report       # 不联网，只打印现有数据的校验报告
 npm run typecheck    # TypeScript 类型检查
 npx tsx smoke.ts     # 冒烟测试：直接调用各工具，检查输出
-node mcp-smoke.mjs   # 端到端：用真实 MCP stdio 协议连一次服务
+npm run smoke        # 端到端：起真服务、走一遍 MCP stdio 握手、列出工具、调几个只读工具
 npx tsx lcuprobe.ts  # 客户端探测：连接状态、最近对局里实际有哪些字段
 npm run report:html  # 生成个人战绩报告（单文件 HTML，输出到 reports/）
 npm run report:tft   # 生成云顶战绩报告
