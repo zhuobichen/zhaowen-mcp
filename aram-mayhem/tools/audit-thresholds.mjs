@@ -85,20 +85,20 @@ const DIFF_REGISTRY = [
     key: "trend.lol",
     file: "lib/trend.ts",
     tool: "get_my_trend",
-    what: "海斗周趋势：最近 4 个有效周 vs 之前 4 个，差几个百分点才叫「有趋势」",
-    find: /Math\.abs\(diff\) < (\d+(?:\.\d+)?)/,
-    unit: "pp",
-    why: "未说明",
+    what: "海斗周趋势：最近 4 个有效周 vs 之前 4 个，差多少才叫「有趋势」（现在按标准误倍数）",
+    find: /[ (]k <= (\d+(?:\.\d+)?)/,
+    unit: "se",
+    why: "从固定 3pp 改成 2 倍标准误。实测：58 把 50.0% vs 42 把 40.5%，差 9.5pp 而噪声 10.0pp —— 原写法会报「是在变强」。口径：两个窗口各当成一个整体、按局数算标准误（周内不独立，已在结论里注明偏乐观）",
     hedged: false,
   },
   {
     key: "trend.tft",
     file: "lib/trend.ts",
     tool: "get_my_trend",
-    what: "云顶周趋势：前段 vs 后段的平均名次差",
-    find: /Math\.abs\(newAvg - oldAvg\) < (\d+(?:\.\d+)?)/,
-    unit: "placement",
-    why: "未说明",
+    what: "云顶周趋势：前段 vs 后段的平均名次差（现在按标准误倍数）",
+    find: /\(kP <= (\d+(?:\.\d+)?)/,
+    unit: "se",
+    why: "从固定 0.2 名改成 2 倍标准误。名次标准差约 2.2，10 局时标准误就有 0.7 —— 固定 0.2 分不开。实测：3.75 → 4.56，差 0.80 而噪声 0.16（5.0 倍），是真结论",
     hedged: false,
   },
   {
@@ -357,7 +357,12 @@ function render() {
   out.push("如果差值阈值对应的样本需求**远大于**该分析实际拿得到的样本，那它报出来的「有趋势/有关系」");
   out.push("就可能是噪声。这不是说数字写错了，而是说：**它现在只能当方向参考，不能当结论。**");
   out.push("");
-  out.push("按「要分辨它需要的样本」从大到小排（同一语义的配对只列一次）：");
+  out.push(
+    `**大部分已经改成按标准误倍数**（${diffs.filter((d) => d.unit === "se").length}/${diffs.length} 条）：` +
+      "判据自己随样本量收紧，不再需要「这个数定多少」这种没法回答的问题。"
+  );
+  out.push("");
+  out.push("**还剩下这些固定数字**，按「要分辨它需要的样本」从大到小排（同一语义的配对只列一次）：");
   out.push("");
   out.push("| 判据 | 阈值 | 要分辨它需要 | 该分析的典型样本 | 措辞有没有打折扣 |");
   out.push("|---|---|---|---|---|");
@@ -379,8 +384,10 @@ function render() {
     out.push(`| \`${w.key}\` | ${pp} | 每组约 ${w.need.toLocaleString("en-US")} 局 | ${typical} | ${w.hedged ? "有" : "**没有**"} |`);
   }
   out.push("");
-  out.push("`comps.noise` 是全库唯一一个跟着样本量走的差值判据（4 个标准误），其余都是固定数字。");
-  out.push("固定数字不是错，但换成 `k 个标准误` 就能自动随样本量收紧 —— 上面这几条里值得优先考虑的改法。");
+  out.push("改造的样板是 `lib/comps.ts`（4 个标准误）—— 它是全库第一个跟着样本量走的判据，");
+  out.push("其余几处（tilt / contribution / combat-profile / compare_accounts / patches / trend）都是照着它改的。");
+  out.push("剩两个固定的：`compare.augment` 是「出现比例差」，两侧样本按比例算不出干净的标准误，");
+  out.push("`report.gap` 是展示用的「高光」门槛（不主张因果，所以措辞本身就带折扣）。");
   out.push("");
   const unstated = sampleRows.filter((r) => /未说明/.test(r.reg.why)).length + diffs.filter((d) => /未说明/.test(d.why)).length;
   out.push(`共 ${sampleRows.length} 个样本门槛 + ${diffs.length} 个差值阈值登记在册；其中 ${unstated} 个的理由是「未说明」。`);

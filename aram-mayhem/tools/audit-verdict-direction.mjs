@@ -55,7 +55,14 @@ function contradiction(v) {
   const hasFlat = FLAT_WORDS.test(v);
   if (hasUp && !hasDown && delta < 0) return `说「${(v.match(UP_WORDS) ?? [""])[0]}」但幅度是负的（${delta}）`;
   if (hasDown && !hasUp && delta > 0) return `说「${(v.match(DOWN_WORDS) ?? [""])[0]}」但幅度是正的（${delta}）`;
-  if (hasFlat && Math.abs(delta) >= 8) return `说「差不多/没有影响」但幅度到了 ${delta} 个百分点`;
+  if (hasFlat && Math.abs(delta) >= 8) {
+    // 例外：文本里**自己给出了噪声**、而且噪声不比自己小 —— 那「分不开」就是有依据的，
+    // 幅度大不代表效应大（trend 现在会写「差 9.5 个百分点，噪声 10.0 个百分点，两者分不开」）。
+    // 没有噪声数字时的「基本持平（差 12.0 个百分点）」照样会被抓。
+    const noises = [...v.matchAll(/(?:噪声|标准误)[^。；]*?([\d.]+)\s*个百分点/g)].map((m) => Number(m[1]));
+    if (noises.some((n) => Number.isFinite(n) && n >= Math.abs(delta))) return null;
+    return `说「差不多/没有影响」但幅度到了 ${delta} 个百分点`;
+  }
   return null;
 }
 
@@ -83,6 +90,17 @@ if (process.argv.includes("--selftest")) {
     // 否则会被方向那条规则先抓住、验不到「剔噪声之后幅度判据还灵不灵」。
     [
       "结论：两者基本持平，噪声约 ±2.0 个百分点，而极差有 12.0 个百分点。",
+      true,
+    ],
+    // 文本自己给出了噪声、且噪声不比幅度小时，「分不开」是有依据的 —— 该放过。
+    // 反证：去掉那条例外（noises.some(...)）之后，这条会被误报成「幅度到了 9.5」。
+    [
+      "结论：最近 4 个有效周 58 把 50.0%，之前 4 个有效周 42 把 40.5% —— 两者分不开（差 9.5 个百分点，噪声（一个标准误）10.0 个百分点），看不出趋势性变化。",
+      false,
+    ],
+    // 但**噪声比自己小**时不算数：差 12.0 > 噪声 2.0，还是矛盾
+    [
+      "结论：两者基本持平 —— 差 12.0 个百分点，噪声 2.0 个百分点。",
       true,
     ],
   ];
