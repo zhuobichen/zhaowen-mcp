@@ -614,7 +614,9 @@ function render() {
   out.push("剩两个固定的：`compare.augment` 是「出现比例差」，两侧样本按比例算不出干净的标准误，");
   out.push("`report.gap` 是展示用的「高光」门槛（不主张因果，所以措辞本身就带折扣）。");
   out.push("");
-  const unstated = sampleRows.filter((r) => /未说明/.test(r.reg.why)).length + diffs.filter((d) => /未说明/.test(d.why)).length;
+  // 用和收尾行**同一个算法**（含内联表）—— 原先这里只数了前两张表，
+  // 于是文档说 7 条、而实际含内联是 10 条提到「未说明」。同一个概念两个算式必然对不上。
+  const unstated = reasonStats();
   out.push("## 四、内联在过滤条件里的阈值（第三类）");
   out.push("");
   out.push("上面两张表原先只扫 `opts.X ?? N`，**看不见这一类** —— 而它们照样撑着一句主张：");
@@ -632,7 +634,7 @@ function render() {
   out.push("");
   out.push(`共 ${inlineRows.length} 处，其中 **${statCount} 处是统计门槛**（撑着一句主张）、${inlineRows.length - statCount} 处只影响图表显示。`);
   out.push("");
-  out.push(`共 ${sampleRows.length} 个样本门槛 + ${diffs.length} 个差值阈值 + ${inlineRows.length} 处内联过滤登记在册；其中 ${unstated} 个的理由是「未说明」。`);
+  out.push(`共 ${sampleRows.length} 个样本门槛 + ${diffs.length} 个差值阈值 + ${inlineRows.length} 处内联过滤登记在册；理由的状态：${unstated}。`);
   out.push("理由写不出来就写「未说明」—— 不要编一个听起来合理的，那比没有更坏，下一个人会照着它改。");
   out.push("");
   out.push("## 怎么维护");
@@ -662,11 +664,26 @@ if (!problems.length && (!existsSync(docPath) || read(DOC) !== render())) {
 
 console.log("");
 for (const p of problems) console.log(`  ✗ ${p}`);
-const unstated = [...merged.keys()].filter((k) => /未说明/.test(SAMPLE_REGISTRY[k]?.why ?? "")).length
-  + diffs.filter((d) => /未说明/.test(d.why)).length;
+// 「未说明」要分两种，不能只数一个数 —— 原先用的是 `/未说明/.test(why)`（**句中提到也算**），
+// 于是「实测……但 15 这个数本身仍未说明」这种**已经量过、只是数值本身没依据**的条目
+// 也被算进了同一个数。两类是完全不同的东西：
+//   · 空白   —— 一个字都没写，没人查过
+//   · 半说明 —— 量过了、后果也处理了，只剩「这个数为什么是它」没有依据
+// 混在一起会让读数对不上（我自己说「只剩 4 条空白」而工具报 7 条），
+// 而**两个地方对不上**正是这一整轮在修的那类问题。
+function reasonStats() {
+  const whys = [
+    ...[...merged.keys()].map((k) => SAMPLE_REGISTRY[k]?.why ?? ""),
+    ...diffs.map((d) => d.why),
+    ...[...inlineFound.keys()].map((k) => INLINE_REGISTRY[k]?.why ?? ""),
+  ];
+  const blank = whys.filter((w) => w.startsWith("未说明")).length;
+  const partial = whys.filter((w) => !w.startsWith("未说明") && w.includes("未说明")).length;
+  return `${blank} 条空白 + ${partial} 条半说明`;
+}
 console.log(
   problems.length
     ? `✗ 门槛登记有 ${problems.length} 处问题`
-    : `✓ ${merged.size} 个样本门槛 + ${diffs.length} 个差值阈值 + ${inlineFound.size} 处内联过滤都已登记、配对一致、文档与源码同步（其中 ${unstated} 个理由是「未说明」）`
+    : `✓ ${merged.size} 个样本门槛 + ${diffs.length} 个差值阈值 + ${inlineFound.size} 处内联过滤都已登记、配对一致、文档与源码同步（理由状态：${reasonStats()}）`
 );
 process.exit(problems.length ? 1 : 0);
