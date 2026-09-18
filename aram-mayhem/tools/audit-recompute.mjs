@@ -94,7 +94,7 @@ await send("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
 
 // 先调几个会报「我的总局数 / 胜率」的工具 —— 顺带把它们看到的新对局并进归档
-const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats", "get_tft_detail", "export_games_csv", "export_report_markdown"];
+const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats", "get_tft_detail", "export_games_csv", "export_report_markdown", "analyze_my_augments", "get_champ_select_teammates"];
 const reported = {};
 // compare_accounts 需要必填参数 b —— 不给的话它只回一句「请提供第二个账号 b」，
 // 那种输出拿去对账会变成假失败（第一版就是这样）
@@ -1220,6 +1220,92 @@ if (process.argv.includes("--with-html")) {
   }
 } else {
   console.log("· HTML 报告：默认跳过（加 --with-html 才跑，因为要 90 秒）");
+}
+
+// ㉕ analyze_my_augments：我自己拿过的符文（次数 / 胜场）
+//    规格：**我自己的行**（不是全归档），同一局重复拿到要去重；
+//    样本来自 loadLolGames（归档 ∪ 实时），所以局数应该和主口径一致。
+{
+  const aa = reported["analyze_my_augments"] ?? "";
+  const mGames = /统计 (\d+) 把海斗/.exec(aa);
+  const mRate = /胜率：(\d+)\/(\d+)/.exec(aa);
+  // 取它列出的第一件符文来对
+  const mFirst = /· (\S+?)：出现 (\d+) 把，赢 (\d+) 把/.exec(aa);
+  const okGames = mGames && Number(mGames[1]) === truth.games;
+  // 「胜率：163/306」——分子是胜场、分母是总局数。第一版把 mRate[2]（分母）
+  // 拿去跟胜场比，于是**所有数字都对却报 ✗**。判据里的下标错，比数字错更难看出来。
+  const okRate = mRate && Number(mRate[1]) === truth.wins && Number(mRate[2]) === truth.games;
+  let okAug = true;
+  let augLine = "（没列出符文，跳过）";
+  if (mFirst) {
+    const [, name, gamesStr, winsStr] = mFirst;
+    const def = augDefs.find((a) => a.name === name);
+    let g_ = 0;
+    let w_ = 0;
+    for (const g of mayhemGames) {
+      const me = (g.participants ?? []).find((p) => p.puuid === ME);
+      const s = me?.stats ?? {};
+      if (s.win === undefined) continue;
+      const ids = new Set();
+      for (let i = 1; i <= 6; i++) {
+        const v = Number(s[`playerAugment${i}`] ?? 0);
+        if (v) ids.add(v);
+      }
+      if (!ids.has(def?.officialId)) continue;
+      g_++;
+      if (s.win === true) w_++;
+    }
+    okAug = g_ === Number(gamesStr) && w_ === Number(winsStr);
+    augLine = `${name} 工具报 ${gamesStr} 把 / 赢 ${winsStr}　独立重算 ${g_} 把 / 赢 ${w_}`;
+  }
+  const ok = okGames && okRate && okAug;
+  if (!ok) bad++;
+  console.log(
+    `${ok ? "✓" : "✗"} 我的符文统计：工具报 ${mGames ? mGames[1] : "—"} 把 / ${mRate ? mRate[1] : "—"} 胜` +
+      `　独立重算 ${truth.games} 把 / ${truth.wins} 胜　· ${augLine}`
+  );
+}
+
+// ㉖ 云顶「追到过三星的棋子」：get_tft_detail 最后一栏（只列次数）
+{
+  const tftRaw = JSON.parse(readFileSync(path.join(ROOT, "data/archive/tft-matches.json"), "utf8"));
+  const tftNames = JSON.parse(readFileSync(path.join(ROOT, "data/tft-names.json"), "utf8"));
+  const cn = (map, id) => (id ? map[id] ?? id.replace(/^TFT\d+_/i, "").replace(/^TFT_Item_/i, "") : "?");
+  const three = new Map();
+  for (const g of Object.values(tftRaw.games)) {
+    const p = (g.participants ?? []).find((x) => x.puuid === ME);
+    if (!p || !Number(p.placement ?? 0)) continue;
+    const seen = new Set();
+    for (const u of p.units ?? []) {
+      if ((u.tier ?? 0) < 3) continue;
+      const key = cn(tftNames.champions, u.character_id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      three.set(key, (three.get(key) ?? 0) + 1);
+    }
+  }
+  const top3 = [...three.entries()].sort((a, b) => b[1] - a[1])[0];
+  const td3 = reported["get_tft_detail"] ?? "";
+  if (top3) {
+    const [name, count] = top3;
+    const m = new RegExp(name + "×(\\d+)").exec(td3);
+    const ok = m && Number(m[1]) === count;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 云顶三星：追到最多的是 ${name}　工具报 ×${m ? m[1] : "—"}　独立重算 ×${count}（共 ${three.size} 个棋子有三星）`
+    );
+  }
+}
+
+// ㉗ 无法离线对账的项，明确记下来而不是假装覆盖了
+//     `get_champ_select_teammates` 需要**选人会话正在进行**，离线时它只会回
+//     「当前没有选人会话」——拿那句去对账没有意义。这类项列出来，靠人工验证。
+{
+  const cs = reported["get_champ_select_teammates"] ?? "";
+  const noSession = /没有.*选人|选人会话|不在选人/.test(cs.slice(0, 120));
+  console.log(
+    `· 选人侦察：${noSession ? "当前没有选人会话，离线无法对账（这一项只能人工在有会话时验证）" : "有会话，但本审计不检查它（内容依赖实时状态）"}`
+  );
 }
 
 console.log("");
