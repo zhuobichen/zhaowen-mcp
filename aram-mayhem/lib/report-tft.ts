@@ -38,7 +38,7 @@ const fmtPct = (v: number, d = 0) => `${v.toFixed(d)}%`;
 
 // ---------------------------------------------------------------- 取数
 
-async function collect(demo: boolean) {
+async function collect(demo: boolean, who?: { puuid: string; name: string }) {
   const d = loadData();
   const names = d.tftNames;
   const traitCn = (id: string) => names.traits[id] ?? id.replace(/^TFT\d+_/, "");
@@ -46,7 +46,7 @@ async function collect(demo: boolean) {
 
   if (demo) return demoData(traitCn, champCn);
 
-  const me = await resolveMe();
+  const me = who ?? (await resolveMe());
   if (!me) throw new Error("客户端没开且没有固定过账号：先在线跑一次 get_my_account_status，或打开客户端。");
   const res = await loadTftGames(me.puuid, me.name);
   const qnames = await clientQueueNames();
@@ -425,7 +425,23 @@ async function main() {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const demo = argv.includes("--demo");
-  const data = await collect(demo);
+  let who: { puuid: string; name: string } | undefined;
+  const friendArg = argOf("--friend");
+  if (friendArg) {
+    const { resolveAccountByName } = await import("./identity.js");
+    const r = await resolveAccountByName(friendArg);
+    if (!r.matches.length) {
+      console.log(`没找到「${friendArg}」——${r.note}`);
+      return;
+    }
+    if (r.matches.length > 1) {
+      console.log(`「${friendArg}」匹配到多个账号：${r.matches.map((m) => m.name).join("、")}`);
+      return;
+    }
+    who = { puuid: r.matches[0].puuid, name: r.matches[0].name };
+    console.log(`生成对象：${who.name}`);
+  }
+  const data = await collect(demo, who);
   if (!data.rows.length) {
     console.log("没有云顶对局数据（" + data.note + "），可用 --demo 先看排版。");
     return;

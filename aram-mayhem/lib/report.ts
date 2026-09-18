@@ -51,9 +51,9 @@ const esc = (s: string) =>
 
 // ---------------------------------------------------------------- 数据
 
-async function collect(gamesLimit: number) {
+async function collect(gamesLimit: number, who?: { puuid: string; name: string }) {
   const d = loadData();
-  const me = await resolveMe();
+  const me = who ?? (await resolveMe());
   if (!me) throw new Error("客户端没开且没有固定过账号：先在线跑一次 get_my_account_status，或打开客户端。");
   const name = me.name;
   const res = await loadLolGames(me.puuid, gamesLimit, name);
@@ -1086,7 +1086,24 @@ async function main() {
   };
   const gamesLimit = Number(argOf("--games") ?? 200);
   const demo = argv.includes("--demo");
-  const data = demo ? demoData() : await collect(Number.isFinite(gamesLimit) ? gamesLimit : 200);
+  // --friend <名字>：出别人的报告（用本机登录态查 TA 的历史；只读）
+  let who: { puuid: string; name: string } | undefined;
+  const friendArg = argOf("--friend");
+  if (friendArg) {
+    const { resolveAccountByName } = await import("./identity.js");
+    const r = await resolveAccountByName(friendArg);
+    if (!r.matches.length) {
+      console.log(`没找到「${friendArg}」——${r.note}`);
+      return;
+    }
+    if (r.matches.length > 1) {
+      console.log(`「${friendArg}」匹配到多个账号：${r.matches.map((m) => m.name).join("、")}`);
+      return;
+    }
+    who = { puuid: r.matches[0].puuid, name: r.matches[0].name };
+    console.log(`生成对象：${who.name}`);
+  }
+  const data = demo ? demoData() : await collect(Number.isFinite(gamesLimit) ? gamesLimit : 200, who);
   if (!demo && !data.rows.length) {
     console.log(
       [
