@@ -9,56 +9,16 @@
  *     不做推测填充。
  *   · 数据不离开本机：只走 127.0.0.1 的本地回环接口。
  */
-import { existsSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { analyzeMayhemGames } from "./analysis.js";
-import {
-  clientStatus,
-  getMatchHistory,
-  MATCH_HISTORY_CAP,
-  getRecentGames,
-  getSummoner,
-  isMayhemGame,
-  myParticipantId,
-  type LcuGameSummary,
-  type LcuSummoner,
-} from "./lcu.js";
+import { loadLolGames } from "./games.js";
+import { resolveMe } from "./identity.js";
+import { MATCH_HISTORY_CAP, clientStatus, getSummoner, isMayhemGame, myParticipantId, type LcuGameSummary } from "./lcu.js";
+import { PROFILE_FILE, loadProfile, saveProfile } from "./profile.js";
 import { cleanDesc, loadData, normalize } from "./store.js";
 
-const DATA_DIR = fileURLToPath(new URL("../data/", import.meta.url));
-const PROFILE_FILE = path.join(DATA_DIR, "profile.json");
+export { PROFILE_FILE, loadProfile, type Profile } from "./profile.js";
 
-export interface Profile {
-  summonerName: string;
-  puuid: string | null;
-  summonerId: number | null;
-  level: number | null;
-  updatedAt: string;
-}
-
-export function loadProfile(): Profile | null {
-  if (!existsSync(PROFILE_FILE)) return null;
-  try {
-    return JSON.parse(readFileSync(PROFILE_FILE, "utf8")) as Profile;
-  } catch {
-    return null;
-  }
-}
-
-async function saveProfile(s: LcuSummoner): Promise<Profile> {
-  const p: Profile = {
-    summonerName: s.displayName || s.gameName || "(未命名)",
-    puuid: s.puuid ?? null,
-    summonerId: s.summonerId ?? null,
-    level: s.summonerLevel ?? null,
-    updatedAt: new Date().toISOString(),
-  };
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(PROFILE_FILE, JSON.stringify(p, null, 2), "utf8");
-  return p;
-}
 
 /** 数字英雄 id → 中文名（来自官方 champion-summary） */
 function championNameById(numericId: number): string {
@@ -132,21 +92,23 @@ export async function myAccountStatus(args: { pin?: boolean } = {}): Promise<str
 
 export async function myRecentGames(args: { limit?: number; only_mayhem?: boolean } = {}): Promise<string> {
   const limit = Math.min(Math.max(args.limit ?? 15, 1), 50);
-  const status = await clientStatus();
-  if (!status.reachable) {
-    return `读不到对局记录：${status.error}\n（需要游戏客户端正在运行。可以先跑 get_my_account_status 看状态。）`;
+  const me = await resolveMe();
+  if (!me) {
+    return [
+      "不知道要查谁：客户端没开，也没有固定过账号。",
+      "两种解决办法：① 打开游戏客户端；② 先在线跑一次 get_my_account_status 把账号固定到本地，之后离线也能查归档。",
+    ].join("\n");
   }
-  const me = await getSummoner();
-  // 一次多要一些，顺便把「本地一共能查到多少把」也报出来
-  const { games, total } = await getMatchHistory(Math.max(limit, 200));
-  if (!games.length) return "客户端返回的最近对局是空的（可能刚登录、或对局记录还没同步）。";
+  const res = await loadLolGames(me.puuid, 200, me.name);
+  const games = res.games;
+  if (!games.length) return `账号 ${me.name}：${res.note}`;
 
   const onlyMayhem = args.only_mayhem !== false;
   const allMayhem = games.filter(isMayhemGame);
   const filtered = onlyMayhem ? allMayhem : games;
   const modes = [...new Set(games.map((g) => String(g.gameMode)))].join("、");
   const rows = filtered.slice(0, limit).map((g) => {
-    const pid = myParticipantId(g, { puuid: me.puuid, name: (me.displayName || me.gameName || "").split("#")[0] });
+    const pid = myParticipantId(g, { puuid: me.puuid, name: me.name.split("#")[0] });
     return gameLine(g, pid);
   });
 
@@ -156,11 +118,12 @@ export async function myRecentGames(args: { limit?: number; only_mayhem?: boolea
   const span = times.length ? `${fmt(times[0])} ~ ${fmt(times[times.length - 1])}` : "未知";
 
   const out = [
-    `账号：${me.displayName || me.gameName || "(未命名)"}`,
-    `共取到 ${games.length} 把对局（接口声明 ${total} 把），其中海斗 ${allMayhem.length} 把；时间跨度 ${span}`,
+    `账号：${me.name}（身份来源：${me.source}）`,
+    `共取到 ${games.length} 把对局，其中海斗 ${allMayhem.length} 把；时间跨度 ${span}`,
     `（客户端返回的模式标识：${modes}）`,
-    `⚠ 这是**接口天花板**：本地客户端的对局记录最多给最近 ${MATCH_HISTORY_CAP} 把（实测 begIndex 翻页会被忽略），` +
-      "再早的对局查不到 —— 官方 API 对海斗更是直接封禁（match-v5 403），所以这不是生涯总场次。",
+    `数据来源：${res.note}`,
+    `⚠ 接口本身最多给最近 ${MATCH_HISTORY_CAP} 把（实测翻页参数会被忽略），再早的拿不到；` +
+      "但**本地归档会随每次查询累积**，攒久了覆盖面就能超过这个窗口。官方 API 对海斗是直接封禁的（match-v5 403）。",
     "",
     ...(filtered.length > limit ? [`（下面只列最近 ${limit} 把，共 ${filtered.length} 把；要更多传 limit）`] : []),
     ...rows,
@@ -177,34 +140,33 @@ export async function myRecentGames(args: { limit?: number; only_mayhem?: boolea
 
 export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<string> {
   const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
-  const status = await clientStatus();
-  if (!status.reachable) {
-    return `读不到对局记录：${status.error}
-（需要游戏客户端正在运行。）`;
+  const me = await resolveMe();
+  if (!me) {
+    return "不知道要统计谁：客户端没开，也没有固定过账号（先在线跑一次 get_my_account_status 即可）。";
   }
-  const me = await getSummoner();
-  const hist = await getMatchHistory(Math.max(limit, 200));
-  return await analyzeMayhemGames(hist.games, {
-    ownerPuuid: me.puuid ?? null,
-    ownerName: me.displayName || me.gameName || "",
-    subject: `我（${me.displayName || me.gameName || "未命名"}）`,
-    cachedTotal: hist.total,
+  const res = await loadLolGames(me.puuid, 200, me.name);
+  if (!res.games.length) return `账号 ${me.name}：${res.note}`;
+  return await analyzeMayhemGames(res.games, {
+    ownerPuuid: me.puuid,
+    ownerName: me.name,
+    subject: `我（${me.name}）`,
+    cachedTotal: res.archivedTotal,
     dataNote:
       "说明：自己的账号由服务端给最近最多 200 场（实测 begIndex 翻页会被忽略），这是接口上限、不是生涯总场次；" +
       "更早的对局官方 API 对海斗是封的（match-v5 403），拿不到；样本量小时胜率没有统计意义。",
   });
 }
 
-/** 供 get_champion_guide 打辅助：把「我的常玩英雄」映射成本地英雄记录 id */
-export async function myChampionIds(limit = 20): Promise<string[]> {
-  const status = await clientStatus();
-  if (!status.reachable) return [];
-  const me = await getSummoner();
-  const games = (await getRecentGames(limit)).filter(isMayhemGame);
+/** 供 get_champion_guide 打辅助：把「我的常玩英雄」映射成本地英雄记录 id（在线离线都能用） */
+export async function myChampionIds(limit = 200): Promise<string[]> {
+  const me = await resolveMe();
+  if (!me) return [];
+  const res = await loadLolGames(me.puuid, limit, me.name);
+  const games = res.games.filter(isMayhemGame);
   const count = new Map<number, number>();
   for (const g of games) {
-    const pid = myParticipantId(g, { puuid: me.puuid, name: (me.displayName || me.gameName || "").split("#")[0] });
-    const p = (g.participants ?? []).find((x) => x.participantId === pid);
+    const pid = myParticipantId(g, { puuid: me.puuid, name: me.name.split("#")[0] });
+    const p = (g.participants ?? []).find((x: { participantId: number }) => x.participantId === pid);
     if (p) count.set(p.championId, (count.get(p.championId) ?? 0) + 1);
   }
   const d = loadData();

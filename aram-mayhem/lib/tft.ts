@@ -9,6 +9,7 @@
  *
  * 队列中文名取自客户端自带的 `/lol-game-data/assets/v1/queues.json`（官方本地化，非第三方）。
  */
+import { loadTftGames } from "./games.js";
 import { getSummoner, lcuGet, type LcuSummoner } from "./lcu.js";
 import { loadData } from "./store.js";
 
@@ -72,33 +73,36 @@ function myPart(game: TftGame, puuid: string) {
 const placementCn = (n: number) => (n === 1 ? "第 1 名 🥇" : `第 ${n} 名`);
 
 export async function tftStats(args: { friend?: string; limit?: number } = {}): Promise<string> {
-  const { clientStatus } = await import("./lcu.js");
-  const status = await clientStatus();
-  if (!status.reachable) {
-    return `读不到云顶战绩：${status.error}\n（需要游戏客户端正在运行。）`;
-  }
+  const { resolveAccountByName, archivedAccounts, resolveMe } = await import("./identity.js");
 
-  let target: { name: string; puuid: string | null; label: string };
+  let target: { name: string; puuid: string; label: string };
   if (args.friend) {
-    const { findFriend } = await import("./friends.js");
-    const hits = await findFriend(args.friend);
-    if (!hits.length) return `好友列表里没找到「${args.friend}」。`;
-    if (hits.length > 1) {
-      return `「${args.friend}」匹配到多个好友：${hits.slice(0, 6).map((f) => `${f.gameName}#${f.gameTag}`).join("、")}`;
+    const r = await resolveAccountByName(args.friend);
+    if (!r.matches.length) {
+      const archived = await archivedAccounts();
+      return [
+        `没找到「${args.friend}」——${r.note}。`,
+        archived.length
+          ? `本地归档里能查的账号：${archived.slice(0, 6).map((a) => `${a.name}（${a.games} 局）`).join("、")}`
+          : "本地归档里也没有账号记录（打开客户端查过一次就会被记下来）。",
+      ].join("\n");
     }
-    target = { name: hits[0].gameName, puuid: hits[0].puuid, label: `好友 ${hits[0].gameName}#${hits[0].gameTag}` };
+    if (r.matches.length > 1) {
+      return `「${args.friend}」匹配到多个账号，请指明：${r.matches
+        .slice(0, 6)
+        .map((m) => `${m.name}（${m.source}）`)
+        .join("、")}`;
+    }
+    target = { name: r.matches[0].name, puuid: r.matches[0].puuid, label: `好友 ${r.matches[0].name}` };
   } else {
-    const me: LcuSummoner = await getSummoner();
-    target = {
-      name: me.displayName || me.gameName || "未知账号",
-      puuid: me.puuid ?? null,
-      label: `我（${me.displayName || me.gameName || "未命名"}）`,
-    };
+    const me = await resolveMe();
+    if (!me) return "不知道要查谁：客户端没开，也没有固定过账号（先在线跑一次 get_my_account_status）。";
+    target = { name: me.name, puuid: me.puuid, label: `我（${me.name}）` };
   }
-  if (!target.puuid) return `拿不到 ${target.name} 的 puuid，读不到云顶战绩。`;
 
-  const games = (await getTftGames(target.puuid)).sort((a, b) => b.gameCreation - a.gameCreation);
-  if (!games.length) return `${target.label} 的云顶对局记录是空的（客户端只保留最近若干局，没打过就查不到）。`;
+  const res = await loadTftGames(target.puuid, target.name);
+  const games = res.games as TftGame[];
+  if (!games.length) return `${target.label} 的云顶对局记录是空的（${res.note}）。`;
 
   const qnames = await queueNames();
   const rows = games

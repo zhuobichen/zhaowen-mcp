@@ -18,6 +18,8 @@ import { refreshData } from "./lib/refresh.js";
 import { analyzeMyAugments, myAccountStatus, myRecentGames } from "./lib/my.js";
 import { friendStats, listMyFriends } from "./lib/friends.js";
 import { tftStats } from "./lib/tft.js";
+import { archiveInfo } from "./lib/games.js";
+import { analyzeMyPlaystyle } from "./lib/playstyle.js";
 import {
   analyzeSynergy,
   championGuide,
@@ -206,6 +208,18 @@ async function main() {
         },
       },
       {
+        name: "analyze_my_playstyle",
+        description:
+          "打法画像：时段表现、战斗风格（KDA/伤害/阵亡、胜负局差异）、英雄池集中度、稳定性（连胜连败与近期走势）、以及你选的符文跟版本强势榜的契合度。基于本地归档+客户端数据。",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "get_archive_info",
+        description:
+          "查看本地对局归档的覆盖情况（海斗/英雄联盟 与 云顶各存了多少局、时间跨度、按模式分布）。归档随每次查询自动累积，客户端没开时分析就用它。",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
         name: "refresh_data",
         description:
           "联网重新拉取数据并更新本地快照（社区站 + Riot 官方文件），会归档当前补丁快照用于版本对比。仅在需要更新数据时调用。",
@@ -305,6 +319,12 @@ async function main() {
               limit: args.limit ? Number(args.limit) : undefined,
             })
           );
+
+        case "analyze_my_playstyle":
+          return text(await analyzeMyPlaystyle());
+
+        case "get_archive_info":
+          return text(await archiveInfo());
 
         case "refresh_data": {
           const r = await refreshData({ dryRun: args.dry_run === true });

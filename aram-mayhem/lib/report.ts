@@ -16,7 +16,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { augmentIdsOf, getMatchHistory, getSummoner, isMayhemGame, myParticipantId } from "./lcu.js";
+import { loadLolGames } from "./games.js";
+import { resolveMe } from "./identity.js";
+import { augmentIdsOf, isMayhemGame, myParticipantId } from "./lcu.js";
 import { loadData } from "./store.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -50,11 +52,14 @@ const esc = (s: string) =>
 
 async function collect(gamesLimit: number) {
   const d = loadData();
-  const me = await getSummoner();
-  const name = me.displayName || me.gameName || "未知账号";
-  const { games: all, total } = await getMatchHistory(gamesLimit, me.puuid);
-  const pidOf = (g: any) =>
-    myParticipantId(g, { puuid: me.puuid ?? undefined, name: (me.gameName || "").split("#")[0] });
+  const me = await resolveMe();
+  if (!me) throw new Error("客户端没开且没有固定过账号：先在线跑一次 get_my_account_status，或打开客户端。");
+  const name = me.name;
+  const res = await loadLolGames(me.puuid, gamesLimit, name);
+  const all = res.games;
+  const total = res.archivedTotal;
+  const dataNote = res.note;
+  const pidOf = (g: any) => myParticipantId(g, { puuid: me.puuid, name: name.split("#")[0] });
 
   const rows: Row[] = all
     .filter(isMayhemGame)
@@ -154,14 +159,63 @@ async function collect(gamesLimit: number) {
   const champCounts = new Map<string, number>();
   for (const r of rows) champCounts.set(r.champ, (champCounts.get(r.champ) ?? 0) + 1);
 
-  -0; // noop 保留可读性
+  // 按月汇总（看整体走势是被哪几个月拖下来的）
+  const monthMap = new Map<string, { g: number; w: number }>();
+  for (const r of rows) {
+    const k = new Date(r.t).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit" });
+    const c = monthMap.get(k) ?? { g: 0, w: 0 };
+    c.g++;
+    if (r.win) c.w++;
+    monthMap.set(k, c);
+  }
+  const months = [...monthMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([label, v]) => ({ label, games: v.g, wins: v.w, winRate: pctNum(v.w, v.g) }));
+
+  // 连败段（≥4 连败），在走势图上标出来
+  const streaks: Array<{ startIdx: number; endIdx: number; len: number }> = [];
+  let cur = 0;
+  let start = 0;
+  rows.forEach((r, i) => {
+    if (!r.win) {
+      if (cur === 0) start = i;
+      cur++;
+    } else {
+      if (cur >= 4) streaks.push({ startIdx: start + 1, endIdx: i, len: cur });
+      cur = 0;
+    }
+  });
+  if (cur >= 4) streaks.push({ startIdx: start + 1, endIdx: rows.length, len: cur });
+
+  // 英雄 × 符文 交叉（≥4 把）：哪些搭配真的赢
+  const pairMap = new Map<string, { champ: string; aug: string; g: number; w: number }>();
+  for (const r of rows) {
+    for (const id of r.augments) {
+      const a = d.augments.find((x) => x.officialId === id);
+      if (!a) continue;
+      const key = `${r.champ}||${a.id}`;
+      const c = pairMap.get(key) ?? { champ: r.champ, aug: a.name, g: 0, w: 0 };
+      c.g++;
+      if (r.win) c.w++;
+      pairMap.set(key, c);
+    }
+  }
+  const pairs = [...pairMap.values()]
+    .filter((p) => p.g >= 4)
+    .map((p) => ({ ...p, winRate: pctNum(p.w, p.g) }))
+    .sort((a, b) => b.g - a.g || b.winRate - a.winRate);
+
   return {
     name,
     cachedTotal: total,
+    dataNote,
     rows,
     rolling,
     champions,
     augments,
+    months,
+    streaks,
+    pairs,
     overview: {
       games: n,
       wins,
@@ -188,12 +242,177 @@ async function collect(gamesLimit: number) {
   };
 }
 
+
+/**
+ * 演示数据：客户端没开、归档也空的时候，用来自查排版与图表（页脚会标明是演示数据）。
+ * 生成的数据刻意包含：连续 8 个月、几段连败、若干「版本强但打不出效果」的符文。
+ */
+function demoData() {
+  const d = loadData();
+  const augs = d.augments.filter((a) => a.stats?.rank && a.availability === "live").slice(0, 40);
+  const champs = d.champions.slice(0, 24);
+  const rows: Row[] = [];
+  let t = Date.UTC(2026, 0, 20);
+  let streak = 0;
+  for (let i = 0; i < 260; i++) {
+    t += (2 + (i % 5)) * 3600 * 1000;
+    // 造几段低谷：第 90~100、170~182 把
+    const bad = (i >= 90 && i <= 100) || (i >= 170 && i <= 182);
+    const win = bad ? Math.random() < 0.2 : Math.random() < 0.55;
+    streak = win ? 0 : streak + 1;
+    const champ = champs[i % champs.length];
+    const uses = [augs[i % augs.length], augs[(i * 7) % augs.length], augs[(i * 13) % augs.length]]
+      .filter(Boolean)
+      .map((a) => a.officialId as number);
+    rows.push({
+      t,
+      win,
+      champ: champ.name,
+      kills: Math.round(8 + Math.random() * 10),
+      deaths: Math.round(6 + Math.random() * 8),
+      assists: Math.round(15 + Math.random() * 20),
+      damage: Math.round(28000 + Math.random() * 30000),
+      gold: Math.round(12000 + Math.random() * 9000),
+      durationMin: Math.round(13 + Math.random() * 10),
+      augments: uses,
+      streak: streak,
+    } as Row);
+  }
+  const n = rows.length;
+  const wins = rows.filter((r) => r.win).length;
+  const avg = (f: (r: Row) => number) => rows.reduce((s, r) => s + f(r), 0) / n;
+  const bucket = (key: (r: Row) => string, min: number): Bucket[] => {
+    const m = new Map<string, { g: number; w: number }>();
+    for (const r of rows) {
+      const k = key(r);
+      const c = m.get(k) ?? { g: 0, w: 0 };
+      c.g++;
+      if (r.win) c.w++;
+      m.set(k, c);
+    }
+    return [...m.entries()].filter(([, v]) => v.g >= min).map(([k, v]) => ({ name: k, games: v.g, wins: v.w, winRate: pctNum(v.w, v.g) }));
+  };
+  const rolling = rows.map((_, i) => {
+    const slice = rows.slice(Math.max(0, i - 19), i + 1);
+    return { i: i + 1, t: rows[i].t, wr: pctNum(slice.filter((r) => r.win).length, slice.length) };
+  });
+  const streaks: Array<{ startIdx: number; endIdx: number; len: number }> = [];
+  let cur = 0;
+  let start = 0;
+  rows.forEach((r, i) => {
+    if (!r.win) {
+      if (cur === 0) start = i;
+      cur++;
+    } else {
+      if (cur >= 4) streaks.push({ startIdx: start + 1, endIdx: i, len: cur });
+      cur = 0;
+    }
+  });
+  if (cur >= 4) streaks.push({ startIdx: start + 1, endIdx: rows.length, len: cur });
+  const monthMap = new Map<string, { g: number; w: number }>();
+  for (const r of rows) {
+    const k = new Date(r.t).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit" });
+    const c = monthMap.get(k) ?? { g: 0, w: 0 };
+    c.g++;
+    if (r.win) c.w++;
+    monthMap.set(k, c);
+  }
+  const months = [...monthMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, v]) => ({ label, games: v.g, wins: v.w, winRate: pctNum(v.w, v.g) }));
+  const augStat = new Map<number, { g: number; w: number }>();
+  const pairMap = new Map<string, { champ: string; aug: string; g: number; w: number }>();
+  for (const r of rows) {
+    for (const id of r.augments) {
+      const c = augStat.get(id) ?? { g: 0, w: 0 };
+      c.g++;
+      if (r.win) c.w++;
+      augStat.set(id, c);
+      const a = d.augments.find((x) => x.officialId === id);
+      if (a) {
+        const key = `${r.champ}||${a.id}`;
+        const pc = pairMap.get(key) ?? { champ: r.champ, aug: a.name, g: 0, w: 0 };
+        pc.g++;
+        if (r.win) pc.w++;
+        pairMap.set(key, pc);
+      }
+    }
+  }
+  const augments = [...augStat.entries()]
+    .filter(([, v]) => v.g >= 8)
+    .map(([id, v]) => {
+      const a = d.augments.find((x) => x.officialId === id);
+      return {
+        name: a?.name ?? `未知#${id}`,
+        games: v.g,
+        wins: v.w,
+        winRate: pctNum(v.w, v.g),
+        versionWr: a?.stats?.winRate ? Number(String(a.stats.winRate).replace("%", "")) : null,
+        versionRank: a?.stats?.rank ?? null,
+        rarity: a?.rarity ?? "unknown",
+        availability: a?.availability ?? "unknown",
+      };
+    })
+    .sort((a, b) => b.games - a.games);
+  const champCounts = new Map<string, number>();
+  for (const r of rows) champCounts.set(r.champ, (champCounts.get(r.champ) ?? 0) + 1);
+  let lw = 0,
+    ll = 0,
+    cw = 0,
+    cl = 0;
+  for (const r of rows) {
+    if (r.win) {
+      cw++;
+      cl = 0;
+    } else {
+      cl++;
+      cw = 0;
+    }
+    lw = Math.max(lw, cw);
+    ll = Math.max(ll, cl);
+  }
+  const last20 = rows.slice(-20);
+  return {
+    name: "（演示数据）",
+    cachedTotal: n,
+    dataNote: "⚠ 这是 --demo 生成的演示数据，不是真实战绩",
+    rows,
+    rolling,
+    champions: bucket((r) => r.champ, 5).sort((a, b) => b.games - a.games),
+    augments,
+    months,
+    streaks,
+    pairs: [...pairMap.values()].filter((p) => p.g >= 4).map((p) => ({ ...p, winRate: pctNum(p.w, p.g) })).sort((a, b) => b.g - a.g),
+    overview: {
+      games: n,
+      wins,
+      winRate: pctNum(wins, n),
+      from: rows[0].t,
+      to: rows[n - 1].t,
+      kda: (avg((r) => r.kills) + avg((r) => r.assists)) / Math.max(avg((r) => r.deaths), 0.1),
+      kills: avg((r) => r.kills),
+      deaths: avg((r) => r.deaths),
+      assists: avg((r) => r.assists),
+      damage: avg((r) => r.damage),
+      gold: avg((r) => r.gold),
+      duration: avg((r) => r.durationMin),
+      longestWin: lw,
+      longestLoss: ll,
+      last20: { games: last20.length, wins: last20.filter((r) => r.win).length },
+      championCount: champCounts.size,
+      oneGameChampions: [...champCounts.values()].filter((c) => c === 1).length,
+      avgAugments: rows.reduce((s, r) => s + r.augments.length, 0) / n,
+    },
+  };
+}
+
 // ---------------------------------------------------------------- SVG 构件
 
 const W = 900;
 
-/** 滚动胜率折线（单序列，带 50% 基线） */
-function lineChart(rolling: Array<{ i: number; t: number; wr: number }>): string {
+/** 滚动胜率折线（单序列，带 50% 基线；连败段用淡红带标出） */
+function lineChart(
+  rolling: Array<{ i: number; t: number; wr: number }>,
+  streaks: Array<{ startIdx: number; endIdx: number; len: number }> = []
+): string {
   const H = 240,
     padL = 44,
     padR = 16,
@@ -225,16 +444,110 @@ function lineChart(rolling: Array<{ i: number; t: number; wr: number }>): string
         ` data-tip="第 ${p.i} 把 · ${new Date(p.t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short" })}|滚动 20 把胜率 ${p.wr.toFixed(0)}%"/>`
     )
     .join("");
+  // 连败段：淡红纵向带；只给最长的 3 段加标注（否则顶部标签会挤在一起）
+  const labelTop = new Set(
+    [...streaks].sort((a, b) => b.len - a.len).slice(0, 3).map((s) => `${s.startIdx}-${s.endIdx}`)
+  );
+  const bands = streaks
+    .map((s) => {
+      const x1 = x(s.startIdx);
+      const x2 = x(s.endIdx);
+      const band =
+        `<rect class="streak-band" x="${x1.toFixed(1)}" y="${padT}" width="${Math.max(2, x2 - x1).toFixed(1)}" height="${plotH}"/>`;
+      const label = labelTop.has(`${s.startIdx}-${s.endIdx}`)
+        ? `<text class="streak-label" x="${((x1 + x2) / 2).toFixed(1)}" y="${padT - 4}" text-anchor="middle">${s.len} 连败</text>`
+        : "";
+      return band + label;
+    })
+    .join("");
+
   return `
 <figure class="chart">
-  <figcaption>战绩走势（滚动 20 把胜率，虚线为 50% 基准）</figcaption>
+  <figcaption>战绩走势（滚动 20 把胜率；虚线为 50% 基准，红色带为 4 连败以上的低谷）</figcaption>
   <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="滚动胜率折线图" data-plot="line" data-w="${W}" data-h="${H}" data-padl="${padL}" data-padr="${padR}" data-padt="${padT}" data-padb="${padB}">
     ${grid}
+    ${bands}
     <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(50)}" y2="${y(50)}"/>
     <polyline class="series-line" points="${pts}"/>
     ${crosshair}
     ${dots}
     ${ticks}
+  </svg>
+</figure>`;
+}
+
+/** 按月柱状图（单序列，50% 基准线） */
+function monthlyChart(months: Array<{ label: string; games: number; wins: number; winRate: number }>): string {
+  const H = 200,
+    padL = 44,
+    padR = 16,
+    padT = 18,
+    padB = 34;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const slot = plotW / Math.max(1, months.length);
+  const barW = Math.min(46, slot * 0.56);
+  const y = (v: number) => padT + plotH * (1 - v / 100);
+  const grid = [0, 25, 50, 75, 100]
+    .map(
+      (v) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`
+    )
+    .join("");
+  const bars = months
+    .map((m, i) => {
+      const cx = padL + slot * i + slot / 2;
+      const h = Math.max(2, (plotH * Math.min(100, m.winRate)) / 100);
+      const color = m.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      return (
+        `<rect class="bar" x="${(cx - barW / 2).toFixed(1)}" y="${(y(m.winRate)).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${color}"` +
+        ` data-tip="${m.label}|${m.wins}/${m.games} 胜 · 胜率 ${fmtPct(m.winRate, 1)}"/>` +
+        `<text class="row-value" x="${cx.toFixed(1)}" y="${(y(m.winRate) - 5).toFixed(1)}" text-anchor="middle">${m.winRate.toFixed(0)}%</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 12}" text-anchor="middle">${m.label.replace(/^\d+年/, "").replace("月", "月")}</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>按月胜率（柱高=该月胜率，虚线为 50% 基准；柱上数字为该月胜率）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="按月胜率柱状图">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(50)}" y2="${y(50)}"/>
+    ${bars}
+  </svg>
+</figure>`;
+}
+
+/** 英雄×符文搭配（≥4 把）：横向条形，按你的胜率着色 */
+function pairRows(pairs: Array<{ champ: string; aug: string; g: number; w: number; winRate: number }>): string {
+  const top = pairs.slice(0, 14);
+  const rowH = 26,
+    labelW = 210,
+    valueW = 64;
+  const barW = W - labelW - valueW;
+  const H = top.length * rowH + 26;
+  const x50 = labelW + barW / 2;
+  const body = top
+    .map((p, i) => {
+      const y = 20 + i * rowH;
+      const w = Math.max(2, (barW * Math.min(100, p.winRate)) / 100);
+      const color = p.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      return (
+        `<text class="row-label" x="0" y="${y + 12}" style="font-size:12px">${esc(p.champ)} × ${esc(p.aug)}</text>` +
+        `<text class="row-sub" x="${labelW - 8}" y="${y + 12}" text-anchor="end">${p.g} 把</text>` +
+        `<rect class="bar" x="${labelW}" y="${y + 3}" width="${w.toFixed(1)}" height="12" rx="4" fill="${color}"` +
+        ` data-tip="${esc(p.champ)} × ${esc(p.aug)}|${p.g} 把 ${p.w} 胜 · 胜率 ${fmtPct(p.winRate, 1)}"/>` +
+        `<text class="row-value" x="${W - 4}" y="${y + 13}" text-anchor="end">${fmtPct(p.winRate, 0)}</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>英雄×符文 搭配胜率（≥4 把；竖线为 50% 基准）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="英雄与符文搭配胜率图">
+    <line class="baseline" x1="${x50}" x2="${x50}" y1="14" y2="${H - 4}"/>
+    ${body}
   </svg>
 </figure>`;
 }
@@ -311,6 +624,67 @@ function augmentBullets(
   <figcaption>符文使用效果（≥8 把；条形=你的胜率，竖刻度=版本胜率。按版本名次看，蓝条高于刻度=你打出了效果）</figcaption>
   <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="符文胜率对比图">
     ${body}
+  </svg>
+</figure>`;
+}
+
+/** 时段表现：0-5 / 6-11 / 12-17 / 18-23 四个时段的胜率（帮你看出「几点打最稳」） */
+function hourChart(rows: Array<{ t: number; win: boolean }>): string {
+  const buckets = [
+    { label: "凌晨 0-5", from: 0 },
+    { label: "上午 6-11", from: 6 },
+    { label: "下午 12-17", from: 12 },
+    { label: "晚上 18-23", from: 18 },
+  ].map((b) => {
+    const s = rows.filter((r) => {
+      const h = new Date(r.t).getHours();
+      return h >= b.from && h < b.from + 6;
+    });
+    const w = s.filter((r) => r.win).length;
+    return { label: b.label, games: s.length, wins: w, winRate: s.length ? (w / s.length) * 100 : 0 };
+  });
+
+  const H = 200,
+    padL = 44,
+    padR = 16,
+    padT = 18,
+    padB = 34;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const slot = plotW / buckets.length;
+  const barW = Math.min(72, slot * 0.5);
+  const y = (v: number) => padT + plotH * (1 - v / 100);
+  const grid = [0, 25, 50, 75, 100]
+    .map(
+      (v) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`
+    )
+    .join("");
+  const bars = buckets
+    .map((b, i) => {
+      const cx = padL + slot * i + slot / 2;
+      if (!b.games) {
+        return `<text class="axis-label" x="${cx.toFixed(1)}" y="${(padT + plotH / 2).toFixed(1)}" text-anchor="middle">无对局</text>`;
+      }
+      const h = Math.max(2, (plotH * Math.min(100, b.winRate)) / 100);
+      const color = b.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      return (
+        `<rect class="bar" x="${(cx - barW / 2).toFixed(1)}" y="${y(b.winRate).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${color}"` +
+        ` data-tip="${b.label}|${b.wins}/${b.games} 胜 · 胜率 ${fmtPct(b.winRate, 1)}"/>` +
+        `<text class="row-value" x="${cx.toFixed(1)}" y="${(y(b.winRate) - 5).toFixed(1)}" text-anchor="middle">${fmtPct(b.winRate, 0)}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${(y(b.winRate) + 22).toFixed(1)}" text-anchor="middle">${b.games} 把</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 12}" text-anchor="middle">${b.label}</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>时段表现（按你本机时间；柱高=该时段胜率，虚线为 50% 基准）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="时段胜率柱状图">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(50)}" y2="${y(50)}"/>
+    ${bars}
   </svg>
 </figure>`;
 }
@@ -496,6 +870,8 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
   .axis-label { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
   .series-line { fill: none; stroke: var(--pos); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .crosshair { stroke: var(--text-secondary); stroke-width: 1; opacity: .5; }
+  .streak-band { fill: var(--neg); opacity: .10; }
+  .streak-label { fill: var(--neg); font-size: 10.5px; font-weight: 600; }
   .row-label { fill: var(--text-primary); font-size: 12.5px; }
   .row-sub { fill: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
   .row-value { fill: var(--text-primary); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -547,7 +923,9 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
 
   <section>
     <h2>走势与分布</h2>
-    ${lineChart(data.rolling)}
+    ${lineChart(data.rolling, data.streaks)}
+    ${monthlyChart(data.months)}
+    ${hourChart(data.rows)}
     ${championBars(data.champions)}
     <details>
       <summary>英雄数据表（≥5 把）</summary>
@@ -576,6 +954,26 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
   </section>
 
   <section>
+    <h2>英雄 × 符文：哪些搭配真的赢</h2>
+    ${data.pairs.length ? pairRows(data.pairs) : "<p style='color:var(--text-secondary);font-size:13px'>样本不足 4 把的搭配没有统计意义，暂时没有可展示的组合。</p>"}
+    ${
+      data.pairs.length
+        ? `<details><summary>搭配数据表（≥4 把）</summary>
+      <table><caption>英雄×符文搭配明细，按场次排序</caption>
+        <thead><tr><th>英雄</th><th>符文</th><th class="num">场次</th><th class="num">胜</th><th class="num">胜率</th></tr></thead>
+        <tbody>${data.pairs
+          .slice(0, 40)
+          .map(
+            (p) =>
+              `<tr><td>${esc(p.champ)}</td><td>${esc(p.aug)}</td><td class="num">${p.g}</td><td class="num">${p.w}</td><td class="num">${fmtPct(p.winRate, 1)}</td></tr>`
+          )
+          .join("")}</tbody>
+      </table></details>`
+        : ""
+    }
+  </section>
+
+  <section>
     <h2>锐评</h2>
     <ul class="findings">${findingHtml}</ul>
   </section>
@@ -597,8 +995,9 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
     <div style="margin-bottom:6px"><button class="toggle" id="themeBtn">切换深色 / 浅色</button></div>
     <strong>数据来源与边界</strong>
     <ul>
-      <li>数据来自本机游戏客户端的对局记录（puuid 查询路径），最多返回<strong>最近 200 场</strong>，翻页参数会被忽略 —— 这是接口上限，<strong>不是生涯总场次</strong>。</li>
-      <li>本次取到 ${data.cachedTotal} 把原始记录，其中识别为海斗的 ${o.games} 把（模式标识 KIWI / KIWI_JADE / JADE）。</li>
+      <li>数据来自本机游戏客户端（puuid 查询路径，接口上限最近 200 场）<strong>以及本地归档</strong>：归档随每次查询自动累积，所以本页可能比 200 场更全 —— 但仍然<strong>不是生涯总场次</strong>。</li>
+      <li>本次数据：${esc(data.dataNote)}。</li>
+      <li>本页统计海斗 ${o.games} 把（模式标识 KIWI / KIWI_JADE / JADE）。</li>
       <li>版本胜率/名次来自社区站 arammayhem.com（第三方统计，全球口径）；符文与英雄的中文名以官方游戏文件为准。</li>
       <li>单个符文 8~30 把的样本，胜率波动 ±10% 属正常噪声；本报告的结论依据「同类符文指向一致」而非单点数据。</li>
       <li>读取方式为本地只读（127.0.0.1 客户端接口），数据不出本机。</li>
@@ -677,7 +1076,8 @@ async function main() {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const gamesLimit = Number(argOf("--games") ?? 200);
-  const data = await collect(Number.isFinite(gamesLimit) ? gamesLimit : 200);
+  const demo = argv.includes("--demo");
+  const data = demo ? demoData() : await collect(Number.isFinite(gamesLimit) ? gamesLimit : 200);
   const html = render(data);
 
   const safeName = data.name.replace(/[\\/:*?"<>|]/g, "_");

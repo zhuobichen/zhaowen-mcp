@@ -30,6 +30,8 @@ const cases = [
   { name: "list_my_friends", args: {} },
   { name: "get_friend_stats", args: { friend: "丁ding" } },
   { name: "get_tft_stats", args: { limit: 3 } },
+  { name: "analyze_my_playstyle", args: {} },
+  { name: "get_archive_info", args: {} },
 ];
 for (const c of cases) {
   const r = await client.callTool({ name: c.name, arguments: c.args });

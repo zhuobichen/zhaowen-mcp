@@ -8,6 +8,7 @@
  *     读的是公开的对局数据，不需要对方同意，也不会动对方任何设置。
  */
 import { analyzeMayhemGames } from "./analysis.js";
+import { loadLolGames } from "./games.js";
 import { clientStatus, getMatchHistory, lcuGet, type LcuGameSummary } from "./lcu.js";
 import { normalize } from "./store.js";
 
@@ -103,39 +104,42 @@ export async function listMyFriends(): Promise<string> {
 export async function friendStats(args: { friend: string; limit?: number }): Promise<string> {
   const name = String(args.friend ?? "").trim();
   if (!name) return "请提供好友的名字（部分字也可以）。";
-  const status = await clientStatus();
-  if (!status.reachable) {
-    return `读不到好友数据：${status.error}\n（需要游戏客户端正在运行。）`;
-  }
-  const matches = await findFriend(name);
-  if (!matches.length) {
-    const friends = await listFriends();
+
+  const { resolveAccountByName, archivedAccounts } = await import("./identity.js");
+  const r = await resolveAccountByName(name);
+  if (!r.matches.length) {
+    const archived = await archivedAccounts();
+    const status = await clientStatus();
+    const friends = status.reachable ? await listFriends() : [];
     return [
-      `好友列表里没找到「${name}」。`,
+      `没找到「${name}」——${r.note}。`,
       "",
-      `当前好友：${friends.map((f) => `${f.gameName}#${f.gameTag}`).join("、") || "（空）"}`,
-      "（只能查好友列表里的人；非好友在本地客户端里没有数据。）",
-    ].join("\n");
+      friends.length ? `当前好友：${friends.map((f) => `${f.gameName}#${f.gameTag}`).join("、")}` : "",
+      archived.length
+        ? `本地归档里能查的账号：${archived.slice(0, 8).map((a) => `${a.name}（${a.games} 局）`).join("、")}`
+        : "本地归档里还没有任何账号（在线查过一次就会被记下来）。",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
-  if (matches.length > 1) {
+  if (r.matches.length > 1) {
     return [
-      `「${name}」匹配到多个好友，请指明是哪个：`,
-      ...matches.slice(0, 8).map((f) => `  · ${f.gameName}#${f.gameTag}`),
+      `「${name}」匹配到多个账号，请指明是哪个：`,
+      ...r.matches.slice(0, 8).map((m) => `  · ${m.name}（${m.source}）`),
     ].join("\n");
   }
-  const f = matches[0];
-  if (!f.puuid) return `${f.gameName}#${f.gameTag} 没有 puuid，读不到对局记录。`;
+  const f = r.matches[0];
 
   const limit = Math.min(Math.max(args.limit ?? 200, 1), 500);
-  const { games, total } = await getFriendGames(f.puuid, limit);
-  if (!games.length) {
-    return `客户端里没有 ${f.gameName}#${f.gameTag} 的对局记录（可能是缓存里没有，或该账号最近没打）。`;
+  const res = await loadLolGames(f.puuid, limit, f.name);
+  if (!res.games.length) {
+    return `没有 ${f.name} 的对局记录（${res.note}）。`;
   }
-  const body = await analyzeMayhemGames(games, {
+  const body = await analyzeMayhemGames(res.games, {
     ownerPuuid: f.puuid,
-    ownerName: f.gameName,
-    subject: `好友 ${f.gameName}#${f.gameTag}`,
-    cachedTotal: total,
+    ownerName: f.name.split("#")[0],
+    subject: `好友 ${f.name}`,
+    cachedTotal: res.archivedTotal,
     dataNote:
       "说明：好友的对局记录取决于本机客户端当前缓存了多少（实测会变，同一好友不同时刻可能是 20~200 把不等），" +
       "不是对方的历史总场次；样本量小时胜率没有统计意义。",

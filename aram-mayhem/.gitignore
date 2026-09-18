@@ -3,5 +3,6 @@ dist/
 *.log
 # 本机账号信息（含召唤师名/puuid），不进仓库
 data/profile.json
-# 生成的个人报告（含账号名与战绩）
+# 本地对局归档（含账号与对局数据），不进仓库
+data/archive/
 reports/
