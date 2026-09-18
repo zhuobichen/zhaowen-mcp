@@ -22,7 +22,7 @@ import { queueStats } from "../lib/queue-stats.js";
 import { tftDetail } from "../lib/tft-detail.js";
 import { analyzeCounters } from "../lib/counters.js";
 import { analyzeSocial } from "../lib/social.js";
-import { championAugmentEmpirical, checkSynergySets, empiricalAugments, empiricalPairs, othersAugmentRates } from "../lib/empirical.js";
+import { augmentEmpirical, championAugmentEmpirical, checkSynergySets, empiricalAugments, empiricalPairs, othersAugmentRates } from "../lib/empirical.js";
 import { resolveMe } from "../lib/identity.js";
 
 const SWEEP = [5, 8, 10, 12, 15, 20, 30, 40, 60, 80, 120, 200];
@@ -469,5 +469,33 @@ function belowNoise(items: unknown[]): boolean {
     const alive = r.units.filter((x) => x.games >= n);
     const best = [...alive].sort((a, b) => a.avgPlacement - b.avgPlacement)[0];
     console.log(`  ${"".padEnd(20)} ${String(n).padStart(4)}   ${best ? `${best.games} 局 平均名次 ${best.avgPlacement.toFixed(2)}` : "—"}（共 ${alive.length} 条够样本）`);
+  }
+}
+
+// ---- 17. augmentEmpirical（符文详情页的「本机实证」段，门槛 60）
+//
+// 它是**单件符文的实证**：这个符文跟谁一起拿协同最强 / 最弱。
+// 与 empiricalAugments（符文榜，门槛 100）是同类统计的两个门槛 —— 那条量过「保留 76%、基本不 bind」，
+// 但这处没量过自己的榜首形状。补上。
+{
+  console.log("\n=== augmentEmpirical：符文详情页的「和谁搭」（门槛 60）===");
+  // 挑一个样本最厚的符文
+  const all = (await empiricalAugments({ minGames: 0 })).augments;
+  const fat = [...all].sort((a, b) => b.games - a.games)[0];
+  if (fat) {
+    console.log(`  用样本最厚的符文：${fat.name}（${fat.games} 局）`);
+    console.log("  门槛   协同榜首（对子 / 样本 / 协同 / 倍数）");
+    for (const n of [5, 20, 40, 60, 100]) {
+      const r = await augmentEmpirical(fat.id, { minGames: n });
+      const t = r.topPairs[0];
+      if (!t) {
+        console.log(`  ${String(n).padStart(4)}   （没有够样本的对子）`);
+        continue;
+      }
+      const se = Math.sqrt(Math.max(t.winRate * (100 - t.winRate), 1) / Math.max(t.games, 1));
+      console.log(
+        `  ${String(n).padStart(4)}   ${t.with}　${t.games} 局 ${t.winRate.toFixed(1)}%　协同 ${t.synergy >= 0 ? "+" : ""}${t.synergy.toFixed(1)}　${se > 0 ? `${(Math.abs(t.synergy) / se).toFixed(1)} 倍` : "—"}`
+      );
+    }
   }
 }

@@ -22,6 +22,7 @@ import { augmentIdsOf, isMayhemGame, myParticipantId } from "./lcu.js";
 import { REPORT_CSS, reflowFigures } from "./report-style.js";
 import { loadData } from "./store.js";
 import { parsePatch } from "./sgp.js";
+import { noiseCeiling, noiseMultiple } from "./thresholds.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -1562,10 +1563,21 @@ function findings(data: Awaited<ReturnType<typeof collect>>): string[] {
     );
   }
 
-  const best = augments.filter((a) => a.games >= 8 && a.winRate >= 65).sort((a, b) => b.winRate - a.winRate).slice(0, 6);
+  // 这里是**从 ≥8 把的符文里挑胜率最高**——最大值统计量，而且 8 把的标准误就有约 18 个百分点：
+  // 命中「≥65%」的门槛，实际只有 0.85 倍噪声。不把候选数和噪声尺度说出来，
+  // 「真命符文」这四个字就是在给噪声加冕。
+  const bestPool = augments.filter((a) => a.games >= 8 && a.winRate >= 65);
+  const best = [...bestPool].sort((a, b) => b.winRate - a.winRate).slice(0, 6);
   if (best.length) {
+    const ceil = noiseCeiling(bestPool.map((a) => ({ games: a.games, rate: a.winRate })));
+    const topK = noiseMultiple(best[0].games, best[0].winRate);
     out.push(
-      `**你的真命符文：** ` + best.map((a) => `${a.name}（${a.games} 把 ${fmtPct(a.winRate, 0)}）`).join("、") + "。"
+      `**你的真命符文（候选 ${bestPool.length} 个）：** ` +
+        best.map((a) => `${a.name}（${a.games} 把 ${fmtPct(a.winRate, 0)}，${noiseMultiple(a.games, a.winRate).toFixed(1)} 倍噪声）`).join("、") +
+        "。" +
+        (topK >= 2 && Math.abs(best[0].winRate - 50) >= ceil
+          ? ""
+          : `⚠ 但**都还在噪声范围内**：从 ${bestPool.length} 个里挑最高，光噪声就能造出约 ${ceil.toFixed(0)} 个百分点的差距 —— 当成「可以多试试」的线索，别当成结论。`)
     );
   }
 
@@ -1592,20 +1604,33 @@ function findings(data: Awaited<ReturnType<typeof collect>>): string[] {
     );
   }
   if (above.length) {
+    // 同样是「挑差值最大」：候选数、噪声尺度、逐条倍数一起给，
+    // 否则「优先拿」这个建议可能是照着噪声说的。
+    const abovePool = withOthers.map((a) => ({ ...a, gap: (a.winRate as number) - (a.othersWr as number) })).filter((a) => a.gap >= 10);
+    const ceil = noiseCeiling(abovePool.map((a) => ({ games: a.games, rate: a.winRate })));
+    const topGap = above[0].gap;
     out.push(
-      `**这几件你用得比旁人好：** ` +
+      `**这几件你用得比旁人好（候选 ${abovePool.length} 个）：** ` +
         above.map((a) => `${a.name}（+${a.gap.toFixed(0)} 个百分点）`).join("、") +
-        " —— 说明你的打法和它们契合，优先拿。"
+        (topGap >= ceil
+          ? " —— 最大的一条超过了噪声能造出的水平，但仍要逐条看局数。"
+          : ` —— ⚠ 但都还在噪声范围内（从 ${abovePool.length} 个里挑差值最大，光噪声就能造出约 ${ceil.toFixed(0)} 个百分点的差距），先当线索。`)
     );
   }
 
-  const byWr = champions.filter((c) => c.games >= 5).sort((a, b) => b.winRate - a.winRate);
+  // 又是「挑极值」：≥5 把的英雄里挑胜率最高 / 最低。5 把的标准误约 22 个百分点，
+  // 而英雄池通常几十个候选 —— 极值几乎全由噪声决定。候选数与噪声尺度一并给出。
+  const champPool = champions.filter((c) => c.games >= 5);
+  const champCeil = noiseCeiling(champPool.map((c) => ({ games: c.games, rate: c.winRate })));
+  const byWr = [...champPool].sort((a, b) => b.winRate - a.winRate);
   const good = byWr.slice(0, 3),
     bad = byWr.slice(-3).reverse();
   if (good.length && bad.length) {
     out.push(
-      `**英雄两极：** 顺手的是 ${good.map((c) => `${c.name} ${fmtPct(c.winRate, 0)}（${c.games} 把）`).join("、")}；` +
-        `该躲的是 ${bad.map((c) => `${c.name} ${fmtPct(c.winRate, 0)}（${c.games} 把）`).join("、")}。`
+      `**英雄两极（候选 ${champPool.length} 个，≥5 把）：** 顺手的是 ${good.map((c) => `${c.name} ${fmtPct(c.winRate, 0)}（${c.games} 把）`).join("、")}；` +
+        `该躲的是 ${bad.map((c) => `${c.name} ${fmtPct(c.winRate, 0)}（${c.games} 把）`).join("、")}。` +
+        `⚠ 从 ${champPool.length} 个英雄里挑最高最低，光噪声就能造出约 ${champCeil.toFixed(0)} 个百分点的差距 —— ` +
+        `这里的「顺手/该躲」先当线索，别据此换英雄池。`
     );
   }
   if (o.oneGameChampions > 8) {
