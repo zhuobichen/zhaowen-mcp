@@ -94,7 +94,7 @@ await send("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
 
 // 先调几个会报「我的总局数 / 胜率」的工具 —— 顺带把它们看到的新对局并进归档
-const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution"];
+const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats"];
 const reported = {};
 for (const tool of PROBES) {
   const r = await send("tools/call", { name: tool, arguments: {} });
@@ -150,6 +150,9 @@ for (const [tool, re] of rateChecks) {
 
 const items = JSON.parse(readFileSync(path.join(ROOT, "data/items.json"), "utf8"));
 const augDefs = JSON.parse(readFileSync(path.join(ROOT, "data/augments.json"), "utf8"));
+// 英雄 id 映射提到模块级：对手维度和阵容维度都要用（原先写在对手那个块里，块级的）
+const cidMap = JSON.parse(readFileSync(path.join(ROOT, "data/champion-ids.json"), "utf8"));
+const champsJson = JSON.parse(readFileSync(path.join(ROOT, "data/champions.json"), "utf8"));
 const archive = JSON.parse(readFileSync(path.join(ROOT, "data/archive/lol-matches.json"), "utf8"));
 const mayhemGames = Object.values(archive.games).filter(
   (g) =>
@@ -511,6 +514,152 @@ function isBuildItem(it) {
     if (!ok) bad++;
     console.log(
       `${ok ? "✓" : "✗"} 贡献度：伤害队内第一　工具报 ${md[1]} 局 ${md[2]}%　独立重算 ${d1.g} 局 ${rate.toFixed(1)}%`
+    );
+  }
+}
+
+// ⑨ 符文组合协同：empiricalPairs 的「协同」= 组合胜率 − 两件单拿胜率的平均
+//    这个要同时算三组数（组合、单件 A、单件 B），任何一组口径错了协同就错。
+//    而且样本是**全归档所有参与者行**（不只我自己）—— 别写错成只统计我。
+{
+  const singles = new Map();
+  const pairs = new Map();
+  for (const g of mayhemGames) {
+    for (const p of g.participants ?? []) {
+      const s = p.stats ?? {};
+      if (s.win === undefined) continue;
+      const ids = [];
+      const seen = new Set();
+      for (let i = 1; i <= 6; i++) {
+        const v = Number(s[`playerAugment${i}`] ?? 0);
+        if (v && !seen.has(v)) {
+          seen.add(v);
+          ids.push(v);
+        }
+      }
+      if (!ids.length) continue;
+      for (const id of ids) {
+        const c = singles.get(id) ?? { g: 0, w: 0 };
+        c.g++;
+        if (s.win === true) c.w++;
+        singles.set(id, c);
+      }
+      const sorted = [...ids].sort((a, b) => a - b);
+      for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+          const k = `${sorted[i]}|${sorted[j]}`;
+          const c = pairs.get(k) ?? { g: 0, w: 0 };
+          c.g++;
+          if (s.win === true) c.w++;
+          pairs.set(k, c);
+        }
+      }
+    }
+  }
+  const rate = (c) => (c.g ? (c.w / c.g) * 100 : 0);
+  // 按协同排序，取第一组（工具输出的第一条就是它）
+  const ranked = [...pairs.entries()]
+    .filter(([, c]) => c.g >= 60) // empiricalPairs 的 minGames 默认值
+    .map(([k, c]) => {
+      const [a, b] = k.split("|").map(Number);
+      return {
+        a,
+        b,
+        g: c.g,
+        wr: rate(c),
+        soloA: rate(singles.get(a) ?? { g: 0, w: 0 }),
+        soloB: rate(singles.get(b) ?? { g: 0, w: 0 }),
+        synergy: rate(c) - (rate(singles.get(a) ?? { g: 0, w: 0 }) + rate(singles.get(b) ?? { g: 0, w: 0 })) / 2,
+      };
+    })
+    .sort((x, y) => y.synergy - x.synergy);
+  const topP = ranked[0];
+  const ap = reported["get_augment_pairs"] ?? "";
+  if (topP) {
+    const re = /· ([^：]+?) \+ ([^：]+?)：(\d+) 局 ([\d.]+)%（单拿分别 ([\d.]+)% \/ ([\d.]+)% → 协同 ([+-][\d.]+)）/;
+    const m = re.exec(ap);
+    const ok =
+      m &&
+      Number(m[3]) === topP.g &&
+      Math.abs(Number(m[4]) - topP.wr) < 0.06 &&
+      Math.abs(Number(m[7]) - topP.synergy) < 0.06;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 符文协同：工具第一组「${m ? m[1] + " + " + m[2] : "—"} ${m ? m[3] : "—"} 局 ${m ? m[4] : "—"}% 协同 ${m ? m[7] : "—"}」` +
+        `　独立重算「${topP.g} 局 ${topP.wr.toFixed(1)}% 协同 ${topP.synergy >= 0 ? "+" : ""}${topP.synergy.toFixed(1)}」`
+    );
+  }
+}
+
+// ⑩ 对面阵容构成：按 Riot 角色标签数对面人头
+//    容易错的点：一名英雄可挂多个标签，所以要**按标签去重**（亚索同时算战士和刺客），
+//    而不是「有坦克标签的人有几个」这种只数一次的写法。
+{
+  const rolesByChamp = new Map();
+  for (const [numId, cid] of Object.entries(cidMap)) {
+    const c = champsJson.find((x) => x.id === cid.id);
+    if (c?.roles?.length) rolesByChamp.set(Number(numId), c.roles);
+  }
+  const present = new Map();
+  let total = 0;
+  for (const g of mayhemGames) {
+    const parts = g.participants ?? [];
+    if (parts.length < 2) continue;
+    const me = parts.find((p) => p.puuid === ME);
+    if (!me?.stats || me.stats.win === undefined) continue;
+    total++;
+    const counts = {};
+    for (const p of parts) {
+      if (p.teamId === me.teamId || !p.championId) continue;
+      for (const r of new Set(rolesByChamp.get(Number(p.championId)) ?? [])) counts[r] = (counts[r] ?? 0) + 1;
+    }
+    for (const [r, n] of Object.entries(counts)) {
+      if (!n) continue;
+      const c = present.get(r) ?? { g: 0, w: 0 };
+      c.g++;
+      if (me.stats.win === true) c.w++;
+      present.set(r, c);
+    }
+  }
+  const ec = reported["get_enemy_comps"] ?? "";
+  const m = /· 对面有坦克：(\d+) 局 ([\d.]+)%/.exec(ec);
+  const t = present.get("tank");
+  if (m && t) {
+    const ok = Number(m[1]) === t.g && Math.abs(Number(m[2]) - (t.w / t.g) * 100) < 0.06;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 对面阵容：对面有坦克　工具报 ${m[1]} 局 ${m[2]}%　独立重算 ${t.g} 局 ${((t.w / t.g) * 100).toFixed(1)}%（总 ${total} 局）`
+    );
+  } else {
+    console.log("· 对面阵容：工具这次没列「对面有坦克」这行，跳过");
+  }
+}
+
+// ⑪ 队列拆分：按 queueId 分组
+//    注意 queue-stats 统计的是**所有模式**（不只海斗）—— 复现时不能只筛海斗。
+{
+  const byQ = new Map();
+  for (const g of Object.values(archive.games)) {
+    const me = (g.participants ?? []).find((p) => p.puuid === ME);
+    const s = me?.stats;
+    if (!s || s.win === undefined) continue;
+    const q = Number(g.queueId ?? 0);
+    const c = byQ.get(q) ?? { g: 0, w: 0 };
+    c.g++;
+    if (s.win === true) c.w++;
+    byQ.set(q, c);
+  }
+  const top = [...byQ.entries()].sort((a, b) => b[1].g - a[1].g)[0];
+  const qs = reported["get_queue_stats"] ?? "";
+  if (top) {
+    const [q, c] = top;
+    const re = new RegExp("\\[" + q + "\\]：(\\d+) 局[\\s\\S]*?胜率 ([\\d.]+)%");
+    const m = re.exec(qs);
+    const ok = m && Number(m[1]) === c.g && Math.abs(Number(m[2]) - (c.w / c.g) * 100) < 0.06;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 队列拆分：最多的队列 [${q}]　工具报 ${m ? m[1] : "—"} 局 ${m ? m[2] : "—"}%` +
+        `　独立重算 ${c.g} 局 ${((c.w / c.g) * 100).toFixed(1)}%（共 ${byQ.size} 个队列）`
     );
   }
 }
