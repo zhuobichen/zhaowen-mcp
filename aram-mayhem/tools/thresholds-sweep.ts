@@ -1,8 +1,9 @@
 /**
  * 门槛扫描：把某个门槛从小到大扫一遍，看**报出来的效应**怎么变。
  *
- * 用途：`docs/THRESHOLDS.md` 里 21 条理由是「未说明」—— 那些数没人知道该是多少。
+ * 用途：`docs/THRESHOLDS.md` 里那些理由是「未说明」的门槛 —— 没人知道该是多少。
  * 这个探针是唯一能让它们收敛的办法：拿真实归档跑一遍，看效应随门槛的变化曲线。
+ * （数字不写死在注释里 —— 这里原先是「21 条」，填掉几条之后那句就成了假的。）
  *
  * 怎么读结果：
  *   · 效应随门槛上升**一直在变小** → 之前大是因为把噪声算进去了，门槛太低
@@ -21,7 +22,7 @@ import { queueStats } from "../lib/queue-stats.js";
 import { tftDetail } from "../lib/tft-detail.js";
 import { analyzeCounters } from "../lib/counters.js";
 import { analyzeSocial } from "../lib/social.js";
-import { checkSynergySets, empiricalAugments, empiricalPairs } from "../lib/empirical.js";
+import { championAugmentEmpirical, checkSynergySets, empiricalAugments, empiricalPairs, othersAugmentRates } from "../lib/empirical.js";
 import { resolveMe } from "../lib/identity.js";
 
 const SWEEP = [5, 8, 10, 12, 15, 20, 30, 40, 60, 80, 120, 200];
@@ -244,5 +245,102 @@ function summarize2<T extends { games: number }>(
     console.log("  门槛   存活");
     for (const r of rows) console.log(`  ${String(r.n).padStart(4)}   ${r.alive}`);
     console.log("  （这一族没算极差：条目多、极差是最大值统计量，算了也不能当效应量读）");
+  }
+}
+
+// ---- 14. 同一族的三个门槛并排量：单符文榜 100 / 其他玩家口径 30 / 英雄×符文 20
+//
+// 这三处是**同一种统计**（某个单元在归档里的胜率），只是单元集合不同。
+// 登记表里它们各写了一个数、相对大小看不出规律（单元最多的英雄×符文反而最低 20）。
+// 这里把三者并排：看每个门槛卡掉多少、以及**在它的候选数下噪声能造出多大的极值**。
+// 那两个量一起才说明问题 —— 门槛低 + 候选多 = 榜首必然被噪声占满。
+{
+  const rowsOut: Array<{ 口径: string; 默认门槛: string; "候选@默认": string; "噪声尺度": string }> = [];
+
+  /** N 个候选、给定中等标准误时，纯噪声能造出的最大偏离（百分点） */
+  const noiseCeil = (n: number, medSE: number) => Math.sqrt(2 * Math.log(Math.max(n, 2))) * medSE;
+
+  // (a) 单符文榜：门槛 100
+  {
+    const all = (await empiricalAugments({ minGames: 0 })).augments;
+    const at = all.filter((x) => x.games >= 100);
+    const ses = at.map((x) => Math.sqrt(Math.max(x.winRate * (100 - x.winRate), 1) / Math.max(x.games, 1))).sort((a, b) => a - b);
+    const med = ses.length ? ses[Math.floor(ses.length / 2)] : 0;
+    rowsOut.push({
+      口径: "单符文榜 empiricalAugments",
+      默认门槛: "100",
+      "候选@默认": `${at.length} / ${all.length}`,
+      噪声尺度: `±${noiseCeil(at.length, med).toFixed(1)}pp`,
+    });
+    console.log(`\n=== (a) 单符文榜：门槛 100 ===`);
+    for (const n of SWEEP) {
+      const at2 = all.filter((x) => x.games >= n);
+      console.log(`  门槛 ${String(n).padStart(4)} → 候选 ${String(at2.length).padStart(4)} / ${all.length}`);
+    }
+  }
+
+  // (b) 其他玩家口径：门槛 30
+  {
+    const m = await othersAugmentRates(WHO.puuid, { minGames: 0 });
+    const all = [...m.values()];
+    const at = all.filter((x) => x.games >= 30);
+    const ses = at.map((x) => Math.sqrt(Math.max(x.winRate * (100 - x.winRate), 1) / Math.max(x.games, 1))).sort((a, b) => a - b);
+    const med = ses.length ? ses[Math.floor(ses.length / 2)] : 0;
+    rowsOut.push({
+      口径: "其他玩家口径 othersAugmentRates",
+      默认门槛: "30",
+      "候选@默认": `${at.length} / ${all.length}`,
+      噪声尺度: `±${noiseCeil(at.length, med).toFixed(1)}pp`,
+    });
+    console.log(`\n=== (b) 其他玩家口径：门槛 30 ===`);
+    for (const n of SWEEP) console.log(`  门槛 ${String(n).padStart(4)} → 候选 ${String(all.filter((x) => x.games >= n).length).padStart(4)} / ${all.length}`);
+  }
+
+  // (c) 英雄×符文：门槛 20（挑这个号玩得最多的英雄来量）
+  {
+    const d = (await import("../lib/store.js")).loadData();
+    const games = (await import("../lib/archive.js")).archivedGamesFor("lol");
+    const { isMayhemGame } = await import("../lib/lcu.js");
+    const mayhem = (await games).filter(isMayhemGame);
+    const tally = new Map<number, number>();
+    for (const g of mayhem)
+      for (const p of g.participants ?? []) {
+        if (p.puuid !== WHO.puuid) continue;
+        const c = Number(p.championId ?? 0);
+        if (c) tally.set(c, (tally.get(c) ?? 0) + 1);
+      }
+    const topChamp = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (topChamp) {
+      const cid = d.championIds[String(topChamp)];
+      const name = cid ? d.championById.get(cid.id)?.name ?? cid.name : String(topChamp);
+      const r0 = await championAugmentEmpirical(topChamp, { minGames: 0 });
+      // 返回的 best/worst 是**截断过的**（各取前几个），所以数不出「多少条够样本」。
+      // 能观测的是**榜单首位那条的样本量**：门槛低时首位多半只有几局（那正是噪声），
+      // 门槛上去之后首位才轮到样本厚的 —— 这比数条目数更能说明门槛有没有在起作用。
+      console.log(`\n=== (c) 英雄×符文：门槛 20（用玩得最多的 ${name}，${r0.games} 局）===`);
+      console.log("  门槛   榜单首位那条（样本 / 胜率 / 相对基准）");
+      for (const n of [5, 10, 20, 30, 60, 120]) {
+        const r = await championAugmentEmpirical(topChamp, { minGames: n });
+        const top = r.best[0];
+        console.log(
+          `  ${String(n).padStart(4)}   ` +
+            (top
+              ? `${top.games} 局 ${top.winRate.toFixed(1)}%（${top.delta >= 0 ? "+" : ""}${top.delta.toFixed(1)}）`
+              : "（没有够样本的）")
+        );
+      }
+      rowsOut.push({
+        口径: `英雄×符文 championAugmentEmpirical（${name}）`,
+        默认门槛: "20",
+        "候选@默认": "（返回截断，数不出）",
+        噪声尺度: "见 (c) 的榜首样本量",
+      });
+    }
+  }
+
+  console.log("\n=== 三者并排（默认门槛下）===");
+  console.log("  口径                                        默认门槛  候选@默认        噪声尺度");
+  for (const r of rowsOut) {
+    console.log(`  ${r.口径.padEnd(42)} ${r.默认门槛.padStart(6)}  ${r["候选@默认"].padEnd(14)} ${r.噪声尺度}`);
   }
 }

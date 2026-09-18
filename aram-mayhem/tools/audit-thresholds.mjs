@@ -88,13 +88,14 @@ const SAMPLE_REGISTRY = {
   },
 
   // ---- lib/empirical.ts：**一个文件 8 处、7 个函数**，之前只能合并成一行写「未说明为何不同」。
-  //      键细到函数级之后才拆得开。下面这些数之间的相对大小**看不出规律**：
-  //      单符文 100、符文对 60、英雄×符文 60、其他玩家口径 30、羁绊 30、某英雄的符文 20 ——
-  //      按理「单元越多、每个单元需要的样本越多」，但英雄×符文（单元最多）反而是 20。
+  //      键细到函数级之后才拆得开。
+  //      量过之后这一族的样子：**多数不 bind**（单符文榜 100 保留 76%、其他玩家口径 30 保留 92%、
+  //      羁绊 30 因为前提不成立而全程 0 条），只有符文对 60 是真的在筛（22164 个单元里留 455）。
+  //      英雄×符文 20 是唯一**确实偏低**的一个（门槛 30 时效应就掉到 0.6 倍、60 局以上一条没有）。
   "lib/empirical.ts:empiricalAugments:minGames": {
     tool: "get_empirical_augments",
     splits: "符文（约 200 件，本号归档 2 万行符文记录）",
-    why: "实测（thresholds:sweep）：277 件符文里，门槛 100 保留约 210 条（76%）—— **基本不 bind**（全归档 2 万行摊下来每件样本都够）。所以它更像「兜底，别把长尾露出来」，而不是在筛噪声",
+    why: "实测（thresholds:sweep）：277 件符文里，门槛 100 保留约 210 条（76%），噪声尺度 ±7.3pp —— **基本不 bind**（全归档 2 万行摊下来每件样本都够）。所以它更像「兜底，别把长尾露出来」，而不是在筛噪声。同族的另外两个口径见下面两条",
   },
   "lib/empirical.ts:empiricalPairs:minGames": {
     tool: "get_augment_pairs",
@@ -109,7 +110,7 @@ const SAMPLE_REGISTRY = {
   "lib/empirical.ts:othersAugmentRates:minGames": {
     tool: "get_augment / get_empirical_augments（对照口径）",
     splits: "其他人的符文使用率",
-    why: "未说明。30 —— 它是对照组，样本来自全归档（比本号厚得多），门槛反而更低",
+    why: "实测（thresholds:sweep）：它排除的只是我自己那 306 局（占全库 3861 的 8%），所以候选数与单符文榜**逐行完全相同**（266/262/261/…/179）。门槛 30 保留 256/277（92%），基本不筛。与单符文榜的 100 是同一种统计、两个口径，数字不同但都没什么筛选作用",
   },
   "lib/empirical.ts:checkSynergySets:minGames": {
     tool: "check_synergy_sets",
@@ -119,7 +120,7 @@ const SAMPLE_REGISTRY = {
   "lib/empirical.ts:championAugmentEmpirical:minGames": {
     tool: "get_champion_guide（本机实证段）",
     splits: "英雄 × 符文（二维交叉，单元最多）",
-    why: "**未说明，且与「单元越多门槛越高」相反**：这是全文件单元数最多的一处，门槛却是最低的 20",
+    why: "实测（thresholds:sweep，按榜首样本量看）：门槛 5 时榜首是 5 局 100%（纯噪声）；20/25 时是 27 局 70.4%（约 2 倍标准误，临界）；30 时是 38 局 57.9%（0.6 倍，分不开）；**60 局以上一条都没有**。所以这个门槛确实偏低 —— 而且单元天生薄（玩得最多的英雄 264 局也凑不出 60 局的符文）。数字未说明，但**后果已在输出里处理**：get_champion_guide 现在逐条标「约是噪声的几倍」，首位不过 2 倍时表头降调成「可能特别搭，都还在噪声范围内」",
   },
   "lib/empirical.ts:synergyCheckText:minGames": {
     tool: "check_synergy_sets（输出层）",

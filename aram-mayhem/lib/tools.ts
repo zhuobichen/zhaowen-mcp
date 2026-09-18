@@ -527,11 +527,25 @@ export async function championGuideAsync(args: { champion: string; limit?: numbe
       return out.join("\n");
     }
     if (e.best.length) {
-      out.push("  · 和它特别搭（「专属」= 该英雄拿它的胜率 − 它在所有人手里的胜率）：");
+      // 这一栏是**从英雄×符文的许多单元里挑最大值**，而且单元天生很薄 ——
+      // 门槛扫描量过：玩得最多的英雄（264 局）在门槛 25 时，榜首那条只有 27~38 局、
+      // 效应约 1~2 倍标准误；提到 30 就掉到 0.6 倍（分不开），而 60 局以上一个都没有。
+      // 所以「特别搭」这三个字必须带上它测得准不准 —— 逐条标倍数，首位不过线时表头就降调。
+      const seOf = (x: { games: number; winRate: number }) =>
+        Math.sqrt(Math.max(x.winRate * (100 - x.winRate), 1) / Math.max(x.games, 1));
+      const kOf = (x: { games: number; winRate: number; specific?: number | null }) =>
+        seOf(x) > 0 ? Math.abs(x.specific ?? 0) / seOf(x) : 0;
+      const topK = kOf(e.best[0]);
+      out.push(
+        topK >= 2
+          ? "  · 和它特别搭（「专属」= 该英雄拿它的胜率 − 它在所有人手里的胜率）："
+          : `  · 可能和它特别搭 —— 但**都还在噪声范围内**（最高的那条也只有 ${topK.toFixed(1)} 倍标准误，2 倍才算分得开），先当线索：`
+      );
       for (const x of e.best.slice(0, 6)) {
         out.push(
           `      ${x.name}：${x.games} 局 ${x.winRate.toFixed(1)}%` +
-            `（英雄内 ${x.delta >= 0 ? "+" : ""}${x.delta.toFixed(1)} · 专属 ${(x.specific ?? 0) >= 0 ? "+" : ""}${(x.specific ?? 0).toFixed(1)}）`
+            `（英雄内 ${x.delta >= 0 ? "+" : ""}${x.delta.toFixed(1)} · 专属 ${(x.specific ?? 0) >= 0 ? "+" : ""}${(x.specific ?? 0).toFixed(1)} ·` +
+            ` 约是噪声的 ${kOf(x).toFixed(1)} 倍）`
         );
       }
     }
