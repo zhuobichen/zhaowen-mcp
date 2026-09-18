@@ -26,11 +26,32 @@ export interface GamesResult {
 const fmtDate = (t: number | null | undefined) =>
   t ? new Date(t).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "—";
 
-/** 海斗/召唤师峡谷：客户端最多给最近 200 局 */
+/**
+ * 海斗/召唤师峡谷：**SGP 长历史 + LCU 细节**双源。
+ *   · SGP（腾讯后端）支持 startIndex 真翻页，能给到远超 200 局的广度；
+ *   · LCU 给最近 200 局，但带符文（playerAugment1..6）等细节。
+ * 两者按 gameId 合并进归档；同一局若 LCU 那份更全，会覆盖 SGP 的摘要。
+ */
 export async function loadLolGames(puuid: string, limit = 200, name?: string | null): Promise<GamesResult> {
   return await load("lol", puuid, limit, async () => {
-    const { games } = await getMatchHistory(Math.min(limit, 200), puuid);
-    return games;
+    const out: Array<{ games: any[]; source: string }> = [];
+    // 先 SGP（深）
+    try {
+      const { getSgpContext, fetchSgpHistory, sgpToGame } = await import("./sgp.js");
+      const ctx = await getSgpContext();
+      const games = await fetchSgpHistory(ctx, puuid, { pageSize: 100, maxGames: 500 });
+      if (games.length) out.push({ source: "sgp", games: games.map((g) => sgpToGame(g, puuid)) });
+    } catch {
+      /* SGP 不通就只靠 LCU */
+    }
+    // 再 LCU（细节全）
+    try {
+      const { games } = await getMatchHistory(200, puuid);
+      if (games.length) out.push({ source: "lcu", games });
+    } catch {
+      /* 忽略 */
+    }
+    return out;
   }, name);
 }
 
@@ -38,7 +59,7 @@ export async function loadLolGames(puuid: string, limit = 200, name?: string | n
 export async function loadTftGames(puuid: string, name?: string | null): Promise<GamesResult> {
   return await load("tft", puuid, 20, async () => {
     const { getTftGames } = await import("./tft.js");
-    return await getTftGames(puuid);
+    return [{ source: "lcu", games: await getTftGames(puuid) }];
   }, name);
 }
 
@@ -46,7 +67,7 @@ async function load(
   kind: ArchiveKind,
   puuid: string,
   limit: number,
-  fetchFresh: () => Promise<any[]>,
+  fetchFresh: () => Promise<Array<{ games: any[]; source: string }>>,
   name?: string | null
 ): Promise<GamesResult> {
   const status = await clientStatus();
@@ -56,10 +77,11 @@ async function load(
 
   if (status.reachable) {
     try {
-      const games = await fetchFresh();
-      fresh = games.length;
-      const merged = await mergeIntoArchive(kind, games, puuid, name ?? null);
-      added = merged.added;
+      for (const batch of await fetchFresh()) {
+        fresh += batch.games.length;
+        const merged = await mergeIntoArchive(kind, batch.games, puuid, name ?? null, batch.source);
+        added += merged.added;
+      }
     } catch (e: any) {
       fetchError = e?.message ?? String(e);
     }

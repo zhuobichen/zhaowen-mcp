@@ -204,11 +204,19 @@ export async function mergeIntoArchive(
   for (const g of games ?? []) {
     if (!g?.gameId) continue;
     const key = String(g.gameId);
-    if (cur.games[key]) {
+    const incoming = slimGame(g, kind, puuid, puuidName, source);
+    const existing = cur.games[key];
+    if (existing) {
       known++;
+      // 已有记录若缺符文（SGP 摘要没有 playerAugment），而这次带来了，就用这份更全的覆盖
+      const hasAug = (x: ArchivedGame) => x.participants?.some((pp) => pp.stats && pp.stats.playerAugment1);
+      if (!hasAug(existing) && hasAug(incoming) && !(existing.source === "lcu")) {
+        cur.games[key] = incoming;
+        added++;
+      }
       continue;
     }
-    cur.games[key] = slimGame(g, kind, puuid, puuidName, source);
+    cur.games[key] = incoming;
     added++;
   }
   const entries = Object.entries(cur.games);

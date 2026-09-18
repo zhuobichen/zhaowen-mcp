@@ -109,6 +109,7 @@ npm run mlol:capture # 抓掌盟登录态（mitmproxy，自动存 cookie 与请�
 npm run mlol:probe   # 验证掌盟接口可行性（闸口在哪一步）
 npm run pc:capture   # 纯 PC 抓包：找 WeGame 战绩接口（配合 pc:trust-ca / pc:proxy-on）
 npm run pc:analyze   # 分析抓到的样本，排序指出最像对局记录的接口
+npm run sgp:probe    # 实测 SGP 能翻到多少历史（需要客户端在线）
 ```
 
 每次 `npm run refresh` 会按补丁号在 `data/patch-snapshots/<补丁>.json` 存一份快照，攒够两个版本后 `compare_patches` 就能做版本对比。
@@ -153,7 +154,34 @@ data/friends-*.json   好友相关数据不落盘，全部按需从客户端读�
 reports/              生成的个人战绩报告（含账号名，已在 .gitignore 中排除）
 ```
 
-## 纯 PC 抓包：找 WeGame「我的战绩」的接口
+## 更长的历史：腾讯 SGP（推荐，纯 PC / 只读 / 真分页）
+
+本地客户端（LCU）只给滑动窗口（海斗 200 局、云顶 20 局，翻页参数还会被忽略）。
+国服还有一条**后端**路线：腾讯 SGP 的 `match-history-query`，按 `startIndex` 真正分页，
+社区实现（LeagueAkari）用它把对局翻到 1000 场，队列白名单里**包含 2400（海克斯大乱斗）**。
+
+```sh
+npm run sgp:probe              # 实测你的账号能翻到多少历史（只读、低频、只查自己）
+npm run sgp:probe -- 100 1000  # 页大小 100、上限 1000
+```
+
+实现要点（`lib/sgp.ts`）：
+
+| 环节 | 做法 |
+|---|---|
+| 鉴权 | 用**本机客户端自己的** entitlements token（`GET /entitlements/v1/token`），不碰账号密码、不落盘 |
+| 大区 | `GET /lol-rso-auth/v1/authorization` 的 `currentPlatformId`（本机是 `HN1`） |
+| 地址 | 国服 8 个 SGP 主机映射内置在代码里（来源：LeagueAkari-Config，其 `tencentServerMatchHistoryInteroperability` 标明了国服支持战绩互通的大区）|
+| 取数 | `GET /match-history-query/v1/products/lol/player/{puuid}/SUMMARY?startIndex=&count=` |
+
+**双源合并**：SGP 给广度（长历史）、LCU 给细节（`playerAugment1..6` 等符文数据）。
+两者按 `gameId` 并进本地归档，同一局若 LCU 那份更全会自动覆盖 SGP 的摘要 ——
+所以分析（胜率/英雄/符文/画像/报告）会自动用上更长的历史。
+
+**边界**：SGP 也需要客户端正在运行并登录；能翻多深取决于腾讯后端保留策略，
+`npm run sgp:probe` 会实测出你的账号到底能拿多少（若深翻返回空数组即为到底）。
+
+## 纯 PC 抓包：找 WeGame「我的战绩」的接口（备选）
 
 目标：在**只用这台电脑**的前提下，拿到比本地客户端更长的历史。
 思路：WeGame 客户端（已装在本机）的「我的战绩」背后一定有接口，用本机代理把它抓出来。

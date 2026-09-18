@@ -14,12 +14,14 @@
     "mlol:probe": "tsx lib/mlol-probe.ts",
     "mlol:capture": "mitmdump -s tools/mlol-capture.py --listen-port 8080 --set console_eventlog_verbosity=warn",
     "pc:capture": "mitmdump -s tools/pc-capture.py --listen-port 8080 --set console_eventlog_verbosity=warn",
+    "pc:capture:chained": "mitmdump -s tools/pc-capture.py --listen-port 8080 --mode upstream:http://127.0.0.1:7897 --set console_eventlog_verbosity=warn",
     "pc:trust-ca": "bash tools/pc-ca.sh install",
     "pc:untrust-ca": "bash tools/pc-ca.sh uninstall",
     "pc:proxy-on": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/pc-proxy.ps1 on",
     "pc:proxy-off": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/pc-proxy.ps1 off",
     "pc:proxy-status": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/pc-proxy.ps1 status",
-    "pc:analyze": "node tools/analyze-pc-samples.mjs"
+    "pc:analyze": "node tools/analyze-pc-samples.mjs",
+    "sgp:probe": "tsx lib/sgp-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
