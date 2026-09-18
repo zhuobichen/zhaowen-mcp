@@ -94,10 +94,13 @@ await send("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
 
 // 先调几个会报「我的总局数 / 胜率」的工具 —— 顺带把它们看到的新对局并进归档
-const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats"];
+const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats"];
 const reported = {};
+// compare_accounts 需要必填参数 b —— 不给的话它只回一句「请提供第二个账号 b」，
+// 那种输出拿去对账会变成假失败（第一版就是这样）
+const ARGS_OF = { compare_accounts: { b: "丁ding" } };
 for (const tool of PROBES) {
-  const r = await send("tools/call", { name: tool, arguments: {} });
+  const r = await send("tools/call", { name: tool, arguments: ARGS_OF[tool] ?? {} });
   reported[tool] = r.result?.content?.[0]?.text ?? "";
 }
 child.kill();
@@ -661,6 +664,116 @@ function isBuildItem(it) {
       `${ok ? "✓" : "✗"} 队列拆分：最多的队列 [${q}]　工具报 ${m ? m[1] : "—"} 局 ${m ? m[2] : "—"}%` +
         `　独立重算 ${c.g} 局 ${((c.w / c.g) * 100).toFixed(1)}%（共 ${byQ.size} 个队列）`
     );
+  }
+}
+
+// ⑫ 排行榜：归档里**所有参与者**按海斗胜率排（不只我自己）
+//    规格：遍历每局每个有 puuid 的参与者行，各自的 games/wins；
+//    取 ≥10 局的，按胜率降序。容易错的地方：按人聚合而不是按局、
+//    以及「同一局里出现两次」的极端情况（这里按行计数，同一局同一人只有一行）。
+{
+  const stat = new Map();
+  for (const g of mayhemGames) {
+    for (const p of g.participants ?? []) {
+      if (!p.puuid) continue;
+      const cur = stat.get(p.puuid) ?? { games: 0, wins: 0 };
+      cur.games++;
+      if (p.stats?.win === true) cur.wins++;
+      stat.set(p.puuid, cur);
+    }
+  }
+  const ranked = [...stat.entries()]
+    .filter(([, v]) => v.games >= 10)
+    .map(([puuid, v]) => ({ puuid, games: v.games, wr: (v.wins / v.games) * 100 }))
+    .sort((a, b) => b.wr - a.wr);
+  const lb = reported["get_friend_leaderboard"] ?? "";
+  const topLb = ranked[0];
+  const mHead = /本地归档里见过 (\d+) 个账号/.exec(lb);
+  if (topLb && mHead) {
+    const okCount = Number(mHead[1]) === stat.size;
+    // 榜单第一条：名次行形如「1. 名字 ... N 局 X%」
+    // 实际格式：`1   火丶WSCan         15      73.3%   11胜` —— 没有「局」字、没有点号
+    const mTop = /^1\s+(\S+)\s+(\d+)\s+([\d.]+)%/m.exec(lb);
+    const okTop = mTop && Number(mTop[2]) === topLb.games && Math.abs(Number(mTop[3]) - topLb.wr) < 0.06;
+    const ok = okCount && okTop;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 排行榜：工具报「见过 ${mHead[1]} 个账号，第一 ${mTop ? mTop[1] + " " + mTop[2] + " 局 " + mTop[3] + "%" : "—"}」` +
+        `　独立重算「${stat.size} 个账号，≥10 局 ${ranked.length} 人，第一 ${topLb.games} 局 ${topLb.wr.toFixed(1)}%」`
+    );
+  }
+}
+
+// ⑬ 跨账号对比：两边各自的局数与胜率
+{
+  const otherName = "丁ding";
+  // 先找出丁ding 的 puuid（归档里按名字找）
+  let otherPuuid = null;
+  for (const g of mayhemGames) {
+    const p = (g.participants ?? []).find((x) => (x.name ?? "").includes(otherName));
+    if (p?.puuid) {
+      otherPuuid = p.puuid;
+      break;
+    }
+  }
+  if (otherPuuid) {
+    const mine = { g: 0, w: 0 };
+    const theirs = { g: 0, w: 0 };
+    for (const g of mayhemGames) {
+      const m1 = (g.participants ?? []).find((p) => p.puuid === ME);
+      if (m1?.stats && m1.stats.win !== undefined) {
+        mine.g++;
+        if (m1.stats.win === true) mine.w++;
+      }
+      const m2 = (g.participants ?? []).find((p) => p.puuid === otherPuuid);
+      if (m2?.stats && m2.stats.win !== undefined) {
+        theirs.g++;
+        if (m2.stats.win === true) theirs.w++;
+      }
+    }
+    const ca = reported["compare_accounts"] ?? "";
+    const ok =
+      // 对比表也没有单位：`海斗局数                 306                      994`
+      new RegExp(`海斗局数\\s+${mine.g}\\s+${theirs.g}`).test(ca) &&
+      Math.abs((mine.w / mine.g) * 100 - (theirs.w / theirs.g) * 100) > 0;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 跨账号：工具报的两侧局数里应含 ${mine.g} / ${theirs.g}` +
+        `　独立重算「我 ${mine.g} 局 ${((mine.w / mine.g) * 100).toFixed(1)}% / ${otherName} ${theirs.g} 局 ${((theirs.w / theirs.g) * 100).toFixed(1)}%」`
+    );
+  } else {
+    console.log("· 跨账号：归档里没找到「丁ding」，跳过");
+  }
+}
+
+// ⑭ 云顶：get_tft_stats 的平均名次 / 吃鸡率 / 前四率
+//    这是**一整块之前完全没对过账的口径**（联盟侧对了一轮，云顶侧一直没碰）。
+//    规格：从 tft 归档里取我的参与行（有 placement 的），算平均名次、第一占比、前四占比。
+{
+  const tftRaw = JSON.parse(readFileSync(path.join(ROOT, "data/archive/tft-matches.json"), "utf8"));
+  const tftGames = Object.values(tftRaw.games);
+  const places = [];
+  for (const g of tftGames) {
+    const p = (g.participants ?? []).find((x) => x.puuid === ME);
+    const place = Number(p?.placement ?? 0);
+    if (place > 0) places.push(place);
+  }
+  const n = places.length;
+  const avg = n ? places.reduce((a, b) => a + b, 0) / n : 0;
+  const first = places.filter((x) => x === 1).length;
+  const top4 = places.filter((x) => x <= 4).length;
+  const ts = reported["get_tft_stats"] ?? "";
+  const mAvg = /平均名次：([\d.]+)/.exec(ts);
+  const mFirst = /吃鸡 (\d+) 次/.exec(ts);
+  if (mAvg && mFirst) {
+    const ok = Math.abs(Number(mAvg[1]) - avg) < 0.006 && Number(mFirst[1]) === first;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 云顶：工具报「平均名次 ${mAvg[1]}，吃鸡 ${mFirst[1]} 次」` +
+        `　独立重算「平均名次 ${avg.toFixed(2)}，吃鸡 ${first} 次，前四 ${top4} 次」（共 ${n} 局）`
+    );
+  } else {
+    console.log(`· 云顶：没在输出里找到平均名次那行（归档里 ${n} 局），跳过`);
   }
 }
 
