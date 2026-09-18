@@ -149,6 +149,7 @@ npm run audit:args:vectors # 上面的判据自测（合成用例，走 tsx）�
 npm run audit:enums    # 词表声明：封闭词表参数的 enum 完整吗、值跟 RARITY_CN 和数据对得上吗
 npm run audit:thresholds # 样本门槛：每个「至少 N 局才下结论」都登记了吗、docs/THRESHOLDS.md 跟源码一致吗
 npm run thresholds:doc # 按源码重新生成 docs/THRESHOLDS.md（含每个门槛能分辨多大的胜率差）
+npm run audit:thresholds:list # 按状态列出各条目（没查过的 / 说明了理由但没量 / 统计上无关 / 有实测）
 npm run thresholds:sweep # 门槛扫描：拿真实归档把门槛从小到大扫一遍，看效应怎么变（需要本地数据，约 25 秒）
 npm run audit:fields # 字段审计：归档采集的统计字段有没有「采了但从没被分析」的
 npm run audit:analysis # 分析审计：字段是「被读过」还是「真被分析过」（只在 CSV 里露过面不算）

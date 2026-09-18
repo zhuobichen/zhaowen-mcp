@@ -77,3 +77,14 @@ export const QUEUE_STATS_MIN_GAMES = 10;
 export const SOCIAL_LIST_MIN_GAMES = 1;
 /** get_my_teammates：下结论的样本门槛（比榜单门槛高，是有意的分层） */
 export const SOCIAL_VERDICT_MIN_GAMES = 3;
+
+/**
+ * HTML 报告的「建议」段里，符文和英雄用了不同的样本门槛（符文 8、英雄 5）——
+ * 登记表原先标着「未说明为何一个用 8 一个用 5」。**看代码之后发现是有依据的**：
+ * 符文是四个槽位之一（一局最多见 4 个不同符文），英雄一局只出现一次，
+ * 所以同样 5 局，英雄那个样本的信息量比符文大 —— 门槛自然该低一些。
+ *
+ * 这个约定原先只存在于两行代码里，没写在任何地方。提到这里，改的时候能看见它。
+ */
+export const REPORT_AUGMENT_MIN_GAMES = 8;
+export const REPORT_CHAMPION_MIN_GAMES = 5;

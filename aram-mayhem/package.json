@@ -71,7 +71,8 @@
         "audit:thresholds": "node tools/audit-thresholds.mjs",
         "audit:thresholds:selftest": "node tools/audit-thresholds.mjs --selftest",
         "thresholds:doc": "node tools/audit-thresholds.mjs --write",
-        "thresholds:sweep": "tsx tools/thresholds-sweep.ts"
+        "thresholds:sweep": "tsx tools/thresholds-sweep.ts",
+        "audit:thresholds:list": "node tools/audit-thresholds.mjs --list"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0"

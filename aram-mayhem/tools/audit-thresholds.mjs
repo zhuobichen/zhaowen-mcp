@@ -403,7 +403,7 @@ const INLINE_REGISTRY = {
     kind: "统计门槛",
     why: "撑着「建议」那一段（「用得比旁人好」）。同样是挑差值最大：实测候选 14 个，已补上候选数 / 噪声尺度",
   },
-  "lib/report.ts:advice:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "统计门槛", why: "与「建议」那段的 >=8 同源（同一段文字里的两个门槛），未说明为何一个用 8 一个用 5" },
+  "lib/report.ts:advice:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "统计门槛", why: "管的是**英雄**（同段里 >=8 那两个管的是**符文**）。原先登记表标着「未说明为何一个用 8 一个用 5」—— **看代码之后发现是有依据的**：符文是四个槽位之一、英雄一局只出现一次，同样 5 局英雄那个样本信息量更大，门槛自然该低。这个约定原先只存在于两行代码里，已提成 `REPORT_AUGMENT_MIN_GAMES` / `REPORT_CHAMPION_MIN_GAMES`（lib/thresholds.ts）" },
   "lib/report.ts:render:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）渲染阶段过滤" },
   "lib/tools.ts:championGuideAsync:inline:<30": {
     tool: "get_champion_guide",
@@ -478,10 +478,21 @@ for (const f of readdirSync(path.join(ROOT, "lib")).filter((x) => x.endsWith(".t
     // 前两张表原先都看不见它们 —— 而它们照样撑着一句主张
     // （如 buildsText 的「出了它胜率最高（≥10 把）」）。扫描面不够，那句「全部登记」就是假的。
     // 排除 `> 0`：那是「别把空桶算进来」，不是样本门槛。
-    for (const m of l.matchAll(/\.games\s*(>=|>|<|<=)\s*(\d+)/g)) {
-      if (m[2] === "0") continue;
-      const key = `lib/${f}:${fn}:inline:${m[1]}${m[2]}`;
-      const cur = inlineFound.get(key) ?? { key, file: `lib/${f}`, fn, op: m[1], val: Number(m[2]), lines: [] };
+    // 也要认常量：`>= REPORT_CHAMPION_MIN_GAMES` 这种写法没有裸数字，
+    // 只认数字的话，**把字面量提成常量就会让这条从登记表里消失** ——
+    // 覆盖凭空少一条，而且不会有任何提示（这轮把 advice 的 5 提成常量时撞上的）。
+    for (const m of l.matchAll(/\.games\s*(>=|>|<|<=)\s*(\d+|[A-Z][A-Z0-9_]*)/g)) {
+      const raw = m[2];
+      if (raw === "0") continue;
+      let val;
+      if (/^\d+$/.test(raw)) val = Number(raw);
+      else if (sharedConsts.has(raw)) val = sharedConsts.get(raw);
+      else {
+        unresolvedConsts.push(`lib/${f}:${i + 1} 的内联过滤 .games ${m[1]} ${raw} —— 常量 ${raw} 不在 lib/thresholds.ts 里`);
+        continue;
+      }
+      const key = `lib/${f}:${fn}:inline:${m[1]}${val}`;
+      const cur = inlineFound.get(key) ?? { key, file: `lib/${f}`, fn, op: m[1], val, lines: [] };
       cur.lines.push(i + 1);
       inlineFound.set(key, cur);
     }
@@ -708,6 +719,32 @@ function reasonStats() {
     `${neutral} 条统计上无关（图表/列举用途） · ${unexplained} 条一个字都没查过`
   );
 }
+// --list：按状态把条目列出来。
+//
+// 为什么要它：想知道「那 14 条未量的到底是哪 14 条」，原先得拿外部脚本去正则扫源文件 ——
+// 而那个扫法有个坑：窗口开小了会漏（我漏过 6 条）、开大了会跨条目误匹配。
+// 这里直接用**分类的同一份数据**输出，不会再出现「工具说 14 条、我数出 8 条」。
+if (process.argv.includes("--list")) {
+  const rows = [
+    ...[...merged.keys()].map((k) => ({ key: k, why: SAMPLE_REGISTRY[k]?.why ?? "", table: "样本门槛" })),
+    ...diffs.map((d) => ({ key: d.key, why: d.why, table: "差值阈值" })),
+    ...[...inlineFound.keys()].map((k) => ({ key: k, why: INLINE_REGISTRY[k]?.why ?? "", table: "内联过滤" })),
+  ];
+  const stateOf = (w) =>
+    w.startsWith("（统计上无关）") ? "统计上无关"
+    : w.includes("实测") ? "有实测"
+    : w.startsWith("未说明") && !/\d/.test(w) ? "一个字都没查过"
+    : "说明了理由但未量";
+  const want = process.argv[process.argv.indexOf("--list") + 1];
+  for (const st of ["一个字都没查过", "说明了理由但未量", "统计上无关", "有实测"]) {
+    if (want && want !== st) continue;
+    const list = rows.filter((r) => stateOf(r.why) === st);
+    console.log(`\n【${st}】${list.length} 条`);
+    for (const r of list) console.log(`  · [${r.table}] ${r.key}\n      ${r.why.slice(0, 120)}`);
+  }
+  process.exit(0);
+}
+
 console.log(
   problems.length
     ? `✗ 门槛登记有 ${problems.length} 处问题`

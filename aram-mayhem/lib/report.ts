@@ -22,7 +22,7 @@ import { augmentIdsOf, isMayhemGame, myParticipantId } from "./lcu.js";
 import { REPORT_CSS, reflowFigures } from "./report-style.js";
 import { loadData } from "./store.js";
 import { parsePatch } from "./sgp.js";
-import { noiseCeiling, noiseMultiple } from "./thresholds.js";
+import { REPORT_AUGMENT_MIN_GAMES, REPORT_CHAMPION_MIN_GAMES, noiseCeiling, noiseMultiple } from "./thresholds.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -1659,9 +1659,9 @@ function advice(data: Awaited<ReturnType<typeof collect>>): string[] {
       `降级这 ${strongTrap.length} 个符文：` + strongTrap.map((a) => a.name).join("、") + " —— 版本强但你不适配，纯浪费选择机会。"
     );
   }
-  const best = augments.filter((a) => a.games >= 8 && a.winRate >= 65).sort((a, b) => b.winRate - a.winRate).slice(0, 4);
+  const best = augments.filter((a) => a.games >= REPORT_AUGMENT_MIN_GAMES && a.winRate >= 65).sort((a, b) => b.winRate - a.winRate).slice(0, 4);
   if (best.length) out.push(`优先锁定：` + best.map((a) => a.name).join("、") + "。");
-  const good = champions.filter((c) => c.games >= 5 && c.winRate >= 60).sort((a, b) => b.winRate - a.winRate).slice(0, 4);
+  const good = champions.filter((c) => c.games >= REPORT_CHAMPION_MIN_GAMES && c.winRate >= 60).sort((a, b) => b.winRate - a.winRate).slice(0, 4);
   if (good.length) out.push(`英雄选择上多拿：` + good.map((c) => c.name).join("、") + "。");
   return out;
 }
