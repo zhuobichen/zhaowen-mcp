@@ -137,6 +137,54 @@ export async function lcuGet<T>(path: string, auth?: LcuAuth | null): Promise<T>
   throw new Error(`所有候选凭据都连不上 —— ${errors.join("；")}`);
 }
 
+/**
+ * 往 LCU 发一个 POST（写操作，谨慎使用）。
+ * 目前只用于「往选人频道发一条消息」这种明确由用户指定的动作。
+ */
+export async function lcuPost<T = any>(path: string, body: unknown, auth?: LcuAuth | null): Promise<T> {
+  const a = auth ?? (await findLcuAuth());
+  if (!a) throw new Error("找不到客户端凭据：游戏客户端可能没有运行");
+  const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: false });
+  const payload = JSON.stringify(body ?? {});
+  return await new Promise<T>((resolve, reject) => {
+    const req = https.request(
+      {
+        host: "127.0.0.1",
+        port: a.port,
+        path,
+        method: "POST",
+        agent,
+        headers: {
+          authorization: "Basic " + Buffer.from(`riot:${a.token}`).toString("base64"),
+          accept: "application/json",
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(payload),
+        },
+        timeout: 15_000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c) => chunks.push(c as Buffer));
+        res.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          if (!res.statusCode || res.statusCode >= 400) {
+            reject(new Error(`POST ${path} 返回 ${res.statusCode}: ${text.slice(0, 200)}`));
+            return;
+          }
+          try {
+            resolve((text ? JSON.parse(text) : {}) as T);
+          } catch {
+            resolve({} as T);
+          }
+        });
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("LCU POST 超时")));
+    req.on("error", reject);
+    req.end(payload);
+  });
+}
+
 async function lcuGetOnce<T>(path: string, a: LcuAuth): Promise<T> {
   const agent = new https.Agent({ rejectUnauthorized: false, keepAlive: false });
   return await new Promise<T>((resolve, reject) => {

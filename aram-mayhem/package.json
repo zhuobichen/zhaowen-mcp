@@ -22,6 +22,8 @@
     "pc:proxy-status": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/pc-proxy.ps1 status",
     "pc:analyze": "node tools/analyze-pc-samples.mjs",
     "sgp:probe": "tsx lib/sgp-probe.ts",
+    "team:scout": "tsx lib/team-cli.ts scout",
+    "team:say": "tsx lib/team-cli.ts say",
     "wegame:probe": "tsx lib/wegame-probe.ts",
     "wegame:enum": "tsx lib/wegame-enum-cli.ts"
   },

@@ -110,6 +110,8 @@ npm run mlol:probe   # 验证掌盟接口可行性（闸口在哪一步）
 npm run pc:capture   # 纯 PC 抓包：找 WeGame 战绩接口（配合 pc:trust-ca / pc:proxy-on）
 npm run pc:analyze   # 分析抓到的样本，排序指出最像对局记录的接口
 npm run sgp:probe    # 实测 SGP 能翻到多少历史（需要客户端在线）
+npm run team:scout   # 选人阶段侦察队友（只读）
+npm run team:say     # 往选人频道发一条（需 --yes）
 ```
 
 每次 `npm run refresh` 会按补丁号在 `data/patch-snapshots/<补丁>.json` 存一份快照，攒够两个版本后 `compare_patches` 就能做版本对比。
@@ -236,6 +238,26 @@ npm run mlol:probe       # 拿到 cookie 后跑这个，看闸口在哪一步
 - 腾讯《游戏许可及服务协议》6.4(4)/(6) 禁止「非腾讯授权的第三方工具/服务接入」，**复用掌盟登录态比本地 LCU 只读的暴露面更大**，是否值得由你判断；
 - 掌盟同样**没有「生涯总场次」**，只有约最近 200~500 场的滑动窗口；
 - 本仓库不保存任何登录态到版本库：`data/mlol-cookie.txt` 与 `data/mlol-samples/` 都在 `.gitignore` 里。
+
+## 选人阶段：队友侦察（只读）+ 发消息（需显式确认）
+
+```sh
+npm run team:scout                    # 只读：读当前选人会话，把队友近期海斗战绩整理成报告
+npm run team:say -- --yes "你的文本"   # 发一条到当前选人频道（文本由你定，--yes 为显式确认）
+```
+
+MCP 工具：`get_champ_select_teammates`（只读侦察）、`send_champ_select_message`（需 `confirm: true`）。
+
+**能力边界（写在代码注释里，也写在这里）**：
+
+| 渠道 | 能不能做 | 原因 |
+|---|---|---|
+| 选人阶段频道 | ✅ 可读可发（LCU `/lol-champ-select/v1/session` + `/lol-chat/v1/conversations/{id}/messages`） | 官方本地接口开放 |
+| 好友私聊 | ✅ 可发 | 同上，`/lol-chat` |
+| **对局内的我方频道 / 所有人频道** | ❌ **做不到，也不做** | 局内聊天不走 LCU，是游戏进程自己的 socket；实现只能靠注入游戏进程或模拟键鼠，命中腾讯条款 6.4 且会被 ACE 检测 |
+
+另外：**不做「按队友自动生成评价并批量发送」**。自动把评价推给随机匹配到的陌生人，既是骚扰举报的高发场景，也是我不愿意替你按的开关。
+`team:scout` 的报告是给你自己看的；要发什么、发不发，由你决定。
 
 ## 本地归档（离线也能分析，且越攒越多）
 

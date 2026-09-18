@@ -21,6 +21,8 @@ import { tftStats } from "./lib/tft.js";
 import { archiveInfo } from "./lib/games.js";
 import { analyzeMyPlaystyle } from "./lib/playstyle.js";
 import { myRanked } from "./lib/ranked.js";
+import { scoutTeammates, sendChampSelectMessage } from "./lib/teammates.js";
+import { resolveMe } from "./lib/identity.js";
 import {
   analyzeSynergy,
   championGuide,
@@ -226,6 +228,30 @@ async function main() {
         },
       },
       {
+        name: "get_champ_select_teammates",
+        description:
+          "选人阶段侦察队友（只读）：读当前选人会话里的队友，逐个拉他们最近的海斗战绩，整理成一份给你自己看的报告。不会往任何聊天频道发言。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            games: { type: "number", description: "每个队友看多少把（默认 100）" },
+          },
+        },
+      },
+      {
+        name: "send_champ_select_message",
+        description:
+          "往【当前选人频道】发一条消息（内容必须由用户明确给出；调用时需 confirm=true）。这是用户本人发言的加速器，不是自动发言：一次一条、文本由用户决定。对局内的我方/所有人频道官方没有接口，本工具做不到。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "要发送的文本（用户指定的原文，不要自行生成评价）" },
+            confirm: { type: "boolean", description: "必须为 true 才会真正发送" },
+          },
+          required: ["text"],
+        },
+      },
+      {
         name: "get_archive_info",
         description:
           "查看本地对局归档的覆盖情况（海斗/英雄联盟 与 云顶各存了多少局、时间跨度、按模式分布）。归档随每次查询自动累积，客户端没开时分析就用它。",
@@ -337,6 +363,23 @@ async function main() {
 
         case "get_my_ranked":
           return text(await myRanked({ friend: args.friend ? String(args.friend) : undefined }));
+
+        case "get_champ_select_teammates": {
+          const me = await resolveMe();
+          const r = await scoutTeammates({
+            myPuuid: me?.puuid ?? null,
+            games: args.games ? Number(args.games) : undefined,
+          });
+          return text(r.text);
+        }
+
+        case "send_champ_select_message":
+          return text(
+            await sendChampSelectMessage({
+              text: String(args.text ?? ""),
+              confirm: args.confirm === true,
+            })
+          );
 
         case "get_archive_info":
           return text(await archiveInfo());
