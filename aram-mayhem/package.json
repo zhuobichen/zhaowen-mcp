@@ -9,7 +9,8 @@
     "report": "tsx lib/refresh.ts --report-only",
     "typecheck": "tsc --noEmit",
     "report:html": "tsx lib/report.ts",
-    "report:tft": "tsx lib/report-tft.ts"
+    "report:tft": "tsx lib/report-tft.ts",
+    "archive:sync": "tsx lib/archive-sync.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

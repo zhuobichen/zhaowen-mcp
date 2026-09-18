@@ -103,6 +103,8 @@ npx tsx smoke.ts     # 冒烟测试：直接调用各工具，检查输出
 node mcp-smoke.mjs   # 端到端：用真实 MCP stdio 协议连一次服务
 npx tsx lcuprobe.ts  # 客户端探测：连接状态、最近对局里实际有哪些字段
 npm run report:html  # 生成个人战绩报告（单文件 HTML，输出到 reports/）
+npm run report:tft   # 生成云顶战绩报告
+npm run archive:sync # 把当前账号（--friends 连好友）的对局并进本地归档
 ```
 
 每次 `npm run refresh` 会按补丁号在 `data/patch-snapshots/<补丁>.json` 存一份快照，攒够两个版本后 `compare_patches` 就能做版本对比。
@@ -157,7 +159,7 @@ reports/              生成的个人战绩报告（含账号名，已在 .gitig
 - 账号身份也存了：在线时是当前登录账号，离线时用 `data/profile.json` 与归档里记录过的账号名；
 - 归档与 profile 都在 `.gitignore` 里，不会上传仓库。
 
-配套工具：`get_archive_info` 看覆盖情况。
+配套工具：`get_archive_info` 看覆盖情况；`npm run archive:sync`（加 `--friends` 连好友一起）可以把所有关心的账号一次补齐，比等查询顺带并入攒得快。
 
 ## 云顶之弈（TFT）战绩
 

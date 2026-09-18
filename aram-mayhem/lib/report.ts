@@ -1175,6 +1175,16 @@ async function main() {
   const gamesLimit = Number(argOf("--games") ?? 200);
   const demo = argv.includes("--demo");
   const data = demo ? demoData() : await collect(Number.isFinite(gamesLimit) ? gamesLimit : 200);
+  if (!demo && !data.rows.length) {
+    console.log(
+      [
+        "没有可用的对局数据。",
+        `原因：${data.dataNote}`,
+        "办法：① 打开游戏客户端后重跑；② 先跑 npm run archive:sync 把对局并入本地归档；③ 用 --demo 只看排版。",
+      ].join("\n")
+    );
+    return;
+  }
   const html = render(data);
 
   const safeName = data.name.replace(/[\\/:*?"<>|]/g, "_");
