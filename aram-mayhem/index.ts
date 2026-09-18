@@ -24,6 +24,7 @@ import { socialText } from "./lib/social.js";
 import { buildsText } from "./lib/builds.js";
 import { matchupsText } from "./lib/matchups.js";
 import { exportText } from "./lib/export.js";
+import { empiricalAugmentsText, empiricalPairsText, synergyCheckText } from "./lib/empirical.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -207,7 +208,7 @@ async function main() {
       {
         name: "get_tft_stats",
         description:
-          "查云顶之弈（TFT）战绩：平均名次、吃鸡率、前四率、名次分布、队列分布与最近几局明细。默认查自己，传 friend 可查好友。注意客户端只保留最近 20 局。",
+          "查云顶之弈（TFT）战绩：平均名次、吃鸡率、前四率、名次分布、队列分布与最近几局明细。默认查自己，传 friend 可查好友。历史深度靠腾讯 SGP 分页（实测本机 684 局），只用客户端时上限是最近 20 局；输出里会标注实际来源。",
         inputSchema: {
           type: "object",
           properties: {
@@ -304,6 +305,41 @@ async function main() {
             who: { type: "string", description: "可选：导出哪个账号（好友名，部分匹配）。不传就是自己" },
             kind: { type: "string", enum: ["mayhem", "lol", "tft"], description: "导什么：海斗 / 英雄联盟全部模式 / 云顶（默认 mayhem）" },
             out: { type: "string", description: "可选：自定义输出路径" },
+          },
+        },
+      },
+      {
+        name: "get_empirical_augments",
+        description:
+          "符文实证榜：用**本机归档里的真实对局**算符文胜率（每局都带全部 10 人的符文，当前样本约两千局两万行），并与社区站口径并列对照。这是观察数据不是实验数据 —— 符文是玩家自选的，含选择偏差，输出里会写明。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            min_games: { type: "number", description: "只列出现至少 N 次的符文（默认 100）" },
+            top: { type: "number", description: "各列前多少名（默认 20）" },
+          },
+        },
+      },
+      {
+        name: "get_augment_pairs",
+        description:
+          "符文组合实证：同一局里同时拿到这两件时，比两件分开拿更好还是更差（协同 = 组合胜率 − 两件单拿胜率的均值）。用来找出真正 1+1>2 的搭配，以及互相抢资源的组合。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            min_games: { type: "number", description: "组合至少一起出现 N 次才列入（默认 60）" },
+            top: { type: "number", description: "列前多少组（默认 15）" },
+          },
+        },
+      },
+      {
+        name: "check_synergy_sets",
+        description:
+          "羁绊验证：社区站定义的羁绊，在归档的真实对局里被凑齐时胜率如何。也会给出「一局实际能拿到几件符文」的分布，用来判断羁绊到底是不是可行的构筑目标。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            min_games: { type: "number", description: "凑齐多少局以上才当作有效结论（默认 30）" },
           },
         },
       },
@@ -483,6 +519,27 @@ async function main() {
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
             })
+          );
+
+        case "get_empirical_augments":
+          return text(
+            await empiricalAugmentsText({
+              minGames: args.min_games ? Number(args.min_games) : undefined,
+              top: args.top ? Number(args.top) : undefined,
+            })
+          );
+
+        case "get_augment_pairs":
+          return text(
+            await empiricalPairsText({
+              minGames: args.min_games ? Number(args.min_games) : undefined,
+              top: args.top ? Number(args.top) : undefined,
+            })
+          );
+
+        case "check_synergy_sets":
+          return text(
+            await synergyCheckText({ minGames: args.min_games ? Number(args.min_games) : undefined })
           );
 
         case "get_champ_select_teammates": {
