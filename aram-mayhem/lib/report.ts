@@ -213,7 +213,7 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
   let buildItems: Array<{ name: string; price: number; games: number; wins: number; winRate: number }> = [];
   try {
     const { analyzeBuilds } = await import("./builds.js");
-    buildItems = (await analyzeBuilds({ games: 2000, minGames: 8 })).items;
+    buildItems = (await analyzeBuilds({ games: 2000, minGames: 8, puuid: me.puuid, name })).items;
   } catch {
     /* 拿不到就略过 */
   }
@@ -223,7 +223,9 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
   let opponents: Array<{ name: string; games: number; winRate: number; lastSeen: number }> = [];
   try {
     const { analyzeSocial } = await import("./social.js");
-    const soc = await analyzeSocial({ games: 2000 });
+    // 必须把报告对象传下去：不传的话这几个子分析会去查「当前登录账号」，
+    // 于是好友的报告里会混进你自己的队友/对位数据。
+    const soc = await analyzeSocial({ games: 2000, puuid: me.puuid, name });
     teammates = soc.teammates.filter((m) => m.games >= 3).map((m) => ({
       name: m.name,
       games: m.games,
@@ -240,6 +242,35 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     .map((p) => ({ ...p, winRate: pctNum(p.w, p.g) }))
     .sort((a, b) => b.g - a.g || b.winRate - a.winRate);
 
+  // 对位（对面英雄视角）
+  let matchups: {
+    baseWinRate: number;
+    worst: Array<{ champion: string; games: number; winRate: number; delta: number; championWinRate: number | null; residual: number | null }>;
+    best: Array<{ champion: string; games: number; winRate: number; delta: number; championWinRate: number | null; residual: number | null }>;
+  } = { baseWinRate: 0, worst: [], best: [] };
+  try {
+    const { analyzeMatchups } = await import("./matchups.js");
+    const mu = await analyzeMatchups({ games: 2000, minGames: 12, puuid: me.puuid, name });
+    const slim = (v: any) => ({
+      champion: v.champion,
+      games: v.games,
+      winRate: v.winRate,
+      delta: v.delta,
+      championWinRate: v.championWinRate,
+      residual: v.residual,
+    });
+    matchups = {
+      baseWinRate: mu.baseWinRate,
+      worst: mu.versusAll.slice(0, 8).map(slim),
+      best: [...mu.versusAll]
+        .sort((a, b) => (b.residual ?? b.delta) - (a.residual ?? a.delta) || b.games - a.games)
+        .slice(0, 8)
+        .map(slim),
+    };
+  } catch {
+    /* 拿不到就略过这一节 */
+  }
+
   return {
     name,
     cachedTotal: total,
@@ -254,6 +285,7 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     teammates,
     opponents,
     buildItems,
+    matchups,
     overview: {
       games: n,
       wins,
@@ -435,6 +467,18 @@ function demoData() {
       { name: "示例队友B", games: 27, winRate: 55, lastSeen: rows[rows.length - 2].t },
       { name: "示例队友C", games: 15, winRate: 40, lastSeen: rows[rows.length - 3].t },
     ],
+    // 演示对位（真实数据来自 matchups.js）
+    matchups: {
+      baseWinRate: pctNum(wins, n),
+      worst: [
+        { champion: "示例强敌A", games: 20, winRate: 30, delta: -22, championWinRate: 52, residual: -22 },
+        { champion: "示例强敌B", games: 16, winRate: 38, delta: -14, championWinRate: 55, residual: -17 },
+      ],
+      best: [
+        { champion: "示例弱旅A", games: 18, winRate: 78, delta: 26, championWinRate: 49, residual: 29 },
+        { champion: "示例弱旅B", games: 14, winRate: 71, delta: 19, championWinRate: 50, residual: 21 },
+      ],
+    },
     pairs: [...pairMap.values()].filter((p) => p.g >= 4).map((p) => ({ ...p, winRate: pctNum(p.w, p.g) })).sort((a, b) => b.g - a.g),
     overview: {
       games: n,
@@ -905,6 +949,58 @@ function itemBars(items: Array<{ name: string; price: number; games: number; win
 </figure>`;
 }
 
+/**
+ * 对位：背离条形图（diverging）。
+ * 中轴 = 0，向右（蓝）表示扣掉该英雄自身强度后你还打得更好，向左（红）表示你额外打不过。
+ * 用残差而不是原始胜率，是因为「敌方英雄本身强」本来就会拉低所有人的胜率，不减掉会误判成你的克星。
+ */
+function matchupChart(
+  rows: Array<{ champion: string; games: number; winRate: number; delta: number; championWinRate: number | null; residual: number | null }>,
+  baseWinRate: number
+): string {
+  const data = [...rows].sort((a, b) => (a.residual ?? a.delta) - (b.residual ?? b.delta));
+  const rowH = 26,
+    labelW = 156,
+    valueW = 148;
+  const trackW = W - labelW - valueW;
+  const H = data.length * rowH + 40;
+  const maxAbs = Math.max(5, ...data.map((d) => Math.abs(d.residual ?? d.delta)));
+  const cx = labelW + trackW / 2;
+  const scale = (trackW / 2 - 10) / maxAbs;
+
+  const bars = data
+    .map((d, i) => {
+      const y = 26 + i * rowH;
+      const v = d.residual ?? d.delta;
+      const len = Math.max(2, Math.abs(v) * scale);
+      const color = v >= 0 ? "var(--pos)" : "var(--neg)";
+      const x = v >= 0 ? cx : cx - len;
+      const tip =
+        `对面有 ${d.champion}|${d.games} 把 · 你 ${d.winRate.toFixed(0)}%` +
+        (d.championWinRate != null
+          ? ` · 它本身 ${d.championWinRate.toFixed(0)}% · 残差 ${v >= 0 ? "+" : ""}${v.toFixed(1)}`
+          : "");
+      return (
+        `<text class="row-label" x="0" y="${y + 13}">${esc(d.champion)}</text>` +
+        `<rect class="bar" x="${x.toFixed(1)}" y="${y + 4}" width="${len.toFixed(1)}" height="13" rx="4" fill="${color}"` +
+        ` data-tip="${esc(tip)}"/>` +
+        `<text class="row-value" x="${W - 2}" y="${y + 14}" text-anchor="end">${v >= 0 ? "+" : ""}${v.toFixed(1)} 分 · ${d.games} 把</text>`
+      );
+    })
+    .join("");
+
+  return `
+<figure class="chart">
+  <figcaption>对位残差（中轴 0；右蓝=你打得比该英雄自身的强度更好，左红=额外打不过）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="英雄对位残差背离图">
+    <text class="axis-label" x="${labelW}" y="14">← 额外打不过</text>
+    <text class="axis-label" x="${W - valueW}" y="14" text-anchor="end">额外打得过 →</text>
+    <line class="baseline" x1="${cx}" y1="22" x2="${cx}" y2="${H - 12}"/>
+    ${bars}
+  </svg>
+</figure>`;
+}
+
 // ---------------------------------------------------------------- 文案
 
 function findings(data: Awaited<ReturnType<typeof collect>>): string[] {
@@ -1128,6 +1224,34 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
       ? `<section>
     <h2>出装</h2>
     ${itemBars(data.buildItems)}
+  </section>`
+      : ""
+  }
+
+  ${
+    data.matchups.worst.length || data.matchups.best.length
+      ? `<section>
+    <h2>对位：你怕谁、谁怕你</h2>
+    ${matchupChart([...data.matchups.worst, ...data.matchups.best], data.matchups.baseWinRate)}
+    <ul class="findings" style="margin-top:14px">
+      ${
+        data.matchups.worst.length
+          ? `<li><strong>真正打不过的：</strong>${data.matchups.worst
+              .slice(0, 3)
+              .map((v) => `${esc(v.champion)}（${v.games} 把 ${fmtPct(v.winRate, 0)}，它本身 ${v.championWinRate != null ? fmtPct(v.championWinRate, 0) : "—"}）`)
+              .join("、")} —— 这几个是你扣掉英雄强度之后仍然明显吃亏的，遇到时优先改出装（先堆抗性/位移而不是继续纯输出）。</li>`
+          : ""
+      }
+      ${
+        data.matchups.best.length
+          ? `<li><strong>对面出这些你就稳：</strong>${data.matchups.best
+              .slice(0, 3)
+              .map((v) => `${esc(v.champion)}（${v.games} 把 ${fmtPct(v.winRate, 0)}）`)
+              .join("、")}。</li>`
+          : ""
+      }
+      <li><strong>怎么读：</strong>残差 = 你对它的胜率 − 它自己的胜率。敌方英雄本身强也会拉低你的胜率，直接看原始胜率会把「它强」误当成「你打不过」，所以这里减掉了。样本 ≥12 次才上榜。</li>
+    </ul>
   </section>`
       : ""
   }

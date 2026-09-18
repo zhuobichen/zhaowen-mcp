@@ -11,6 +11,8 @@
     "report:html": "tsx lib/report.ts",
     "report:tft": "tsx lib/report-tft.ts",
     "archive:sync": "tsx lib/archive-sync.ts",
+    "matchups": "tsx lib/matchups-probe.ts",
+    "export:csv": "tsx lib/export-probe.ts",
     "mlol:probe": "tsx lib/mlol-probe.ts",
     "mlol:capture": "mitmdump -s tools/mlol-capture.py --listen-port 8080 --set console_eventlog_verbosity=warn",
     "pc:capture": "mitmdump -s tools/pc-capture.py --listen-port 8080 --set console_eventlog_verbosity=warn",

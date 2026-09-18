@@ -22,6 +22,8 @@ import { archiveInfo } from "./lib/games.js";
 import { analyzeMyPlaystyle } from "./lib/playstyle.js";
 import { socialText } from "./lib/social.js";
 import { buildsText } from "./lib/builds.js";
+import { matchupsText } from "./lib/matchups.js";
+import { exportText } from "./lib/export.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -280,6 +282,32 @@ async function main() {
         },
       },
       {
+        name: "get_my_matchups",
+        description:
+          "英雄对位分析：对面出现哪些英雄时你整体最容易输/最稳（你的克星与提款机），以及你玩某个英雄时的对位差异。海斗不能临场反选，所以用途是「这种局要改出装/改打法」。默认查自己，可传 who 查好友；样本不足的组合会被过滤。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            min_games: { type: "number", description: "对面英雄至少出现多少次才列入（默认 12）" },
+            min_champion_games: { type: "number", description: "英雄视角：你至少玩过多少把才展开（默认 15）" },
+          },
+        },
+      },
+      {
+        name: "export_games_csv",
+        description:
+          "把对局明细导成 CSV（写到仓库 reports/ 目录，带 BOM，Excel 直接打开不乱码）：日期/时间/队列/英雄/胜负/KDA/伤害/金币/符文/装备/多杀。可选 kind=mayhem(默认,只看海斗) / lol(所有模式) / tft(云顶)。可传 who 导好友的。读不到的字段留空而不是填 0。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：导出哪个账号（好友名，部分匹配）。不传就是自己" },
+            kind: { type: "string", enum: ["mayhem", "lol", "tft"], description: "导什么：海斗 / 英雄联盟全部模式 / 云顶（默认 mayhem）" },
+            out: { type: "string", description: "可选：自定义输出路径" },
+          },
+        },
+      },
+      {
         name: "get_champ_select_teammates",
         description:
           "选人阶段侦察队友（只读）：读当前选人会话里的队友，逐个拉他们最近的海斗战绩，整理成一份给你自己看的报告。不会往任何聊天频道发言。",
@@ -438,6 +466,24 @@ async function main() {
 
         case "get_my_builds":
           return text(await buildsText({ minGames: args.min_games ? Number(args.min_games) : undefined }));
+
+        case "get_my_matchups":
+          return text(
+            await matchupsText({
+              who: args.who ? String(args.who) : undefined,
+              minGames: args.min_games ? Number(args.min_games) : undefined,
+              minChampionGames: args.min_champion_games ? Number(args.min_champion_games) : undefined,
+            })
+          );
+
+        case "export_games_csv":
+          return text(
+            await exportText({
+              who: args.who ? String(args.who) : undefined,
+              kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
+              out: args.out ? String(args.out) : undefined,
+            })
+          );
 
         case "get_champ_select_teammates": {
           const me = await resolveMe();

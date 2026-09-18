@@ -34,9 +34,12 @@ function isEquipment(it?: { price: number; categories: string[]; inStore: boolea
   return it.inStore || it.price > 0 || it.categories.length > 0;
 }
 
-export async function analyzeBuilds(opts: { games?: number; minGames?: number } = {}): Promise<BuildReport> {
+export async function analyzeBuilds(
+  opts: { games?: number; minGames?: number; puuid?: string; name?: string } = {}
+): Promise<BuildReport> {
   const d = loadData();
-  const me = await resolveMe();
+  // 调用方（例如报告）可以直接给身份；不给才退回「当前登录账号」
+  const me = opts.puuid ? { puuid: opts.puuid, name: opts.name ?? "" } : await resolveMe();
   if (!me) throw new Error("客户端没开且没有固定过账号：先在线跑一次 get_my_account_status。");
 
   const res = await loadLolGames(me.puuid, opts.games ?? 2000, me.name);

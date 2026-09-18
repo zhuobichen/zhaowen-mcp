@@ -43,12 +43,16 @@ function rank(entries: CoPlayer[], minGames: number, sortBy: "games" | "winRate"
 }
 
 export async function analyzeSocial(
-  opts: { who?: string; games?: number; minGames?: number } = {}
+  opts: { who?: string; games?: number; minGames?: number; puuid?: string; name?: string } = {}
 ): Promise<SocialReport> {
   // 查谁：默认自己；给了名字就先解析成 puuid
   let puuid: string | null = null;
   let name = "";
-  if (opts.who) {
+  if (opts.puuid) {
+    // 调用方（例如报告）已经解析好了身份，直接用 —— 避免按名字再解析一次解析错人
+    puuid = opts.puuid;
+    name = opts.name ?? "";
+  } else if (opts.who) {
     const r = await resolveAccountByName(opts.who);
     if (!r.matches.length) throw new Error(`没找到「${opts.who}」——${r.note}`);
     puuid = r.matches[0].puuid;
