@@ -134,12 +134,19 @@ export async function socialText(opts: { who?: string; games?: number; minGames?
     for (const m of good) out.push(`  · ${m.name}：${m.games} 局 ${m.winRate.toFixed(0)}%`);
   }
 
-  const opps = r.opponents.filter((o) => o.games >= minGames);
-  out.push("", `遇到最多的对手（≥${minGames} 次，共 ${opps.length} 人）：`);
-  for (const o of opps.slice(0, 10)) {
-    out.push(`  · ${o.name}：遇到 ${o.games} 次 · 你对他们所在队的胜率 ${o.winRate.toFixed(0)}%`);
+  // 对手：海斗匹配随机性高，往往没有稳定对手 —— 如实说明，不硬凑样本
+  const opps = r.opponents;
+  const maxOpp = opps.length ? opps[0].games : 0;
+  out.push("", `对手情况：共遇到 ${opps.length} 个不同对手，重复最多 ${maxOpp} 次`);
+  if (maxOpp >= minGames) {
+    out.push(`  反复遇到的（≥${minGames} 次）：`);
+    for (const o of opps.filter((x) => x.games >= minGames).slice(0, 10)) {
+      out.push(`    · ${o.name}：${o.games} 次 · 你对他们所在队的胜率 ${o.winRate.toFixed(0)}%`);
+    }
+  } else {
+    out.push("  没有重复 ≥3 次的对手 —— 海斗匹配池很大，随机性强，这个维度没有可分析的稳定对手。");
+    out.push(`  （遇到过的人里次数最多的：${opps.slice(0, 5).map((o) => `${o.name} ${o.games} 次`).join("、")}）`);
   }
-  if (!opps.length) out.push("  （没有遇到 ≥3 次的对手）");
 
   out.push("", "说明：同队/对手关系取自每局的 10 人名单（SGP 提供）；样本 <3 次的不列出。");
   return out.join("\n");

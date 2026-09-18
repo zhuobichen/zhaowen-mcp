@@ -41,6 +41,8 @@ export interface Data {
   combos: Combo[];
   /** 社区站的「英雄×符文」单件评价卡片（带 神级/陷阱 等标签） */
   comboCards: ComboCard[];
+  /** 官方装备：id → 中文名 + 价格 + 类别 */
+  items: Record<string, { name: string; price: number; categories: string[]; inStore: boolean }>;
   /** 云顶之弈官方中文名：羁绊/棋子/装备的内部标识 → 中文名（只含最近几个赛季） */
   tftNames: { traits: Record<string, string>; champions: Record<string, string>; items: Record<string, string> };
   /** 数字英雄 id → 英文 id / 官方中文名（本地客户端对局记录里只有数字 id） */
@@ -72,6 +74,9 @@ export function loadData(): Data {
   const comboCards = existsSync(path.join(DATA_DIR, "combo-cards.json"))
     ? readJson<ComboCard[]>(path.join(DATA_DIR, "combo-cards.json"))
     : [];
+  const items = existsSync(path.join(DATA_DIR, "items.json"))
+    ? readJson<Record<string, { name: string; price: number; categories: string[]; inStore: boolean }>>(path.join(DATA_DIR, "items.json"))
+    : {};
   const tftNames = existsSync(path.join(DATA_DIR, "tft-names.json"))
     ? readJson<Data["tftNames"]>(path.join(DATA_DIR, "tft-names.json"))
     : { traits: {}, champions: {}, items: {} };
@@ -105,6 +110,7 @@ export function loadData(): Data {
     synergySets,
     combos,
     comboCards,
+    items,
     tftNames,
     championIds,
     patches,

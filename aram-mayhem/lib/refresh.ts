@@ -62,6 +62,9 @@ export const SOURCES = {
   cnChampionStats: "https://aramgg.com/data/champions-stats.json",
   /** 社区站「英雄×符文」单件评价卡片：带 神级/强力/陷阱 等标签与中文攻略 */
   comboIndex: "https://arammayhem.com/zh-cn/combo-index-data.json",
+  /** 官方装备数据（中文名 + 价格），用于出装分析 */
+  riotItems:
+    "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/zh_cn/v1/items.json",
   /** 云顶之弈官方数据（中文名：羁绊/棋子/装备），24MB，只把「内部标识→中文名」做成小表 */
   tftData: "https://raw.communitydragon.org/latest/cdragon/tft/zh_cn.json",
 };
@@ -287,6 +290,13 @@ interface RawRiotList {
   modeName: string;
   augmentList: string[];
 }
+interface RawRiotItem {
+  id: number;
+  name: string;
+  priceTotal?: number;
+  inStore?: boolean;
+  categories?: string[];
+}
 interface RawRiotChampionSummary {
   id: number;
   name: string;
@@ -384,6 +394,7 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
     cnAugRows,
     cnChampions,
     comboIndex,
+    riotItems,
   ] = await Promise.all([
     fetchJson<RawMayhemIndex>(SOURCES.mayhemSearchIndex),
     fetchJson<RawAugmentTier[]>(SOURCES.mayhemAugmentTier),
@@ -396,6 +407,7 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
     fetchJson<RawCnAugmentRow[]>(SOURCES.cnAugmentStats),
     fetchJson<RawCnChampionStats[]>(SOURCES.cnChampionStats),
     fetchJson<RawComboIndex>(SOURCES.comboIndex),
+    fetchJson<RawRiotItem[]>(SOURCES.riotItems),
   ]);
   const pageRows = parseAugmentsPage(pageHtml);
 
@@ -448,6 +460,19 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
   for (const c of cnChampions) {
     const id = Number(c?.championId);
     if (Number.isFinite(id)) cnByChampionId.set(id, c);
+  }
+
+  // 装备：id → 中文名 + 价格（只留在售的，控制体积）
+  // 全量保留（含非在售，如「魄罗佳肴」这种会在对局里出现的），带上类别便于分析时过滤消耗品
+  const itemMap: Record<string, { name: string; price: number; categories: string[]; inStore: boolean }> = {};
+  for (const it of riotItems) {
+    if (!it || typeof it.id !== "number" || it.id <= 0) continue;
+    itemMap[String(it.id)] = {
+      name: it.name || String(it.id),
+      price: it.priceTotal ?? 0,
+      categories: (it as any).categories ?? [],
+      inStore: it.inStore !== false,
+    };
   }
 
   // 数字英雄 id（本地客户端对局记录用）→ 英文 id + 官方中文名
@@ -949,6 +974,7 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
       tftNames: Object.keys(tftNames.traits).length + Object.keys(tftNames.champions).length + Object.keys(tftNames.items).length,
       champions: champions.length,
       championIds: Object.keys(championIdMap).length,
+      items: Object.keys(itemMap).length,
       championsWithCnStats: champions.filter((c) => c.cnWinRate !== null).length,
       synergySets: synergySets.length,
       combos: combos.length,
@@ -1006,6 +1032,7 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
     await write("augments.json", augments);
     await write("champions.json", champions);
     await write("champion-ids.json", championIdMap);
+    await write("items.json", itemMap);
     await write("synergy-sets.json", synergySets);
     await write("combos.json", combos);
     await write("combo-cards.json", comboCards);

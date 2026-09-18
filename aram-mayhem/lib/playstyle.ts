@@ -160,6 +160,35 @@ export async function analyzeMyPlaystyle(): Promise<string> {
   );
   out.push("");
 
+  // 4b) 高光与效率（来自 SGP 的多杀/首杀/经济字段）
+  const num = (r: any, k: string) => Number(r.stats?.[k] ?? 0);
+  const multikills = rows.reduce(
+    (acc: any, r: any) => {
+      acc.double += num(r, "doubleKills");
+      acc.triple += num(r, "tripleKills");
+      acc.quadra += num(r, "quadraKills");
+      acc.penta += num(r, "pentaKills");
+      return acc;
+    },
+    { double: 0, triple: 0, quadra: 0, penta: 0 }
+  );
+  const firstBloods = rows.filter((r: any) => num(r, "firstBloodKill") > 0).length;
+  const totalDmg = rows.reduce((a: number, r: any) => a + Number(r.damage ?? 0), 0);
+  const totalGold = rows.reduce((a: number, r: any) => a + Number(r.gold ?? 0), 0);
+  const totalMin = rows.reduce((a: number, r: any) => a + Number(r.minutes ?? 0), 0);
+  out.push("", "⑤ 高光与效率");
+  out.push(
+    `  多杀：双杀 ${multikills.double} · 三杀 ${multikills.triple} · 四杀 ${multikills.quadra} · 五杀 ${multikills.penta}` +
+      `（${n} 把里拿到首杀 ${firstBloods} 次）`
+  );
+  if (totalMin > 0) {
+    out.push(
+      `  每分钟伤害 ${Math.round(totalDmg / totalMin)} · 每分钟金币 ${Math.round(totalGold / totalMin)} · 每 1000 金币打出的伤害 ${Math.round(
+        (totalDmg / Math.max(1, totalGold)) * 1000
+      )}`
+    );
+  }
+
   // 5) 版本契合度：你拿的符文在版本榜的位置
   const augGames: Array<{ games: number; rank: number | null }> = [];
   const augStat = new Map<number, number>();
@@ -175,7 +204,7 @@ export async function analyzeMyPlaystyle(): Promise<string> {
     if (a.stats.rank <= 30) top30Picks += count;
     if (a.stats.rank > 100) bottomPicks += count;
   }
-  out.push("⑤ 版本契合度（你拿的符文 vs 社区站强度榜）");
+  out.push("⑥ 版本契合度（你拿的符文 vs 社区站强度榜）");
   if (rankedPicks) {
     out.push(
       `  有榜单数据的符文选择共 ${rankedPicks} 次：前 30 名占 ${fmtPct((top30Picks / rankedPicks) * 100, 0)}、100 名以后占 ${fmtPct(

@@ -21,6 +21,7 @@ import { tftStats } from "./lib/tft.js";
 import { archiveInfo } from "./lib/games.js";
 import { analyzeMyPlaystyle } from "./lib/playstyle.js";
 import { socialText } from "./lib/social.js";
+import { buildsText } from "./lib/builds.js";
 import { myRanked } from "./lib/ranked.js";
 import { scoutTeammates, sendChampSelectMessage } from "./lib/teammates.js";
 import { resolveMe } from "./lib/identity.js";
@@ -241,6 +242,17 @@ async function main() {
         },
       },
       {
+        name: "get_my_builds",
+        description:
+          "出装分析：你最常出哪些装备、它们的胜率；哪些出得多但胜率偏低（该换）。数据来自对局里的 item0..item6（消耗品与饰品不计入）。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            min_games: { type: "number", description: "只统计出现过至少 N 次的装备（默认 8）" },
+          },
+        },
+      },
+      {
         name: "get_champ_select_teammates",
         description:
           "选人阶段侦察队友（只读）：读当前选人会话里的队友，逐个拉他们最近的海斗战绩，整理成一份给你自己看的报告。不会往任何聊天频道发言。",
@@ -384,6 +396,9 @@ async function main() {
               minGames: args.min_games ? Number(args.min_games) : undefined,
             })
           );
+
+        case "get_my_builds":
+          return text(await buildsText({ minGames: args.min_games ? Number(args.min_games) : undefined }));
 
         case "get_champ_select_teammates": {
           const me = await resolveMe();

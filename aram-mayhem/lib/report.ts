@@ -201,8 +201,18 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
       pairMap.set(key, c);
     }
   }
+  // 出装（≥8 次）
+  let buildItems: Array<{ name: string; price: number; games: number; wins: number; winRate: number }> = [];
+  try {
+    const { analyzeBuilds } = await import("./builds.js");
+    buildItems = (await analyzeBuilds({ games: 2000, minGames: 8 })).items;
+  } catch {
+    /* 拿不到就略过 */
+  }
+
   // 队友（同队 ≥3 局）
   let teammates: Array<{ name: string; games: number; winRate: number; lastSeen: number }> = [];
+  let opponents: Array<{ name: string; games: number; winRate: number; lastSeen: number }> = [];
   try {
     const { analyzeSocial } = await import("./social.js");
     const soc = await analyzeSocial({ games: 2000 });
@@ -212,6 +222,7 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
       winRate: m.winRate,
       lastSeen: m.lastSeen,
     }));
+    opponents = soc.opponents.map((o) => ({ name: o.name, games: o.games, winRate: o.winRate, lastSeen: o.lastSeen }));
   } catch {
     /* 拿不到就略过这一节 */
   }
@@ -233,6 +244,8 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     streaks,
     pairs,
     teammates,
+    opponents,
+    buildItems,
     overview: {
       games: n,
       wins,
@@ -398,6 +411,13 @@ function demoData() {
     months,
     streaks,
     // 演示队友（真实数据来自 social.js）
+    opponents: [
+      { name: "示例对手A", games: 9, winRate: 55, lastSeen: rows[rows.length - 1].t },
+    ],
+    buildItems: [
+      { name: "示例装备A", price: 3000, games: 60, wins: 36, winRate: 60 },
+      { name: "示例装备B", price: 2800, games: 45, wins: 20, winRate: 44 },
+    ],
     teammates: [
       { name: "示例队友A", games: 42, winRate: 62, lastSeen: rows[rows.length - 1].t },
       { name: "示例队友B", games: 27, winRate: 55, lastSeen: rows[rows.length - 2].t },
@@ -837,6 +857,38 @@ function teammateBars(mates: Array<{ name: string; games: number; winRate: numbe
 </figure>`;
 }
 
+
+/** 出装：条形=出现局数（相对最长者），颜色=该装备的胜率是否过半 */
+function itemBars(items: Array<{ name: string; price: number; games: number; wins: number; winRate: number }>): string {
+  const top = items.slice(0, 12);
+  const rowH = 26,
+    labelW = 190,
+    valueW = 160;
+  const barW = W - labelW - valueW;
+  const H = top.length * rowH + 22;
+  const maxGames = Math.max(1, ...top.map((it) => it.games));
+  const body = top
+    .map((it, i) => {
+      const y = 16 + i * rowH;
+      const w = Math.max(2, (barW * it.games) / maxGames);
+      const color = it.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      return (
+        `<text class="row-label" x="0" y="${y + 12}">${esc(it.name)}</text>` +
+        `<rect class="bar" x="${labelW}" y="${y + 3}" width="${w.toFixed(1)}" height="13" rx="4" fill="${color}"` +
+        ` data-tip="${esc(it.name)}|${it.price} 金 · 出现 ${it.games} 把 · 胜率 ${it.winRate.toFixed(0)}%"/>` +
+        `<text class="row-value" x="${W - 4}" y="${y + 13}" text-anchor="end">${it.games} 把 · ${it.winRate.toFixed(0)}%</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>出装与胜率（条形=出现局数；颜色=该装备在你局里的胜率，蓝≥50%、红&lt;50%）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="出装胜率图">
+    ${body}
+  </svg>
+</figure>`;
+}
+
 // ---------------------------------------------------------------- 文案
 
 function findings(data: Awaited<ReturnType<typeof collect>>): string[] {
@@ -1021,6 +1073,11 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
       ? `<section>
     <h2>常一起打的人</h2>
     ${teammateBars(data.teammates)}
+    ${
+      data.opponents.length
+        ? `<p style="font-size:12.5px;color:var(--text-secondary);margin:10px 0 0">对手维度：共遇到 ${data.opponents.length} 个不同对手，重复最多 ${Math.max(...data.opponents.map((o) => o.games))} 次 —— 海斗匹配池大、随机性高，没有稳定的“老对手”，所以不单独成图。</p>`
+        : ""
+    }
   </section>`
       : ""
   }
@@ -1044,6 +1101,15 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
         : ""
     }
   </section>
+
+  ${
+    data.buildItems.length
+      ? `<section>
+    <h2>出装</h2>
+    ${itemBars(data.buildItems)}
+  </section>`
+      : ""
+  }
 
   <section>
     <h2>锐评</h2>
