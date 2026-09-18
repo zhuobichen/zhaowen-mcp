@@ -16,6 +16,7 @@ import { loadTftGames } from "./games.js";
 import { resolveMe } from "./identity.js";
 import { REPORT_CSS, reflowFigures } from "./report-style.js";
 import { loadData, tftName } from "./store.js";
+import { parsePatch } from "./sgp.js";
 import { clientQueueNames } from "./queues.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -32,6 +33,8 @@ interface TftRow {
   units: string[];
   /** 最终阵容里的成装名（占位条目已在取数时过滤） */
   items: string[];
+  /** 对局版本（只有 SGP 会给；本地客户端的历史摘要没有这个字段） */
+  patch: string | null;
 }
 
 const esc = (s: string) =>
@@ -63,6 +66,7 @@ async function collect(demo: boolean, who?: { puuid: string; name: string }) {
         gold: p.gold_left ?? 0,
         minutes: Math.round((g.gameDuration ?? 0) / 60),
         queue: qnames.get(g.queueId ?? 0) ?? `队列 ${g.queueId}`,
+        patch: parsePatch(g.gameVersion),
         traits: (p.traits ?? [])
           .slice()
           .sort((a: any, b: any) => (b.style ?? 0) - (a.style ?? 0) || (b.num_units ?? 0) - (a.num_units ?? 0))
@@ -95,9 +99,10 @@ function demoData(traitCn: (s: string) => string, champCn: (s: string) => string
   const traitPool = Object.values(d.tftNames.traits).slice(0, 12);
   const champPool = Object.values(d.tftNames.champions).slice(0, 24);
   const rows: TftRow[] = [];
-  let t = Date.UTC(2026, 8, 1);
+  // 铺开到 ~10 周（否则周趋势/补丁两张图会因为没有跨周而整张不出现，demo 就查不出排版问题）
+  let t = Date.UTC(2026, 6, 1);
   for (let i = 0; i < 60; i++) {
-    t += (30 + (i % 7) * 10) * 60 * 1000;
+    t += (2 + (i % 3)) * 86400 * 1000 + (30 + (i % 7) * 10) * 60 * 1000;
     const placement = Math.max(1, Math.min(8, Math.round(4.5 + (Math.random() - 0.5) * 7)));
     rows.push({
       t,
@@ -106,6 +111,7 @@ function demoData(traitCn: (s: string) => string, champCn: (s: string) => string
       gold: Math.round(Math.random() * 60),
       minutes: 25 + Math.round(Math.random() * 15),
       queue: i % 3 === 0 ? "云顶之弈（排位）" : "云顶之弈（匹配）",
+      patch: `16.${10 + Math.floor(i / 6)}`,
       traits: [traitPool[i % traitPool.length], traitPool[(i * 3) % traitPool.length]].filter(Boolean),
       units: [champPool[i % champPool.length], champPool[(i * 5) % champPool.length]].filter(Boolean),
       items: [`示例装备${i % 5}`, `示例装备${(i * 2) % 5}`],
@@ -147,6 +153,179 @@ function placementBars(dist: Array<{ place: number; count: number; share: number
 }
 
 /** 逐局名次折线（y 轴反转：1 名在上；4.5 为基准线） */
+/**
+ * 逐周平均名次与场次：上块柱=该周局数，下块折线=该周平均名次（越小越好）。
+ * 云顶一局 30 多分钟，一周通常没几局，所以样本少的点画空心、不连线判断趋势。
+ */
+function weeklyPlacement(rows: TftRow[]): string {
+  const map = new Map<number, { g: number; sum: number }>();
+  for (const r of rows) {
+    const d = new Date(r.t);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // 周一
+    const k = d.getTime();
+    const c = map.get(k) ?? { g: 0, sum: 0 };
+    c.g++;
+    c.sum += r.placement;
+    map.set(k, c);
+  }
+  const weeks = [...map.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, c]) => ({ t, games: c.g, avg: c.sum / c.g }));
+  if (weeks.length < 2) return "";
+
+  const H = 280,
+    padL = 46,
+    padR = 18,
+    padT = 16,
+    padB = 30,
+    gap = 24;
+  const volH = 62;
+  const rateT = padT + volH + gap;
+  const rateH = H - rateT - padB;
+  const plotW = W - padL - padR;
+  const slot = plotW / weeks.length;
+  const barW = Math.max(3, Math.min(28, slot * 0.6));
+  const maxGames = Math.max(1, ...weeks.map((k) => k.games));
+  // 名次轴固定 1~8，便于跨图比较
+  const yP = (p: number) => rateT + rateH * ((p - 1) / 7);
+  const cxOf = (i: number) => padL + slot * i + slot / 2;
+
+  const fmtW = (t: number) => {
+    const d = new Date(t);
+    const q = (n: number) => String(n).padStart(2, "0");
+    return `${q(d.getMonth() + 1)}/${q(d.getDate())}`;
+  };
+
+  const bars = weeks
+    .map((k, i) => {
+      const h = Math.max(2, (volH * k.games) / maxGames);
+      return (
+        `<rect class="bar" x="${(cxOf(i) - barW / 2).toFixed(1)}" y="${(padT + volH - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3"` +
+        ` fill="var(--baseline)" data-tip="${fmtW(k.t)}|${k.games} 局 · 平均名次 ${k.avg.toFixed(2)}"/>`
+      );
+    })
+    .join("");
+  const grid = [1, 2, 3, 4, 5, 6, 7, 8]
+    .map(
+      (p) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${yP(p)}" y2="${yP(p)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${yP(p) + 4}" text-anchor="end">${p}</text>`
+    )
+    .join("");
+  const pts = weeks.map((k, i) => ({ x: cxOf(i), y: yP(k.avg), k }));
+  const dots = pts
+    .map((p) => {
+      const thin = p.k.games < 5;
+      return (
+        `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.2"` +
+        (thin ? ` fill="var(--surface-1)" stroke="var(--accent)" stroke-width="1.6"` : ` fill="var(--accent)"`) +
+        ` data-tip="${fmtW(p.k.t)}|${p.k.games} 局 · 平均名次 ${p.k.avg.toFixed(2)}${thin ? "（样本少）" : ""}"/>`
+      );
+    })
+    .join("");
+  const every = Math.ceil(weeks.length / 12);
+  const xLabels = weeks
+    .map((k, i) =>
+      i % every === 0
+        ? `<text class="axis-label" x="${cxOf(i).toFixed(1)}" y="${H - 10}" text-anchor="middle">${fmtW(k.t)}</text>`
+        : ""
+    )
+    .join("");
+
+  return `
+<figure class="chart">
+  <figcaption>逐周场次（上，柱=该周局数）与周平均名次（下，折线；轴反向，越靠下名次越差；空心点=该周不足 5 局）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="云顶周场次与周平均名次">
+    <text class="axis-label" x="${padL}" y="${padT - 4}">场次（最高 ${maxGames} 局）</text>
+    ${bars}
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${yP(4.5)}" y2="${yP(4.5)}"/>
+    ${pts.length > 1 ? `<polyline class="series-line" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}"/>` : ""}
+    ${dots}
+    ${xLabels}
+  </svg>
+</figure>`;
+}
+
+/** 按补丁的平均名次（客户端版本 / 赛季号两行标签，与海斗报告同一口径） */
+function patchPlacement(rows: TftRow[]): string {
+  const map = new Map<string, { g: number; sum: number }>();
+  let noPatch = 0;
+  for (const r of rows) {
+    if (!r.patch) {
+      noPatch++;
+      continue;
+    }
+    const c = map.get(r.patch) ?? { g: 0, sum: 0 };
+    c.g++;
+    c.sum += r.placement;
+    map.set(r.patch, c);
+  }
+  const verKey = (v: string) => {
+    const [a, b] = v.split(".").map(Number);
+    return a * 1000 + b;
+  };
+  const patches = [...map.entries()]
+    .sort((a, b) => verKey(a[0]) - verKey(b[0]))
+    .map(([v, c]) => {
+      const [a, b] = v.split(".");
+      return { patch: v, playerPatch: `${Number(a) + 10}.${b}`, games: c.g, avg: c.sum / c.g };
+    });
+  if (patches.length < 2) return "";
+
+  const H = 210,
+    padL = 44,
+    padR = 16,
+    padT = 26,
+    padB = 46;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const slot = plotW / patches.length;
+  const barW = Math.min(48, slot * 0.6);
+  const y = (p: number) => padT + plotH * ((p - 1) / 7);
+  const grid = [1, 2, 3, 4, 5, 6, 7, 8]
+    .map(
+      (p) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(p)}" y2="${y(p)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${y(p) + 4}" text-anchor="end">${p}</text>`
+    )
+    .join("");
+  const bars = patches
+    .map((p, i) => {
+      const cx = padL + slot * i + slot / 2;
+      // 柱子从底部往上长到「名次」的位置，颜色按好于/差于 4.5 分
+      const top = y(p.avg);
+      const h = Math.max(2, padT + plotH - top);
+      const color = p.avg <= 4.5 ? "var(--pos)" : "var(--neg)";
+      const thin = p.games < 15;
+      return (
+        `<rect class="bar" x="${(cx - barW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4"` +
+        ` fill="${color}"${thin ? ' fill-opacity="0.45"' : ""}` +
+        ` data-tip="${p.patch}（${p.playerPatch}）|${p.games} 局 · 平均名次 ${p.avg.toFixed(2)}${thin ? "（样本少）" : ""}"/>` +
+        `<text class="row-value" x="${cx.toFixed(1)}" y="${(top - 5).toFixed(1)}" text-anchor="middle">${p.avg.toFixed(2)}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 30}" text-anchor="middle">${p.patch}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 18}" text-anchor="middle">${p.playerPatch}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 6}" text-anchor="middle">${p.games} 局</text>`
+      );
+    })
+    .join("");
+  const note =
+    noPatch > 0
+      ? `<p style="font-size:12px;color:var(--muted);margin:8px 0 0">另有 ${noPatch} 局没有版本号（本地客户端的历史摘要不带 gameVersion），未计入本图。</p>`
+      : "";
+  return `
+<figure class="chart">
+  <figcaption>按补丁的平均名次（柱=名次，越短越好；上行=客户端版本、下行=赛季号，差 10；半透明=该补丁不足 15 局）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="云顶按补丁平均名次">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(4.5)}" y2="${y(4.5)}"/>
+    ${bars}
+  </svg>
+  ${note}
+</figure>`;
+}
+
 function placementTrend(rows: TftRow[]): string {
   const H = 220,
     padL = 34,
@@ -406,6 +585,8 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
     <h2>名次与走势</h2>
     ${placementBars(dist)}
     ${placementTrend(rows)}
+    ${weeklyPlacement(rows)}
+    ${patchPlacement(rows)}
     ${levelPlacementScatter(rows)}
   </section>
 

@@ -21,6 +21,7 @@ import { resolveMe } from "./identity.js";
 import { augmentIdsOf, isMayhemGame, myParticipantId } from "./lcu.js";
 import { REPORT_CSS, reflowFigures } from "./report-style.js";
 import { loadData } from "./store.js";
+import { parsePatch } from "./sgp.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -216,18 +217,18 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
   let noPatch = 0;
   for (const g of all.filter(isMayhemGame)) {
     if (!g.gameCreation) continue;
-    const m = /^(\d{2,4}\.\d{1,2})\./.exec(String((g as any).gameVersion ?? ""));
-    if (!m) {
+    const pat = parsePatch((g as any).gameVersion);
+    if (!pat) {
       noPatch++;
       continue;
     }
-    const c = patchMap.get(m[1]) ?? { g: 0, w: 0 };
+    const c = patchMap.get(pat) ?? { g: 0, w: 0 };
     c.g++;
     // 这一局我赢没赢：从 participants 里找自己
     const pid = pidOf(g);
     const p = (g.participants ?? []).find((x: any) => x.participantId === pid) ?? (g.participants ?? [])[0];
     if ((p?.stats as any)?.win === true) c.w++;
-    patchMap.set(m[1], c);
+    patchMap.set(pat, c);
   }
   const verKey = (v: string) => {
     const [a, b] = v.split(".").map(Number);

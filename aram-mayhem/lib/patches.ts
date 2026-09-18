@@ -12,6 +12,7 @@ import { loadLolGames, loadTftGames } from "./games.js";
 import { resolveAccountByName, resolveMe } from "./identity.js";
 import { isMayhemGame } from "./lcu.js";
 import { loadData } from "./store.js";
+import { parsePatch } from "./sgp.js";
 
 export interface PatchBucket {
   /** 对局记录里的原始版本号（前两段），如 "16.18"；没有版本号的记为 null */
@@ -58,9 +59,7 @@ export interface PatchReport {
  * 所以两个号都留着展示，但排序与判断一律用原始版本号（不做可能出错的猜测）。
  */
 function patchOf(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  const m = /^(\d{2,4}\.\d{1,2})\./.exec(v.trim());
-  return m ? m[1] : null;
+  return parsePatch(v);
 }
 
 /** 原始版本号 → 玩家习惯的补丁号（赛季号 = 客户端大版本 + 10） */
@@ -209,7 +208,22 @@ export async function analyzePatches(
   const usable = buckets.filter((b) => b.games >= verdictMin && b.patch);
   const pn = (b: PatchBucket) => (b.playerPatch ? `${b.patch}=${b.playerPatch}` : String(b.patch));
   let verdict: string;
-  if (usable.length >= 2) {
+  if (usable.length >= 2 && kind === "tft") {
+    // 云顶说「胜率」会被误解成吃鸡率（本来就只有 ~12%），跨版本要按平均名次比
+    const cur = usable[usable.length - 1];
+    const prev = usable[usable.length - 2];
+    const a = cur.avgPlacement ?? 0;
+    const b = prev.avgPlacement ?? 0;
+    const diff = b - a; // 正数=名次变小=变好
+    verdict =
+      `当前补丁 ${pn(cur)}：${cur.games} 局平均名次 ${a.toFixed(2)}；` +
+      `上一个补丁 ${pn(prev)}：${prev.games} 局平均名次 ${b.toFixed(2)} —— ` +
+      (Math.abs(diff) < 0.2
+        ? "基本持平。"
+        : diff > 0
+          ? `新版名次好了 ${diff.toFixed(2)}。`
+          : `新版名次差了 ${Math.abs(diff).toFixed(2)}。`);
+  } else if (usable.length >= 2) {
     const cur = usable[usable.length - 1];
     const prev = usable[usable.length - 2];
     const diff = cur.winRate - prev.winRate;
@@ -287,10 +301,13 @@ export async function patchesText(
       : "版本未知";
     const metric =
       b.avgPlacement != null
-        ? `平均名次 ${b.avgPlacement.toFixed(2)}`
+        ? `平均名次 ${b.avgPlacement.toFixed(2)} · 吃鸡 ${b.wins} 次`
         : `胜率 ${b.winRate.toFixed(1)}% · KDA ${b.kda.toFixed(2)} · 场均伤害 ${Math.round((b.avgDamage ?? 0) / 1000)}k`;
     out.push(`${label.padEnd(10)} ${String(b.games).padStart(3)} 局  ${bar}`);
-    out.push(`    ${metric} · 平均时长 ${b.avgMinutes.toFixed(0)} 分 · ${b.champions} 个英雄`);
+    out.push(
+      `    ${metric} · 平均时长 ${b.avgMinutes.toFixed(0)} 分` +
+        (r.kind === "tft" ? "" : ` · ${b.champions} 个英雄`)
+    );
     if (b.topChampions.length) {
       out.push(`    常玩：${b.topChampions.map((c) => `${c.name}(${c.games}把${c.winRate.toFixed(0)}%)`).join("、")}`);
     }

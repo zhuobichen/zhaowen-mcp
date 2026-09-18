@@ -173,6 +173,26 @@ export async function fetchSgpHistory(
 // 字段清单与归档共用（避免两处不一致导致字段丢失）
 const SGP_STAT_KEYS = LOL_STAT_KEYS;
 
+/**
+ * 从对局记录里解析补丁号（前两段，如 "16.18"）。两种形态都要认：
+ *   · 英雄联盟：`gameVersion` 就是干净的 "16.18.817.4437"；
+ *   · 云顶：`game_version` 是构建串 —— "Linux Version 16.18.817.4437 (Sep 11 2026/10:44:16) [PUBLIC] <Releases/16.18>"，
+ *     而更早的对局会写 "TFT Unreal Version ?.?.?.?"，**根本没有版本号**，这时返回 null 而不是编一个。
+ * 注意这是客户端版本；玩家说的赛季号比它大 10（16.18 = 26.18）。
+ */
+export function parsePatch(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  // 1) <Releases/16.18> 这种明确标记最可靠
+  const rel = /<Releases\/(\d{1,4}\.\d{1,2})>/.exec(v);
+  if (rel) return rel[1];
+  // 2) 开头就是版本号（归档里存的是已归一化的 "16.18"，原始记录是 "16.18.817.4437"）
+  const head = /^\s*(\d{1,4}\.\d{1,2})(?:\.|$)/.exec(v);
+  if (head) return head[1];
+  // 3) 兜底：构建串里挑第一个 x.y.z
+  const m = /(\d{1,4}\.\d{1,2})\.\d/.exec(v);
+  return m ? m[1] : null;
+}
+
 export function sgpToGame(item: SgpSummary, puuid: string): any {
   const j = unwrapSgp(item) ?? {};
   const queueId = j.queueId ?? queueIdFromTags(item) ?? 0;
@@ -194,8 +214,8 @@ export function sgpToGame(item: SgpSummary, puuid: string): any {
     gameDuration: j.gameDuration,
     gameMode: j.gameMode ?? "",
     queueId,
-    // 补丁号：形如 "26.18.635.1234"，取前两段就是 26.18
-    gameVersion: typeof j.gameVersion === "string" ? j.gameVersion : null,
+    // 补丁号：解析出前两段（16.18），解析不出来就是 null
+    gameVersion: parsePatch(j.gameVersion),
     participants: parts,
     participantIdentities: parts.map((p: any) => ({
       participantId: p.participantId,
@@ -231,7 +251,8 @@ export function sgpTftToGame(item: SgpSummary, puuid: string): any {
     gameDuration: Math.round(j.game_length ?? 0),
     gameMode: "TFT",
     queueId: j.queueId ?? 0,
-    gameVersion: typeof j.gameVersion === "string" ? j.gameVersion : null,
+    // 云顶的版本在 game_version（snake_case）里，且是构建串；早期的局是 "?.?.?.?"，解析为 null
+    gameVersion: parsePatch(j.game_version ?? j.gameVersion),
     participants: parts,
     participantIdentities: parts.map((p: any) => ({ participantId: p.participantId, player: { puuid: p.puuid } })),
   };
