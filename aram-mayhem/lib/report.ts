@@ -210,6 +210,39 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     .sort((a, b) => a[0] - b[0])
     .map(([t, v]) => ({ t, games: v.g, wins: v.w, winRate: pctNum(v.w, v.g) }));
 
+  // 按补丁聚合（gameVersion 前两段；LCU 来源的局没有这个字段，归到「版本未知」）
+  // 注意游戏写的是客户端版本（16.18），玩家说的是赛季号（26.18），差 10
+  const patchMap = new Map<string, { g: number; w: number }>();
+  let noPatch = 0;
+  for (const g of all.filter(isMayhemGame)) {
+    if (!g.gameCreation) continue;
+    const m = /^(\d{2,4}\.\d{1,2})\./.exec(String((g as any).gameVersion ?? ""));
+    if (!m) {
+      noPatch++;
+      continue;
+    }
+    const c = patchMap.get(m[1]) ?? { g: 0, w: 0 };
+    c.g++;
+    // 这一局我赢没赢：从 participants 里找自己
+    const pid = pidOf(g);
+    const p = (g.participants ?? []).find((x: any) => x.participantId === pid) ?? (g.participants ?? [])[0];
+    if ((p?.stats as any)?.win === true) c.w++;
+    patchMap.set(m[1], c);
+  }
+  const verKey = (v: string) => {
+    const [a, b] = v.split(".").map(Number);
+    return a * 1000 + b;
+  };
+  const patches = [...patchMap.entries()]
+    .sort((a, b) => verKey(a[0]) - verKey(b[0]))
+    .map(([v, c]) => ({
+      patch: v,
+      playerPatch: `${Number(v.split(".")[0]) + 10}.${v.split(".")[1]}`,
+      games: c.g,
+      wins: c.w,
+      winRate: pctNum(c.w, c.g),
+    }));
+
   // 连败段（≥4 连败），在走势图上标出来
   const streaks: Array<{ startIdx: number; endIdx: number; len: number }> = [];
   let cur = 0;
@@ -310,6 +343,8 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     augments,
     months,
     weekly,
+    patches,
+    noPatch,
     streaks,
     pairs,
     teammates,
@@ -492,6 +527,13 @@ function demoData() {
     augments,
     months,
     weekly: weeklyDemo,
+    // 演示补丁（真实数据来自对局记录的 gameVersion）
+    patches: [
+      { patch: "16.1", playerPatch: "26.1", games: 40, wins: 24, winRate: 60 },
+      { patch: "16.2", playerPatch: "26.2", games: 55, wins: 28, winRate: 50.9 },
+      { patch: "16.3", playerPatch: "26.3", games: 48, wins: 22, winRate: 45.8 },
+    ],
+    noPatch: 0,
     streaks,
     // 演示队友（真实数据来自 social.js）
     opponents: [
@@ -989,6 +1031,64 @@ function itemBars(items: Array<{ name: string; price: number; games: number; win
 }
 
 /**
+ * 按补丁看：柱=该补丁胜率（50% 基准、背离着色），柱下标注局数，样本少的用空心顶。
+ * 补丁是平衡性调整的单位，比「按月」更贴近「游戏变了没」这个问题。
+ */
+function patchChart(
+  patches: Array<{ patch: string; playerPatch: string; games: number; wins: number; winRate: number }>,
+  noPatch: number
+): string {
+  const H = 210,
+    padL = 44,
+    padR = 16,
+    padT = 26,
+    padB = 46;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const slot = plotW / Math.max(1, patches.length);
+  const barW = Math.min(48, slot * 0.6);
+  const y = (v: number) => padT + plotH * (1 - v / 100);
+  const grid = [0, 25, 50, 75, 100]
+    .map(
+      (v) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`
+    )
+    .join("");
+  const bars = patches
+    .map((p, i) => {
+      const cx = padL + slot * i + slot / 2;
+      const h = Math.max(2, (plotH * p.winRate) / 100);
+      const color = p.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      const thin = p.games < 15;
+      return (
+        `<rect class="bar" x="${(cx - barW / 2).toFixed(1)}" y="${(y(p.winRate)).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4"` +
+        ` fill="${color}"${thin ? ' fill-opacity="0.45"' : ""}` +
+        ` data-tip="${p.patch}（${p.playerPatch}）|${p.wins}/${p.games} 胜 · 胜率 ${fmtPct(p.winRate, 1)}${thin ? "（样本少）" : ""}"/>` +
+        `<text class="row-value" x="${cx.toFixed(1)}" y="${(y(p.winRate) - 5).toFixed(1)}" text-anchor="middle">${p.winRate.toFixed(0)}%</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 30}" text-anchor="middle">${p.patch}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 18}" text-anchor="middle">${p.playerPatch}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 6}" text-anchor="middle">${p.games} 局</text>`
+      );
+    })
+    .join("");
+  const note =
+    noPatch > 0
+      ? `<p style="font-size:12px;color:var(--muted);margin:8px 0 0">另有 ${noPatch} 局没有版本号（本地客户端的历史摘要不带 gameVersion），未计入本图。</p>`
+      : "";
+  return `
+<figure class="chart">
+  <figcaption>按补丁的胜率（上行=对局记录里的客户端版本，下行=玩家习惯的赛季号，两者差 10；半透明柱=该补丁不足 15 局）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="按补丁胜率">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(50)}" y2="${y(50)}"/>
+    ${bars}
+  </svg>
+  ${note}
+</figure>`;
+}
+
+/**
  * 周趋势：上下两块共享横轴的小倍数图 —— 上块柱子=该周场次（浅色，看投入），
  * 下块折线=该周胜率（0~100%，虚线 50% 基准，看质量）。
  * 两块分开画而不是双 Y 轴，是为了不让人把柱高和胜率看成同一把尺子。
@@ -1321,6 +1421,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
     <h2>走势与分布</h2>
     ${lineChart(data.rolling, data.streaks)}
     ${data.weekly.length > 1 ? weeklyChart(data.weekly) : ""}
+    ${data.patches.length > 1 ? patchChart(data.patches, data.noPatch) : ""}
     ${monthlyChart(data.months)}
     ${hourChart(data.rows)}
     ${championBars(data.champions)}
