@@ -11,6 +11,7 @@
  */
 import { loadTftGames } from "./games.js";
 import { getSummoner, lcuGet, type LcuSummoner } from "./lcu.js";
+import { clientQueueNames, isRankedQueue, QUEUE_FALLBACK } from "./queues.js";
 import { loadData } from "./store.js";
 
 export interface TftGame {
@@ -35,23 +36,8 @@ export interface TftGame {
   }>;
 }
 
-/** 客户端自带的队列 id → 中文名（带内存缓存） */
-let queueCache: Map<number, string> | null = null;
-export async function queueNames(): Promise<Map<number, string>> {
-  if (queueCache) return queueCache;
-  const map = new Map<number, string>();
-  try {
-    const raw: any = await lcuGet<any>("/lol-game-data/assets/v1/queues.json");
-    const list: any[] = Array.isArray(raw) ? raw : Object.values(raw ?? {});
-    for (const q of list) {
-      if (q && typeof q.id === "number") map.set(q.id, String(q.name ?? q.shortName ?? q.id).trim());
-    }
-  } catch {
-    /* 拿不到就退回队列 id 显示 */
-  }
-  queueCache = map;
-  return map;
-}
+/** 队列 id → 中文名（客户端优先，离线退回内置对照表），见 lib/queues.ts */
+export { clientQueueNames as queueNames } from "./queues.js";
 
 /** TFT 对局（最多最近 20 局 —— 这是接口上限，不是筛选结果） */
 export async function getTftGames(puuid: string): Promise<TftGame[]> {
@@ -104,7 +90,7 @@ export async function tftStats(args: { friend?: string; limit?: number } = {}): 
   const games = res.games as TftGame[];
   if (!games.length) return `${target.label} 的云顶对局记录是空的（${res.note}）。`;
 
-  const qnames = await queueNames();
+  const qnames = await clientQueueNames();
   const rows = games
     .map((g) => {
       const p = myPart(g, target.puuid!);
@@ -131,11 +117,34 @@ export async function tftStats(args: { friend?: string; limit?: number } = {}): 
     });
 
   // 队列分布
-  const byQueue = new Map<number, number>();
-  for (const r of rows) byQueue.set(r.game.queueId ?? 0, (byQueue.get(r.game.queueId ?? 0) ?? 0) + 1);
+  const byQueue = new Map<number, { count: number; last: number }>();
+  for (const r of rows) {
+    const q = r.game.queueId ?? 0;
+    const cur = byQueue.get(q) ?? { count: 0, last: 0 };
+    cur.count++;
+    cur.last = Math.max(cur.last, r.game.gameCreation);
+    byQueue.set(q, cur);
+  }
+  // 「排位」判定：国服队列名里直接带「排位」；另外兜底几个已知的排位 queueId
+  const qname = (q: number) => qnames.get(q) ?? QUEUE_FALLBACK[q] ?? `队列 ${q}`;
+  const isRanked = (q: number) => isRankedQueue(q, qnames.get(q));
+  const rankedRows = rows.filter((r) => isRanked(r.game.queueId ?? 0));
+  const fmtShort = (t: number) =>
+    new Date(t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short", timeStyle: "short" });
   const queueLines = [...byQueue.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([id, c]) => `  · ${qnames.get(id) ?? `队列 ${id}`}：${c} 局`);
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(
+      ([id, c]) =>
+        `  · ${qname(id)}：${c.count} 局${isRanked(id) ? "（排位）" : ""} · 最近一次 ${fmtShort(c.last)}`
+    );
+
+  // 「上次排位是什么时候」单独一行给出来（这是最常被问的问题）
+  const lastRanked = rankedRows.length ? Math.max(...rankedRows.map((r) => r.game.gameCreation)) : null;
+  const rankedLine = lastRanked
+    ? `上次排位：${fmtShort(lastRanked)}（${
+        qname(rankedRows.find((r) => r.game.gameCreation === lastRanked)?.game.queueId ?? 0)
+      }，本窗口内排位共 ${rankedRows.length} 局）`
+    : "上次排位：本次窗口里没有排位对局（国服排位队列名带「排位」，如「云顶之弈 (自然之力 排位 BETA测试)」）";
 
   // 官方中文名（来自 CloudDragon 的云顶数据，refresh 时只留了最近几个赛季；取不到就退回内部标识）
   const names = loadData().tftNames;
@@ -150,7 +159,7 @@ export async function tftStats(args: { friend?: string; limit?: number } = {}): 
     .slice(0, args.limit ?? 10)
     .map((r) => {
       const mins = Math.round((r.game.game_length ?? 0) / 60);
-      const q = qnames.get(r.game.queueId ?? 0) ?? `队列 ${r.game.queueId}`;
+      const q = qname(r.game.queueId ?? 0);
       // 成型羁绊（style>=2 表示已激活的高阶羁绊），按强度排序
       const traits = (r.p.traits ?? [])
         .filter((t) => t.style >= 2)
@@ -188,7 +197,9 @@ export async function tftStats(args: { friend?: string; limit?: number } = {}): 
     "名次分布：",
     ...distLines,
     "",
-    "队列分布：",
+    rankedLine,
+    "",
+    "队列分布（含每个队列最近一次）：",
     ...queueLines,
     "",
     `最近 ${Math.min(args.limit ?? 10, rows.length)} 局明细：`,

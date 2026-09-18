@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { loadTftGames } from "./games.js";
 import { resolveMe } from "./identity.js";
 import { loadData } from "./store.js";
-import { queueNames } from "./tft.js";
+import { clientQueueNames } from "./queues.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const W = 900;
@@ -48,7 +48,7 @@ async function collect(demo: boolean) {
   const me = await resolveMe();
   if (!me) throw new Error("客户端没开且没有固定过账号：先在线跑一次 get_my_account_status，或打开客户端。");
   const res = await loadTftGames(me.puuid, me.name);
-  const qnames = await queueNames();
+  const qnames = await clientQueueNames();
   const rows: TftRow[] = res.games
     .map((g: any) => {
       const p = (g.participants ?? []).find((x: any) => x.puuid === me.puuid) ?? (g.participants ?? [])[0];
