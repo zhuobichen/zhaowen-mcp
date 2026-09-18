@@ -37,6 +37,7 @@ import { checkupText } from "./lib/checkup.js";
 import { gameDetailText } from "./lib/game-detail.js";
 import { reportMarkdownText } from "./lib/report-md.js";
 import { combatText } from "./lib/combat-profile.js";
+import { reportCompareText } from "./lib/report-compare.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -330,6 +331,20 @@ async function main() {
             who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
             min_games: { type: "number", description: "每个名次分组至少多少局才下结论（默认 15）" },
           },
+        },
+      },
+      {
+        name: "export_compare_report",
+        description:
+          "生成双账号对比报告（HTML）：核心指标对照表、逐周胜率双线图、英雄池并列、符文偏好差异（背离条形）、两人都出过的装备。补的是「报告之间的比较」—— 已有的报告都是单人快照，没法并排看。b 必填（不传 a 就是自己 vs b）。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            b: { type: "string", description: "对比对象（好友名，部分匹配）" },
+            a: { type: "string", description: "可选：第一个账号。不传就是自己" },
+            out: { type: "string", description: "可选：自定义输出路径" },
+          },
+          required: ["b"],
         },
       },
       {
@@ -686,6 +701,16 @@ async function main() {
             await combatText({
               name: args.who ? String(args.who) : undefined,
               minGames: args.min_games ? Number(args.min_games) : undefined,
+            })
+          );
+
+        case "export_compare_report":
+          if (!args.b) return text("请提供对比对象 b");
+          return text(
+            await reportCompareText({
+              a: args.a ? String(args.a) : undefined,
+              b: String(args.b),
+              out: args.out ? String(args.out) : undefined,
             })
           );
 

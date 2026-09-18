@@ -36,6 +36,8 @@ const ANALYSIS = [
   ["patches", "按补丁看自己", ["按补丁的胜率"]],
   ["queue-stats", "按队列拆分", ["按队列拆分"]],
   ["empirical", "符文/组合/羁绊实证", ["符文使用效果"]],
+  // 这一项的结果不在海斗报告里，而是有自己的独立报告 —— 单独标注
+  ["compare", "跨账号对比", [], "lib/report-compare.ts"],
 ];
 
 // 真的生成一份 demo 报告，拿它的图注当证据 —— 比猜 import 靠谱
@@ -72,14 +74,20 @@ console.log("分析".padEnd(34) + "MCP工具   海斗报告");
 console.log("-".repeat(76));
 
 const missing = [];
-for (const [base, label, keywords] of ANALYSIS) {
+for (const [base, label, keywords, dedicated] of ANALYSIS) {
   const hasTool = new RegExp('from "\\./lib/' + base + '\\.js"').test(indexText);
-  const caps = reports["海斗"] ?? [];
-  const hit = caps.find((c) => keywords.some((k) => c.includes(k)));
+  let evidence;
+  if (dedicated) {
+    // 有自己的独立报告：那个文件在就算可见（不要求挤进海斗报告）
+    evidence = existsSync(path.join(ROOT, dedicated)) ? `独立报告 ${path.basename(dedicated)}` : undefined;
+  } else {
+    const caps = reports["海斗"] ?? [];
+    evidence = caps.find((c) => keywords.some((k) => c.includes(k)));
+  }
   console.log(
-    label.padEnd(32) + (hasTool ? "  ✓" : "  ✗") + "        " + (hit ? "✓ " + hit.slice(0, 26) : "✗ 没有")
+    label.padEnd(32) + (hasTool ? "  ✓" : "  ✗") + "        " + (evidence ? "✓ " + evidence.slice(0, 26) : "✗ 没有")
   );
-  if (!hit) missing.push({ base, label, inMd: mdText.includes(base) });
+  if (!evidence) missing.push({ base, label, inMd: mdText.includes(base) });
 }
 
 console.log("");

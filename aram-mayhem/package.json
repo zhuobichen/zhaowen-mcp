@@ -46,7 +46,8 @@
     "audit:wiring": "node tools/audit-wiring.mjs",
     "audit": "node tools/audit-fields.mjs && node tools/audit-analysis.mjs && node tools/audit-wiring.mjs && node tools/audit-surfaced.mjs",
     "audit:analysis": "node tools/audit-analysis.mjs",
-    "audit:surfaced": "node tools/audit-surfaced.mjs"
+    "audit:surfaced": "node tools/audit-surfaced.mjs",
+    "report:compare": "tsx lib/report-compare-probe.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
