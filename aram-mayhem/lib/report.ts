@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { loadLolGames } from "./games.js";
 import { resolveMe } from "./identity.js";
 import { augmentIdsOf, isMayhemGame, myParticipantId } from "./lcu.js";
+import { REPORT_CSS, reflowFigures } from "./report-style.js";
 import { loadData } from "./store.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -900,103 +901,13 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
 
   const generated = new Date().toLocaleString("zh-CN", { hour12: false });
 
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="zh-CN" data-theme="">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>海斗战绩报告 · ${esc(data.name)}</title>
-<style>
-  :root {
-    color-scheme: light;
-    --surface-1: #fcfcfb; --page: #f9f9f7;
-    --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
-    --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
-    --pos: #2a78d6;   /* 分类槽 1 蓝 */
-    --neg: #e34948;   /* 背离红 */
-    --accent: #eb6834;/* 分类槽 2 橙 */
-    --good: #0ca30c; --critical: #d03b3b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:where(:not([data-theme="light"])) {
-      color-scheme: dark;
-      --surface-1: #1a1a19; --page: #0d0d0d;
-      --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
-      --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
-      --pos: #3987e5; --neg: #e66767; --accent: #d95926;
-    }
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --surface-1: #1a1a19; --page: #0d0d0d;
-    --text-primary: #ffffff; --text-secondary: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
-    --pos: #3987e5; --neg: #e66767; --accent: #d95926;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 32px 20px 64px;
-    background: var(--page); color: var(--text-primary);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    line-height: 1.6;
-  }
-  .wrap { max-width: 980px; margin: 0 auto; }
-  header.hero { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-end; justify-content: space-between; margin-bottom: 8px; }
-  .hero h1 { font-size: 22px; margin: 0 0 4px; font-weight: 650; }
-  .hero .meta { color: var(--text-secondary); font-size: 13px; }
-  .hero .hero-num { font-size: 56px; font-weight: 700; line-height: 1; letter-spacing: -1px; }
-  .hero .hero-num small { font-size: 16px; font-weight: 500; color: var(--text-secondary); margin-left: 8px; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0 8px; }
-  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
-  .tile-label { font-size: 12px; color: var(--text-secondary); }
-  .tile-value { font-size: 24px; font-weight: 650; margin-top: 2px; }
-  .tile-sub { font-size: 12px; color: var(--muted); }
-  section { background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; margin-top: 20px; }
-  section > h2 { font-size: 16px; margin: 0 0 14px; font-weight: 650; }
-  .chart { margin: 0; }
-  .chart + .chart { margin-top: 26px; }
-  figcaption { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
-  svg { width: 100%; height: auto; display: block; }
-  .grid { stroke: var(--grid); stroke-width: 1; }
-  .baseline { stroke: var(--baseline); stroke-width: 1; stroke-dasharray: 4 4; }
-  .axis-label { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-  .series-line { fill: none; stroke: var(--pos); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-  .crosshair { stroke: var(--text-secondary); stroke-width: 1; opacity: .5; }
-  .streak-band { fill: var(--neg); opacity: .10; }
-  .streak-label { fill: var(--neg); font-size: 10.5px; font-weight: 600; }
-  .row-label { fill: var(--text-primary); font-size: 12.5px; }
-  .row-sub { fill: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-  .row-value { fill: var(--text-primary); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .tick { stroke: var(--text-primary); stroke-width: 2; }
-  .bar { cursor: default; }
-  .bar:hover { opacity: .85; }
-  ul.findings { margin: 0; padding-left: 20px; }
-  ul.findings li { margin-bottom: 10px; }
-  ul.findings li:last-child { margin-bottom: 0; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  table caption { text-align: left; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
-  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
-  th { color: var(--text-secondary); font-weight: 550; font-size: 12px; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td.win { color: var(--good); font-weight: 600; }
-  td.lose { color: var(--critical); font-weight: 600; }
-  details { margin-top: 18px; }
-  summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
-  footer { margin-top: 24px; color: var(--text-secondary); font-size: 12px; }
-  footer li { margin-bottom: 4px; }
-  .legend { display: flex; gap: 16px; align-items: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-  .legend span { display: inline-flex; align-items: center; gap: 6px; }
-  .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
-  #tip {
-    position: fixed; pointer-events: none; z-index: 9; display: none;
-    background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
-    border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.16); max-width: 320px;
-  }
-  #tip .t1 { font-weight: 600; }
-  #tip .t2 { color: var(--text-secondary); margin-top: 2px; }
-  .toggle { border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
-            border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
-</style>
+<style>${REPORT_CSS}</style>
 </head>
 <body>
 <div class="wrap">
@@ -1162,6 +1073,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
 </script>
 </body>
 </html>`;
+  return reflowFigures(html);
 }
 
 // ---------------------------------------------------------------- CLI

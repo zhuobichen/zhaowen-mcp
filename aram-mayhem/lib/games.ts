@@ -8,6 +8,7 @@
  */
 import { archivedGamesFor, archiveStats, mergeIntoArchive, type ArchiveKind } from "./archive.js";
 import { clientStatus, getMatchHistory } from "./lcu.js";
+import { unknownQueues } from "./queues.js";
 
 export interface GamesResult {
   /** 客户端摘要形态的对局（可能来自归档），时间倒序 */
@@ -165,6 +166,12 @@ export async function archiveInfo(): Promise<string> {
       ? `  账号：${st.accounts.slice(0, 6).map((a) => `${a.name ?? a.puuid.slice(0, 8)}（${a.games} 局）`).join("、")}`
       : "",
     st.total ? `  来源：${Object.entries(st.bySource ?? {}).map(([k, v]) => `${k} ${v}`).join(" · ")}` : "",
+    (() => {
+      const unknown = unknownQueues(Object.keys(st.byQueue ?? {}).map(Number));
+      return unknown.length
+        ? `  ⚠ 未登记队列（可能是新队列，识别会漏判）：${unknown.map((q) => `${q}（${st.byQueue[String(q)]} 局）`).join("、")}`
+        : "";
+    })(),
   ].filter(Boolean);
   return [
     "=== 本地对局归档 ===",

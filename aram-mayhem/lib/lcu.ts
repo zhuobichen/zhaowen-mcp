@@ -12,6 +12,7 @@
  *   3. MAYHEM_LOCKFILE 指定的 lockfile，或常见安装目录下的 LeagueClient/lockfile
  */
 import { execFile } from "node:child_process";
+import { MAYHEM_QUEUE_IDS } from "./queues.js";
 import { existsSync, readFileSync } from "node:fs";
 import https from "node:https";
 import { promisify } from "node:util";
@@ -388,5 +389,8 @@ export const MAYHEM_MODES = ["KIWI", "KIWI_JADE", "JADE", "ARAM_MAYHEM", "MAYHEM
 
 export function isMayhemGame(game: LcuGameSummary): boolean {
   const mode = String(game.gameMode ?? "").toUpperCase();
-  return MAYHEM_MODES.includes(mode);
+  if (MAYHEM_MODES.includes(mode)) return true;
+  // 队列 id 兜底：SGP 记录里 gameMode 可能为空，但 queueId 一定在
+  // （2400 普通 / 2410 巅峰赛 / 2450 经典模式版 / 3270 自定义）
+  return MAYHEM_QUEUE_IDS.includes(Number(game.queueId ?? 0));
 }

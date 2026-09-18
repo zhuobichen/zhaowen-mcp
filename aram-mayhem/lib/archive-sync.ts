@@ -13,6 +13,7 @@ import { clientStatus } from "./lcu.js";
 import { loadLolGames, loadTftGames } from "./games.js";
 import { listFriends } from "./friends.js";
 import { resolveMe } from "./identity.js";
+import { unknownQueues } from "./queues.js";
 
 const fmt = (t: number | null) => (t ? new Date(t).toLocaleDateString("zh-CN") : "—");
 
@@ -69,6 +70,15 @@ async function main() {
   console.log(`联盟：${lol.total} 局（${fmt(lol.from)} ~ ${fmt(lol.to)}），账号 ${lol.accounts.length} 个`);
   console.log(`云顶：${tft.total} 局（${fmt(tft.from)} ~ ${fmt(tft.to)}），账号 ${tft.accounts.length} 个`);
   const friendHint = withFriends ? "" : "加 --friends 可把好友的一并同步；";
+  // 防漏判自检：数据里出现过、但我们不认识的队列
+  const unknown = unknownQueues(Object.keys(lol.byQueue ?? {}).map(Number));
+  if (unknown.length) {
+    console.log("⚠ 出现未登记队列（可能是官方新增的队列，海斗识别可能漏判）：");
+    for (const q of unknown) console.log(`   ${q}：${lol.byQueue[String(q)]} 局`);
+    console.log("   → 把这些队列号发我，我确认后加进白名单。");
+  } else {
+    console.log("自检：数据里的队列都在已知清单内，海斗识别无未知项。");
+  }
   console.log("提示：" + friendHint + "归档只增不减，定期跑一次就能越攒越全。");
 }
 
