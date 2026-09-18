@@ -235,10 +235,19 @@ export async function matchupsText(
     if (w0 && b0 && w0.champion !== b0.champion) {
       const wv = w0.residual ?? w0.delta;
       const bv = b0.residual ?? b0.delta;
+      // 置信措辞要按**点名的这两个英雄各自的样本**判，不能按总局数。
+      // 原先用 gamesWithFullRoster（306）判「样本量够」，可结论点名的英雄只有 12 把 ——
+      // n=12 时胜率的 95% 区间约 ±28 个百分点，残差 -20.3 跟 0 区分不开。
+      // 这是「置信措辞审计」（tools/audit-confidence.mjs）查出来的过度声称。
+      const weakest = Math.min(w0.games, b0.games);
       out.push(
         `结论：最吃力的是对面有 ${w0.champion}（${w0.games} 把，残差 ${fmt(wv)}）；` +
           `最稳的是对面有 ${b0.champion}（${b0.games} 把，残差 ${fmt(bv)}）—— 两者差 ${(bv - wv).toFixed(1)} 个百分点。` +
-          (r.gamesWithFullRoster < 60 ? "但样本还不多，先当参考。" : "样本量够，这几条可以当真。")
+          (weakest < 30
+            ? `但这两个英雄各自只遇到 ${weakest} 把，样本太少：残差在这个量级上跟 0 区分不开，先当参考，别照着改出装。`
+            : r.gamesWithFullRoster < 60
+              ? "但整体样本还不多，先当参考。"
+              : "样本量够，这几条可以当真。")
       );
     } else {
       out.push("结论：样本不足，列不出稳定的克星与提款机。");
