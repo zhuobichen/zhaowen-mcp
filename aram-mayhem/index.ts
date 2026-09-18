@@ -38,6 +38,7 @@ import { gameDetailText } from "./lib/game-detail.js";
 import { reportMarkdownText } from "./lib/report-md.js";
 import { combatText } from "./lib/combat-profile.js";
 import { reportCompareText, reportSelfCompareText } from "./lib/report-compare.js";
+import { helpText } from "./lib/help.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -64,6 +65,17 @@ async function main() {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
+      {
+        name: "get_help",
+        description:
+          "不知道该用哪个工具时先调这个。按用户意图分场景给引导（选人时看队友 / 打完复盘 / 看最近状态 / 找自己的毛病 / 查符文英雄 / 和人对比 / 导出数据 / 维护数据），每个场景列几句「你可能会说的话」和对应工具。可传 query 只看相关场景。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "可选：关键词（如「复盘」「对比」「符文」「出装」），只看相关场景" },
+          },
+        },
+      },
       {
         name: "get_data_info",
         description:
@@ -579,6 +591,9 @@ async function main() {
     const { name, arguments: args = {} } = request.params;
     try {
       switch (name) {
+        case "get_help":
+          return text(helpText(args.query ? String(args.query) : undefined));
+
         case "get_data_info":
           return text(dataInfo());
 
