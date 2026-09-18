@@ -94,14 +94,24 @@ await send("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
 
 // 先调几个会报「我的总局数 / 胜率」的工具 —— 顺带把它们看到的新对局并进归档
-const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats"];
+const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats", "get_tft_detail", "export_games_csv"];
 const reported = {};
 // compare_accounts 需要必填参数 b —— 不给的话它只回一句「请提供第二个账号 b」，
 // 那种输出拿去对账会变成假失败（第一版就是这样）
 const ARGS_OF = { compare_accounts: { b: "丁ding" } };
+// 云顶的两个「按 X 看自己」工具：trend/patches 在云顶侧要显式传 kind
+const AFTER = [];
 for (const tool of PROBES) {
   const r = await send("tools/call", { name: tool, arguments: ARGS_OF[tool] ?? {} });
   reported[tool] = r.result?.content?.[0]?.text ?? "";
+}
+// 同名的工具换个参数再调一次，结果单独存 —— 云顶侧要显式传 kind
+for (const [key, name, args] of [
+  ["get_my_patches_tft", "get_my_patches", { kind: "tft" }],
+  ["get_my_trend_tft", "get_my_trend", { kind: "tft" }],
+]) {
+  const r = await send("tools/call", { name, arguments: args });
+  reported[key] = r.result?.content?.[0]?.text ?? "";
 }
 child.kill();
 
@@ -774,6 +784,151 @@ function isBuildItem(it) {
     );
   } else {
     console.log(`· 云顶：没在输出里找到平均名次那行（归档里 ${n} 局），跳过`);
+  }
+}
+
+// ⑮ 云顶棋子/装备维度：get_tft_detail 按最终阵容统计平均名次
+//    规格：只统计**目标账号自己那一行**的 units（归档里也只有他那一行有 units）；
+//    同一局同一棋子/装备只算一次；成装要过滤占位条目（EmptyBag 之类）。
+{
+  const tftRaw = JSON.parse(readFileSync(path.join(ROOT, "data/archive/tft-matches.json"), "utf8"));
+  const tftNames = JSON.parse(readFileSync(path.join(ROOT, "data/tft-names.json"), "utf8"));
+  const cn = (map, id) => (id ? map[id] ?? id.replace(/^TFT\d+_/i, "").replace(/^TFT_Item_/i, "") : "?");
+  const PLACEHOLDER = /^(emptybag|empty|placeholder|tft_item_emptybag)$/i;
+  const units = new Map();
+  for (const g of Object.values(tftRaw.games)) {
+    const p = (g.participants ?? []).find((x) => x.puuid === ME);
+    const place = Number(p?.placement ?? 0);
+    if (!p || !place) continue;
+    const seen = new Set();
+    for (const u of p.units ?? []) {
+      const key = cn(tftNames.champions, u.character_id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const c = units.get(key) ?? { g: 0, sum: 0, top4: 0 };
+      c.g++;
+      c.sum += place;
+      if (place <= 4) c.top4++;
+      units.set(key, c);
+    }
+  }
+  // 要验证的是**工具实际列出来的那个**棋子 —— 它的列表按「平均名次改善」排、只列前 12，
+  // 所以拿「出场最多」的那个去查会查不到（第一版就这么错了：
+  // 出场最多的斯维因有 317 局，但它不在「最顺手的前 12」里）。
+  // 从工具输出里取第一条，再独立重算它的数字。
+  const td = reported["get_tft_detail"] ?? "";
+  const listed = /· (\S+?)：(\d+) 局 · 平均名次 ([\d.]+)/.exec(td);
+  if (listed) {
+    const [, name, gamesStr, avgStr] = listed;
+    const c = units.get(name);
+    const ok = c && c.g === Number(gamesStr) && Math.abs(c.sum / c.g - Number(avgStr)) < 0.006;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 云顶棋子：工具列的第一个 ${name}　报 ${gamesStr} 局 平均名次 ${avgStr}` +
+        `　独立重算 ${c ? `${c.g} 局 平均名次 ${(c.sum / c.g).toFixed(2)}（前四 ${((c.top4 / c.g) * 100).toFixed(0)}%）` : "（这个棋子在我的统计里查不到）"}`
+    );
+  } else {
+    console.log("· 云顶棋子：没在输出里找到棋子行，跳过");
+  }
+}
+
+// ⑯ 云顶的周聚合与补丁聚合
+{
+  const tftRaw = JSON.parse(readFileSync(path.join(ROOT, "data/archive/tft-matches.json"), "utf8"));
+  const rows = [];
+  for (const g of Object.values(tftRaw.games)) {
+    const p = (g.participants ?? []).find((x) => x.puuid === ME);
+    const place = Number(p?.placement ?? 0);
+    if (!place) continue;
+    rows.push({ t: Number(g.gameCreation ?? 0), place, v: g.gameVersion });
+  }
+  // 周聚合（trend kind=tft：平均名次，周一起算）
+  const byWeek = new Map();
+  for (const r of rows) {
+    const d = new Date(r.t);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const k = d.getTime();
+    const c = byWeek.get(k) ?? { g: 0, sum: 0 };
+    c.g++;
+    c.sum += r.place;
+    byWeek.set(k, c);
+  }
+  const weeks = [...byWeek.entries()].sort((a, b) => a[0] - b[0]);
+  const lastW = weeks[weeks.length - 1];
+  // 工具输出里「逐周场次与周平均名次」那张图是 SVG，文本输出（get_my_trend kind=tft）里有结论行
+  const tt = reported["get_my_trend_tft"] ?? "";
+  const mW = /当前补丁|按补丁/.test(tt); // 占位，真正的断言在补丁那段
+  void mW;
+  // 补丁聚合（patches kind=tft）
+  const patchOf = (v) => {
+    if (typeof v !== "string" || !v) return null;
+    const rel = /<Releases\/(\d{1,4}\.\d{1,2})>/.exec(v);
+    if (rel) return rel[1];
+    const head = /^\s*(\d{1,4}\.\d{1,2})(?:\.|$)/.exec(v);
+    if (head) return head[1];
+    const m = /(\d{1,4}\.\d{1,2})\.\d/.exec(v);
+    return m ? m[1] : null;
+  };
+  const byPatch = new Map();
+  for (const r of rows) {
+    const p = patchOf(r.v);
+    if (!p) continue;
+    const c = byPatch.get(p) ?? { g: 0, sum: 0 };
+    c.g++;
+    c.sum += r.place;
+    byPatch.set(p, c);
+  }
+  const topP = [...byPatch.entries()].sort((a, b) => b[1].g - a[1].g)[0];
+  const tp = reported["get_my_patches_tft"] ?? "";
+  if (topP) {
+    const [patch, c] = topP;
+    const m = new RegExp(patch.replace(".", "\\.") + "[^\\n]*?\\s(\\d+)\\s+局").exec(tp);
+    const ok = m && Number(m[1]) === c.g;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 云顶分补丁：样本最多的 ${patch}　工具报 ${m ? m[1] : "—"} 局` +
+        `　独立重算 ${c.g} 局（平均名次 ${(c.sum / c.g).toFixed(2)}）　共 ${byPatch.size} 个补丁`
+    );
+  }
+  console.log(
+    `· 云顶分周：${weeks.length} 个自然周，最近一周 ${lastW[1].g} 局平均名次 ${(lastW[1].sum / lastW[1].g).toFixed(2)}`
+  );
+}
+
+// ⑰ CSV 导出：文件产物，之前从没对过账
+//    规格：行数 = 我的海斗局数（每局一行），列数 = 表头字段数。
+//    直接读**导出的那个文件**来数 —— 这一项对的是产物本身，不是工具的内存输出。
+{
+  const ex = reported["export_games_csv"] ?? "";
+  const mPath = /已导出 (\d+) 行到：(.+)/.exec(ex);
+  const mCols = /(\d+) 列/.exec(ex);
+  if (mPath) {
+    const declaredRows = Number(mPath[1]);
+    const file = mPath[2].trim();
+    let fileRows = null;
+    let fileCols = null;
+    try {
+      const content = readFileSync(file, "utf8").replace(/^﻿/, "");
+      const lines = content.split(/\r?\n/).filter((l) => l.length);
+      fileRows = lines.length - 1; // 去掉表头
+      // 列数按**表头**数（数据行里的引号会让简单切分不准）
+      fileCols = lines[0].split(",").length;
+    } catch {
+      /* 文件读不到就跳过 */
+    }
+    const ok =
+      fileRows != null &&
+      fileRows === declaredRows &&
+      declaredRows === truth.games &&
+      (mCols ? Number(mCols[1]) === fileCols : true);
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} CSV 导出：工具报 ${declaredRows} 行${mCols ? " " + mCols[1] + " 列" : ""}` +
+        `　实际文件 ${fileRows ?? "?"} 行 ${fileCols ?? "?"} 列　独立重算应有 ${truth.games} 行`
+    );
+  } else {
+    console.log("· CSV 导出：工具这次没报出行数，跳过");
   }
 }
 
