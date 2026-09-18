@@ -53,6 +53,8 @@ export interface MatchupReport {
   versusAll: VersusStat[];
   /** 英雄视角：至少打过 minChampionGames 局的英雄 */
   byChampion: ChampionMatchup[];
+  /** 英雄视角里「单个对位至少 N 次」的那个 N（渲染时要用它解释为什么列不出对位） */
+  perPairGames: number;
   note: string;
 }
 
@@ -213,6 +215,7 @@ export async function analyzeMatchups(
     baseWinRate,
     versusAll,
     byChampion,
+    perPairGames: perPair,
     note:
       `${all.length} 把海斗里 ${fullRoster} 把有完整 10 人名单可统计对位` +
       (fullRoster < all.length ? `（其余 ${all.length - fullRoster} 把只有自己那一行）` : "") +
@@ -296,10 +299,18 @@ export async function matchupsText(
 
   if (r.byChampion.length) {
     out.push("", "分英雄看（你玩这个英雄时的对位差异）：");
+    // 外层门槛（≥15 把的英雄）和「单个对位 ≥perPair 次」这两个门槛是**互相打架**的：
+    // 15~20 把的英雄，摊到两百多个可能的对手身上，没有哪个对手能攒到 5 次 ——
+    // 所以这一节常常只列得出英雄、列不出对位。门槛扫描量过：本号 2 个够样本的英雄，
+    // **对位数在任何门槛下都是 0**。
+    // 原先这种情况就静默不打印这两行，读者会以为数据没统计上；现在直接说明为什么空。
     for (const c of r.byChampion.slice(0, 5)) {
       out.push(`  ${c.champion}：${c.games} 把 ${c.winRate.toFixed(0)}%`);
       if (c.worst.length) out.push(`    最怕：${c.worst.map((v) => `${v.champion}(${v.games}把${v.winRate.toFixed(0)}%)`).join("、")}`);
       if (c.best.length) out.push(`    最稳：${c.best.map((v) => `${v.champion}(${v.games}把${v.winRate.toFixed(0)}%)`).join("、")}`);
+      if (!c.worst.length && !c.best.length) {
+        out.push(`    （列不出对位：这个英雄只有 ${c.games} 把，摊到一百多个可能的对手上，没有谁碰到 ${r.perPairGames} 次以上）`);
+      }
     }
   }
 

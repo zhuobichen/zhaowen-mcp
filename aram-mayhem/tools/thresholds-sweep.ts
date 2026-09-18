@@ -344,3 +344,66 @@ function summarize2<T extends { games: number }>(
     console.log(`  ${r.口径.padEnd(42)} ${r.默认门槛.padStart(6)}  ${r["候选@默认"].padEnd(14)} ${r.噪声尺度}`);
   }
 }
+
+// ---- 15. matchups 一族：一个分析里三个门槛（对面英雄 12 / 我玩过的英雄 15 / 单个对位 5）
+//
+// 和 empirical 那一族同类：三个数在同一个分析里，各自管一层筛选。
+// 分开扫，看每个是不是真的在选东西 —— 尤其是 perPairGames 的 5：
+// 它原先是读 opts.minGames 的（默认 12），拆开时照抄了旧默认值 5，**没有任何依据**。
+{
+  console.log("\n=== matchups 一族：三个门槛各自单独扫（其余保持默认）===");
+
+  // (a) minGames：对面出现过的英雄
+  {
+    const rows = [];
+    for (const n of SWEEP) {
+      const r = await analyzeMatchups({ ...WHO, minGames: n });
+      const top = r.versusAll[0];
+      const se = top ? seOfDiff(top.games, top.winRate, 100, 50) : null;
+      rows.push({
+        n,
+        alive: `${r.versusAll.length} 个对面英雄`,
+        effect: top?.residual ?? null,
+        se,
+      });
+    }
+    table("(a) minGames：对面英雄条目数 + 最负残差（其余默认）", "pp", rows);
+  }
+
+  // (b) minChampionGames：我玩过的英雄（看英雄视角列出几个、以及它们各自的样本）
+  {
+    console.log("\n(b) minChampionGames：我玩过的英雄列出几个（其余默认）");
+    console.log("  门槛   列出英雄数   第一个英雄的样本");
+    for (const n of SWEEP) {
+      const r = await analyzeMatchups({ ...WHO, minChampionGames: n });
+      const first = r.byChampion[0];
+      console.log(`  ${String(n).padStart(4)}   ${String(r.byChampion.length).padStart(8)}   ${first ? `${first.champion} ${first.games} 把` : "—"}`);
+    }
+  }
+
+  // (c) perPairGames：英雄视角里「单个对位」的条目（默认 5，拆开时照抄的）
+  {
+    console.log("\n(c) perPairGames：英雄视角里单个对位至少几次才列（其余默认）");
+    console.log("  门槛   第一个英雄列出的对位数   其中最薄的那个样本");
+    for (const n of SWEEP) {
+      const r = await analyzeMatchups({ ...WHO, perPairGames: n });
+      const first = r.byChampion[0];
+      const pairs = first ? [...first.worst, ...first.best] : [];
+      const games = pairs.map((x) => x.games);
+      console.log(
+        `  ${String(n).padStart(4)}   ${String(pairs.length).padStart(20)}   ${games.length ? `${Math.min(...games)} 把` : "—"}`
+      );
+    }
+    const r5 = await analyzeMatchups({ ...WHO, perPairGames: 5 });
+    const f = r5.byChampion[0];
+    if (f) {
+      const all = [...f.worst, ...f.best];
+      const withK = all.map((x) => {
+        const se = seOfDiff(x.games, x.winRate, 100, 50);
+        return { n: x.games, wr: x.winRate, k: se > 0 ? Math.abs(x.winRate - 50) / se : 0 };
+      });
+      console.log(`  默认 5 下 ${f.champion} 的对位：` + withK.map((x) => `${x.n}把${x.wr.toFixed(0)}%(${x.k.toFixed(1)}倍)`).join(" · "));
+      console.log("  （「几倍」= 该对位胜率偏离 50% 约几个标准误；不到 2 的跟噪声分不开）");
+    }
+  }
+}
