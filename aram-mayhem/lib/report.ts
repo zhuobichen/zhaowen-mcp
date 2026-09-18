@@ -26,6 +26,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 interface Row {
   t: number;
+  multi?: { double: number; triple: number; quadra: number; penta: number };
   win: boolean;
   champ: string;
   kills: number;
@@ -68,6 +69,12 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
       const pid = pidOf(g);
       const p = (g.participants ?? []).find((x: any) => x.participantId === pid) ?? (g.participants ?? [])[0];
       const s: any = p?.stats ?? {};
+      const multi = {
+        double: Number(s.doubleKills ?? 0),
+        triple: Number(s.tripleKills ?? 0),
+        quadra: Number(s.quadraKills ?? 0),
+        penta: Number(s.pentaKills ?? 0),
+      };
       const cid = d.championIds[String(p?.championId)];
       return {
         t: g.gameCreation,
@@ -80,6 +87,7 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
         gold: s.goldEarned ?? 0,
         durationMin: Math.round((g.gameDuration ?? 0) / 60),
         augments: augmentIdsOf(g, pid),
+        multi,
       };
     })
     .sort((a, b) => a.t - b.t); // 从早到晚
@@ -268,6 +276,10 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
       championCount: champCounts.size,
       oneGameChampions: [...champCounts.values()].filter((c) => c === 1).length,
       avgAugments: n ? rows.reduce((s, r) => s + r.augments.length, 0) / n : 0,
+      double: rows.reduce((s, r) => s + (r.multi?.double ?? 0), 0),
+      triple: rows.reduce((s, r) => s + (r.multi?.triple ?? 0), 0),
+      quadra: rows.reduce((s, r) => s + (r.multi?.quadra ?? 0), 0),
+      penta: rows.reduce((s, r) => s + (r.multi?.penta ?? 0), 0),
     },
   };
 }
@@ -443,6 +455,10 @@ function demoData() {
       championCount: champCounts.size,
       oneGameChampions: [...champCounts.values()].filter((c) => c === 1).length,
       avgAugments: rows.reduce((s, r) => s + r.augments.length, 0) / n,
+      double: 42,
+      triple: 11,
+      quadra: 3,
+      penta: 1,
     },
   };
 }
@@ -973,6 +989,11 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
     ["场均时长", `${o.duration.toFixed(0)} 分`, `场均符文 ${o.avgAugments.toFixed(1)} 个`],
     ["最长连胜 / 连败", `${o.longestWin} / ${o.longestLoss}`, "波动幅度"],
     ["英雄池", `${o.championCount} 个`, `其中 ${o.oneGameChampions} 个只玩过 1 把`],
+    [
+      "五杀 / 四杀",
+      `${o.penta} / ${o.quadra}`,
+      `双杀 ${o.double} · 三杀 ${o.triple}`,
+    ],
   ]
     .map(
       ([label, value, sub]) =>

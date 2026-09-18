@@ -258,6 +258,59 @@ function levelPlacementScatter(rows: TftRow[]): string {
 </figure>`;
 }
 
+
+/**
+ * 羁绊组合（两两）与平均名次：看「哪两个羁绊一起成型时成绩最好」。
+ * 只统计成型羁绊（num_units ≥ 2），且组合出现 ≥ minGames 次才展示。
+ */
+function traitPairs(rows: TftRow[], minGames = 5): string {
+  const pairStat = new Map<string, { g: number; sum: number }>();
+  for (const r of rows) {
+    const traits = r.traits.filter((t) => t.includes("(") ? false : true).slice(0, 6);
+    for (let i = 0; i < traits.length; i++) {
+      for (let j = i + 1; j < traits.length; j++) {
+        const key = [traits[i], traits[j]].sort().join(" + ");
+        const c = pairStat.get(key) ?? { g: 0, sum: 0 };
+        c.g++;
+        c.sum += r.placement;
+        pairStat.set(key, c);
+      }
+    }
+  }
+  const items = [...pairStat.entries()]
+    .filter(([, v]) => v.g >= minGames)
+    .map(([name, v]) => ({ name, games: v.g, avgPlace: v.sum / v.g }))
+    .sort((a, b) => a.avgPlace - b.avgPlace)
+    .slice(0, 12);
+  if (!items.length) return "";
+  const rowH = 26,
+    labelW = 250,
+    valueW = 150;
+  const barW = W - labelW - valueW;
+  const H = items.length * rowH + 22;
+  const maxGames = Math.max(1, ...items.map((i) => i.games));
+  const body = items
+    .map((it, i) => {
+      const y = 16 + i * rowH;
+      const w = Math.max(2, (barW * it.games) / maxGames);
+      const color = it.avgPlace <= 4.5 ? "var(--pos)" : "var(--neg)";
+      return (
+        `<text class="row-label" x="0" y="${y + 12}" style="font-size:12px">${esc(it.name)}</text>` +
+        `<rect class="bar" x="${labelW}" y="${y + 3}" width="${w.toFixed(1)}" height="13" rx="4" fill="${color}"` +
+        ` data-tip="${esc(it.name)}|${it.games} 局 · 平均名次 ${it.avgPlace.toFixed(2)}"/>` +
+        `<text class="row-value" x="${W - 4}" y="${y + 13}" text-anchor="end">${it.games} 局 · 均 ${it.avgPlace.toFixed(2)}</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>羁绊组合与成绩（条形=该组合出现局数；颜色=平均名次是否好于 4.5，蓝=更好）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="羁绊组合平均名次图">
+    ${body}
+  </svg>
+</figure>`;
+}
+
 // ---------------------------------------------------------------- 渲染
 
 function render(data: Awaited<ReturnType<typeof collect>>): string {
@@ -348,6 +401,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
     <h2>阵容与棋子偏好</h2>
     ${preferenceBars("羁绊偏好", "常见羁绊（按平均名次排序；蓝色=平均名次好于 4.5，红色=更差）", pref("traits"))}
     ${preferenceBars("棋子偏好", "常见棋子（同样按平均名次排序，蓝=好于 4.5）", pref("units"))}
+    ${traitPairs(rows)}
   </section>
 
   <section>

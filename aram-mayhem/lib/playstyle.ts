@@ -36,6 +36,12 @@ export async function analyzeMyPlaystyle(): Promise<string> {
         gold: s.goldEarned ?? 0,
         minutes: Math.round((g.gameDuration ?? 0) / 60),
         augments: augmentIdsOf(g, pid),
+        // 高光字段（SGP 提供；LCU 来源没有则为 0）
+        doubleKills: Number(s.doubleKills ?? 0),
+        tripleKills: Number(s.tripleKills ?? 0),
+        quadraKills: Number(s.quadraKills ?? 0),
+        pentaKills: Number(s.pentaKills ?? 0),
+        firstBloodKill: Number(s.firstBloodKill ?? 0),
       };
     })
     .sort((a: any, b: any) => a.t - b.t);
@@ -161,7 +167,7 @@ export async function analyzeMyPlaystyle(): Promise<string> {
   out.push("");
 
   // 4b) 高光与效率（来自 SGP 的多杀/首杀/经济字段）
-  const num = (r: any, k: string) => Number(r.stats?.[k] ?? 0);
+  const num = (r: any, k: string) => Number(r[k] ?? 0);
   const multikills = rows.reduce(
     (acc: any, r: any) => {
       acc.double += num(r, "doubleKills");
@@ -189,6 +195,32 @@ export async function analyzeMyPlaystyle(): Promise<string> {
     );
   }
 
+  // 4c) 作息与强度：单日场次、最长连打
+  const byDay = new Map<string, number[]>();
+  for (const r of rows) {
+    const k = new Date(r.t).toLocaleDateString("zh-CN");
+    const arr = byDay.get(k) ?? [];
+    arr.push(r.t);
+    byDay.set(k, arr);
+  }
+  const days = [...byDay.entries()].map(([d, ts]) => ({ d, n: ts.length, ts: ts.sort((a, b) => a - b) }));
+  const busiestDay = [...days].sort((a, b) => b.n - a.n)[0];
+  const perDay = days.length ? n / days.length : 0;
+  // 最长连打：相邻两局间隔 ≤ 20 分钟算连续
+  let longestRun = 0;
+  for (const day of days) {
+    let run = 1;
+    for (let i = 1; i < day.ts.length; i++) {
+      run = day.ts[i] - day.ts[i - 1] <= 20 * 60 * 1000 ? run + 1 : 1;
+      longestRun = Math.max(longestRun, run);
+    }
+    longestRun = Math.max(longestRun, 1);
+  }
+  out.push("", "⑥ 作息与强度");
+  out.push(`  共在 ${days.length} 天里打了 ${n} 把，平均 ${perDay.toFixed(1)} 把/天`);
+  if (busiestDay) out.push(`  最猛的一天：${busiestDay.d}（${busiestDay.n} 把）`);
+  out.push(`  最长连打：${longestRun} 把（相邻间隔 ≤20 分钟算连续）`);
+
   // 5) 版本契合度：你拿的符文在版本榜的位置
   const augGames: Array<{ games: number; rank: number | null }> = [];
   const augStat = new Map<number, number>();
@@ -204,7 +236,7 @@ export async function analyzeMyPlaystyle(): Promise<string> {
     if (a.stats.rank <= 30) top30Picks += count;
     if (a.stats.rank > 100) bottomPicks += count;
   }
-  out.push("⑥ 版本契合度（你拿的符文 vs 社区站强度榜）");
+  out.push("⑦ 版本契合度（你拿的符文 vs 社区站强度榜）");
   if (rankedPicks) {
     out.push(
       `  有榜单数据的符文选择共 ${rankedPicks} 次：前 30 名占 ${fmtPct((top30Picks / rankedPicks) * 100, 0)}、100 名以后占 ${fmtPct(
