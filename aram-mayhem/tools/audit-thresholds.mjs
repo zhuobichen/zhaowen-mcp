@@ -59,7 +59,11 @@ const SAMPLE_REGISTRY = {
     splits: "对面 6 类标签 × 胜负",
     why: "实测（thresholds:sweep）：5~200 之间取值都不改变结论 —— 六类标签本来就都过线。效应（极差）只有 3.0pp，而噪声 4.6pp，比值 0.7：这个量级下根本看不出差别，门槛高低无所谓",
   },
-  "lib/counters.ts:minItemGames": { tool: "get_counter_items", splits: "装备（成装约 150 件）", why: "未说明" },
+  "lib/counters.ts:minItemGames": {
+    tool: "get_counter_items",
+    splits: "装备（成装约 150 件）",
+    why: "实测（thresholds:sweep）：门槛 5→120 幸存条目一直是 50，说明这些装备本来就都过线，门槛不 bind；极差 23pp 全程不变（同样是最大值统计量，别当效应量）",
+  },
   "lib/counters.ts:minBucketGames": { tool: "get_counter_items", splits: "对面阵容档 × 装备", why: "全库最高的门槛 —— 二维交叉，单元最多" },
 
   "lib/empirical.ts:minGames": {
@@ -67,12 +71,28 @@ const SAMPLE_REGISTRY = {
     splits: "符文 / 组合 / 羁绊（该文件有 6 处不同门槛）",
     why: "同一个文件里 20/30/60/100 都出现了，未说明为何不同",
   },
-  "lib/builds.ts:minGames": { tool: "get_my_builds", splits: "装备 × 槽位", why: "未说明" },
-  "lib/queue-stats.ts:minGames": { tool: "get_queue_stats", splits: "队列（4~6 个）", why: "未说明" },
-  "lib/tft-detail.ts:minGames": { tool: "get_tft_detail", splits: "棋子 / 装备", why: "未说明" },
+  "lib/builds.ts:minGames": {
+    tool: "get_my_builds",
+    splits: "装备 × 槽位（成装约 150 件，本号够样本的 30~50 件）",
+    why: "实测（thresholds:sweep）：门槛从 5 升到 80，幸存条目 52→4，而「幸存者极差」从 69pp 一路缩到 5pp —— 典型的低门槛把噪声算进来了。但**极差是最大值统计量**（条目越多必然越大），不能当效应量读，所以这组数字只能说明「极差随门槛单调缩小」",
+  },
+  "lib/queue-stats.ts:minGames": {
+    tool: "get_queue_stats",
+    splits: "队列（4~6 个）",
+    why: "实测（thresholds:sweep）：门槛从 5 扫到 200，**幸存队列始终是 1 个** —— 这个号的局几乎全在一个队列里，门槛定多少都不影响结论。在玩多个模式的账号上才会起作用",
+  },
+  "lib/tft-detail.ts:minGames": {
+    tool: "get_tft_detail",
+    splits: "棋子 / 装备（本号够样本的 90~110 个棋子）",
+    why: "实测（thresholds:sweep）：门槛 12→200，名次极差从 -4.3 缩到 -0.4，而比值一直在 0.5 上下 —— 整段都跟噪声分不开。也就是说棋子之间的名次差异这份数据看不出来，门槛高低都改变不了这一点",
+  },
   "lib/leaderboard.ts:minGames": { tool: "get_friend_leaderboard", splits: "账号（个位数）", why: "上榜最低局数，不是统计门槛" },
   "lib/trend.ts:minGamesPerWeek": { tool: "get_my_trend", splits: "自然周", why: "未说明" },
-  "lib/social.ts:minGames": { tool: "get_my_teammates", splits: "队友 / 对手", why: "未说明" },
+  "lib/social.ts:minGames": {
+    tool: "get_my_teammates",
+    splits: "队友 / 对手（本号同队过的 12 个账号）",
+    why: "实测（thresholds:sweep）：门槛 5→40 幸存账号 12→2，极差 41pp→15.5pp，比值 1.9~2.1 卡在线上。默认 3 时条目最多、但那个 41pp 是 12 个账号里的极差（同样是最大值统计量）",
+  },
 };
 
 /**

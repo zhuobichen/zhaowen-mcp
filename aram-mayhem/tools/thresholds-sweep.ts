@@ -16,6 +16,11 @@ import { analyzeContribution } from "../lib/contribution.js";
 import { analyzeComps } from "../lib/comps.js";
 import { analyzeTilt } from "../lib/tilt.js";
 import { analyzeMatchups } from "../lib/matchups.js";
+import { analyzeBuilds } from "../lib/builds.js";
+import { queueStats } from "../lib/queue-stats.js";
+import { tftDetail } from "../lib/tft-detail.js";
+import { analyzeCounters } from "../lib/counters.js";
+import { analyzeSocial } from "../lib/social.js";
 import { resolveMe } from "../lib/identity.js";
 
 const SWEEP = [5, 8, 10, 12, 15, 20, 30, 40, 60, 80, 120, 200];
@@ -129,4 +134,90 @@ console.log("效应/标准误 > 2 才算跟噪声分得开；< 2 的那些行，
     });
   }
   table("matchups：残差最负的那个英雄（负=比你该赢的更差）", "pp", rows);
+}
+
+// ---- 5~10. 其余带样本门槛的分析：量的是「门槛卡掉多少条目」+「幸存的那些撑不撑得起结论」
+//
+// 这些模块的结论形式各不相同，所以这里只取一个**共同可比的量**：
+// 幸存条目数 + 幸存者里最高与最低之间的差（以及它的标准误）。
+//
+// ⚠ **这个「极差」是最大值统计量，不能当成效应量读。**
+// 条目越多、极差越大是构造性的 —— 从 40 条里挑最高和最低两个，比率天然会超过 2，
+// 哪怕每一条都纯是噪声。所以 builds / counters 那两栏的「效应/标准误」列**不要**解读成
+// 「有真效应」；它们能说明的只有一件事：**极差随门槛上升一路缩小**（69→58→36→25→13），
+// 那是典型的「低门槛把噪声算进来了」的特征。
+//
+// 这一栏真正可靠的用法是**看门槛会不会改变幸存集合**：
+// 若门槛从 5 扫到 60 幸存条目数几乎不动，说明「定多少都一样」—— 那本身就是答案。
+// （queue-stats 就是这个情况：只有一个队列够样本。）
+
+/** 通用：给一组「有 games / 有比率」的条目，算幸存数与极差的标准误 */
+function summarize2<T extends { games: number }>(
+  items: T[],
+  rateOf: (x: T) => number | null,
+  n: number
+) {
+  const alive = items.filter((x) => x.games >= n);
+  const withRate = alive.filter((x) => rateOf(x) != null);
+  if (withRate.length < 2) return { alive: `${alive.length} 条够样本（不够比极差）`, effect: null, se: null };
+  const hi = withRate.reduce((a, x) => (rateOf(x)! > rateOf(a)! ? x : a));
+  const lo = withRate.reduce((a, x) => (rateOf(x)! < rateOf(a)! ? x : a));
+  return {
+    alive: `${alive.length} 条够样本`,
+    effect: rateOf(hi)! - rateOf(lo)!,
+    se: seOfDiff(hi.games, rateOf(hi)!, lo.games, rateOf(lo)!),
+  };
+}
+
+// 5. builds：装备门槛
+{
+  const rows = [];
+  for (const n of SWEEP) {
+    const r = await analyzeBuilds({ ...WHO, minGames: n });
+    rows.push({ n, ...summarize2(r.items, (x) => x.winRate, n) });
+  }
+  table("builds：装备胜率的极差（最高 − 最低）", "pp", rows);
+}
+
+// 6. queue-stats：队列门槛
+{
+  const rows = [];
+  for (const n of SWEEP) {
+    const r = await queueStats({ ...WHO, kind: "lol", minGames: n });
+    rows.push({ n, ...summarize2(r.buckets, (x) => x.winRate, n) });
+  }
+  table("queue-stats：各队列胜率的极差", "pp", rows);
+}
+
+// 7. tft-detail：棋子门槛（名次越小越好，极差用最低−最高）
+{
+  const rows = [];
+  for (const n of SWEEP) {
+    const r = await tftDetail({ ...WHO, minGames: n });
+    const s = summarize2(r.units, (x) => x.avgPlacement, n);
+    rows.push({ n, alive: s.alive, effect: s.effect == null ? null : -s.effect, se: s.se });
+  }
+  table("tft-detail：棋子平均名次的极差（越好 − 越差，负数=差距）", "名次", rows);
+}
+
+// 8. counters：对面阵容档门槛
+{
+  const rows = [];
+  for (const n of SWEEP) {
+    const r = await analyzeCounters({ ...WHO, minBucketGames: n });
+    // 每个阵容档给出「最好的装备」和「最差的装备」两组，合并起来看极差
+    const flat = r.buckets.flatMap((b) => [...(b.best ?? []), ...(b.worst ?? [])]);
+    rows.push({ n, ...summarize2(flat, (x) => x.winRate, n) });
+  }
+  table("counters：各阵容档里装备胜率的极差", "pp", rows);
+}
+
+// 9. social：队友/对手门槛
+{
+  const rows = [];
+  for (const n of SWEEP) {
+    const r = await analyzeSocial({ ...WHO, minGames: n });
+    rows.push({ n, ...summarize2([...r.teammates, ...r.opponents], (x) => x.winRate, n) });
+  }
+  table("social：同队过的账号之间胜率的极差", "pp", rows);
 }
