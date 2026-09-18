@@ -8,7 +8,8 @@
 // 所以这一版把两类都登记，并给差值阈值算出「要分辨它需要多少样本」。
 //
 // 用法：
-//   node tools/audit-thresholds.mjs           # 检查（登记齐全 + 配对一致 + 文档不漂）
+//   node tools/audit-thresholds.mjs           # 检查（登记齐全 + 配对一致 + 常量反查 + 文档不漂）
+//   node tools/audit-thresholds.mjs --list    # 按状态列出条目（没查过的 / 说明了理由但没量 / 统计上无关 / 有实测）
 //   node tools/audit-thresholds.mjs --selftest
 //   node tools/audit-thresholds.mjs --write   # 重新生成 docs/THRESHOLDS.md
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
@@ -449,6 +450,8 @@ const sharedConsts = new Map();
 for (const m of read("lib/thresholds.ts").matchAll(/export const (\w+)[^=]*=\s*(\d+)/g)) {
   sharedConsts.set(m[1], Number(m[2]));
 }
+/** 扫描器**认出**的常量（= 出现了对应登记条目的）。反查用：声明了却没被认出来，就是覆盖漏洞 */
+const resolvedConsts = new Set();
 
 const found = [];
 const unresolvedConsts = [];
@@ -468,6 +471,7 @@ for (const f of readdirSync(path.join(ROOT, "lib")).filter((x) => x.endsWith(".t
       else if (sharedConsts.has(raw)) {
         value = sharedConsts.get(raw);
         viaConst = raw;
+        resolvedConsts.add(raw);
       } else {
         unresolvedConsts.push(`lib/${f}:${i + 1} 的 ${m[1]} ?? ${raw} —— 常量 ${raw} 不在 lib/thresholds.ts 里`);
         continue;
@@ -486,7 +490,10 @@ for (const f of readdirSync(path.join(ROOT, "lib")).filter((x) => x.endsWith(".t
       if (raw === "0") continue;
       let val;
       if (/^\d+$/.test(raw)) val = Number(raw);
-      else if (sharedConsts.has(raw)) val = sharedConsts.get(raw);
+      else if (sharedConsts.has(raw)) {
+        val = sharedConsts.get(raw);
+        resolvedConsts.add(raw);
+      }
       else {
         unresolvedConsts.push(`lib/${f}:${i + 1} 的内联过滤 .games ${m[1]} ${raw} —— 常量 ${raw} 不在 lib/thresholds.ts 里`);
         continue;
@@ -506,6 +513,30 @@ for (const t of found) {
   merged.set(t.key, cur);
 }
 const problems = [...unresolvedConsts];
+// 反查：`lib/thresholds.ts` 里导出的常量，有没有哪个**在 lib/ 里被用了、扫描器却没认出来**。
+//
+// 这是上一轮那个漏洞的推广形式：把字面量提成常量之后，扫描器认不出 → 登记条目凭空消失
+// → 覆盖少一条，而且不会有任何提示。已知能骗过扫描的写法：
+//   · `?? (CONST)`（带括号）
+//   · 先赋给中间变量再 `?? 中间变量`
+//   · 内联过滤器里用常量（这条这轮刚补上）
+// 与其逐一堵写法，不如**反过来查**：声明了的常量，只要在 lib/ 里出现过、
+// 却没被任何登记条目认出来，就报出来 —— 换了什么写法都躲不掉。
+{
+  const libText = readdirSync(path.join(ROOT, "lib"))
+    .filter((x) => x.endsWith(".ts"))
+    .map((x) => read(`lib/${x}`))
+    .join("\n");
+  for (const [name] of sharedConsts) {
+    const usedInLib = new RegExp(`\\b${name}\\b`).test(libText);
+    if (usedInLib && !resolvedConsts.has(name)) {
+      problems.push(
+        `共用常量 ${name} 在 lib/ 里被用了，但扫描器没认出来 —— 它对应的门槛**没有进登记表**。` +
+          `多半是写法变了（带括号 / 走了中间变量 / 别的形态），改成扫描认得出的写法，或扩展扫描`
+      );
+    }
+  }
+}
 // 内联过滤也要登记 —— 这是「全部登记」这句话能不能成立的关键：前两张表看不见它们。
 for (const k of inlineFound.keys()) {
   if (!INLINE_REGISTRY[k]) problems.push(`内联样本过滤没登记：${k}（${inlineFound.get(k).file}:${inlineFound.get(k).lines.join(",")}）`);
