@@ -194,6 +194,22 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([label, v]) => ({ label, games: v.g, wins: v.w, winRate: pctNum(v.w, v.g) }));
 
+  // 周趋势（自然周，周一起算）：柱=场次、线=胜率，一眼看出「打得多的那几周赢不赢」
+  const weekMap = new Map<number, { g: number; w: number }>();
+  for (const r of rows) {
+    const dd = new Date(r.t);
+    dd.setHours(0, 0, 0, 0);
+    dd.setDate(dd.getDate() - ((dd.getDay() + 6) % 7)); // 周一
+    const key = dd.getTime();
+    const c = weekMap.get(key) ?? { g: 0, w: 0 };
+    c.g++;
+    if (r.win) c.w++;
+    weekMap.set(key, c);
+  }
+  const weekly = [...weekMap.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, v]) => ({ t, games: v.g, wins: v.w, winRate: pctNum(v.w, v.g) }));
+
   // 连败段（≥4 连败），在走势图上标出来
   const streaks: Array<{ startIdx: number; endIdx: number; len: number }> = [];
   let cur = 0;
@@ -293,6 +309,7 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     champions,
     augments,
     months,
+    weekly,
     streaks,
     pairs,
     teammates,
@@ -459,6 +476,12 @@ function demoData() {
     ll = Math.max(ll, cl);
   }
   const last20 = rows.slice(-20);
+  // 演示周趋势：按 7 天切块（真实数据是按自然周聚合的）
+  const weeklyDemo = Array.from({ length: Math.ceil(rows.length / 7) }, (_, i) => {
+    const chunk = rows.slice(i * 7, i * 7 + 7);
+    const w = chunk.filter((r) => r.win).length;
+    return { t: chunk[0].t, games: chunk.length, wins: w, winRate: pctNum(w, chunk.length) };
+  }).filter((x) => x.games > 0);
   return {
     name: "（演示数据）",
     cachedTotal: n,
@@ -468,6 +491,7 @@ function demoData() {
     champions: bucket((r) => r.champ, 5).sort((a, b) => b.games - a.games),
     augments,
     months,
+    weekly: weeklyDemo,
     streaks,
     // 演示队友（真实数据来自 social.js）
     opponents: [
@@ -965,6 +989,97 @@ function itemBars(items: Array<{ name: string; price: number; games: number; win
 }
 
 /**
+ * 周趋势：上下两块共享横轴的小倍数图 —— 上块柱子=该周场次（浅色，看投入），
+ * 下块折线=该周胜率（0~100%，虚线 50% 基准，看质量）。
+ * 两块分开画而不是双 Y 轴，是为了不让人把柱高和胜率看成同一把尺子。
+ * 周场次 <5 的点画成空心，提示样本少。
+ */
+function weeklyChart(weeks: Array<{ t: number; games: number; wins: number; winRate: number }>): string {
+  const H = 300,
+    padL = 46,
+    padR = 18,
+    padT = 16,
+    padB = 30,
+    gap = 26;
+  const volH = 74; // 上块高度
+  const rateT = padT + volH + gap;
+  const rateH = H - rateT - padB;
+  const plotW = W - padL - padR;
+  const slot = plotW / Math.max(1, weeks.length);
+  const barW = Math.max(3, Math.min(30, slot * 0.62));
+  const maxGames = Math.max(1, ...weeks.map((w) => w.games));
+  const yRate = (v: number) => rateT + rateH * (1 - v / 100);
+  const cxOf = (i: number) => padL + slot * i + slot / 2;
+
+  const grid = [0, 25, 50, 75, 100]
+    .map(
+      (v) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${yRate(v)}" y2="${yRate(v)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${yRate(v) + 4}" text-anchor="end">${v}%</text>`
+    )
+    .join("");
+
+  const bars = weeks
+    .map((w, i) => {
+      const h = Math.max(2, (volH * w.games) / maxGames);
+      const x = cxOf(i) - barW / 2;
+      const y = padT + volH - h;
+      return (
+        `<rect class="bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="3"` +
+        ` fill="var(--baseline)" data-tip="${fmtWeek(w.t)}|${w.wins}/${w.games} 胜 · 胜率 ${fmtPct(w.winRate, 1)}"/>`
+      );
+    })
+    .join("");
+
+  const pts = weeks.map((w, i) => ({ x: cxOf(i), y: yRate(w.winRate), w }));
+  const line =
+    pts.length > 1
+      ? `<polyline class="series-line" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}"/>`
+      : "";
+  const dots = pts
+    .map((p) => {
+      const thin = p.w.games < 5;
+      return (
+        `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.2"` +
+        (thin ? ` fill="var(--surface-1)" stroke="var(--accent)" stroke-width="1.6"` : ` fill="var(--accent)"`) +
+        ` data-tip="${fmtWeek(p.w.t)}|${p.w.games} 局 · 胜率 ${fmtPct(p.w.winRate, 1)}${thin ? "（样本少）" : ""}"/>`
+      );
+    })
+    .join("");
+
+  // 横轴：周数多时隔几个标一次，避免重叠
+  const every = Math.ceil(weeks.length / 12);
+  const xLabels = weeks
+    .map((w, i) =>
+      i % every === 0
+        ? `<text class="axis-label" x="${cxOf(i).toFixed(1)}" y="${H - 10}" text-anchor="middle">${fmtWeek(w.t)}</text>`
+        : ""
+    )
+    .join("");
+
+  return `
+<figure class="chart">
+  <figcaption>逐周场次（上，柱=该周局数）与周胜率（下，折线；虚线为 50% 基准，空心点=该周不足 5 局）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="周场次与周胜率">
+    <text class="axis-label" x="${padL}" y="${padT - 4}">场次（最高 ${maxGames} 局）</text>
+    ${bars}
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${yRate(50)}" y2="${yRate(50)}"/>
+    ${line}
+    ${dots}
+    ${xLabels}
+  </svg>
+</figure>`;
+}
+
+/** 周一日期 → 短标签（如 09/14） */
+function fmtWeek(t: number): string {
+  const d = new Date(t);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())}`;
+}
+
+/**
  * 对位：背离条形图（diverging）。
  * 中轴 = 0，向右（蓝）表示扣掉该英雄自身强度后你还打得更好，向左（红）表示你额外打不过。
  * 用残差而不是原始胜率，是因为「敌方英雄本身强」本来就会拉低所有人的胜率，不减掉会误判成你的克星。
@@ -1205,6 +1320,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
   <section>
     <h2>走势与分布</h2>
     ${lineChart(data.rolling, data.streaks)}
+    ${data.weekly.length > 1 ? weeklyChart(data.weekly) : ""}
     ${monthlyChart(data.months)}
     ${hourChart(data.rows)}
     ${championBars(data.champions)}

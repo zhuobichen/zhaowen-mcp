@@ -27,6 +27,7 @@ import { exportText } from "./lib/export.js";
 import { empiricalAugmentsText, empiricalPairsText, synergyCheckText } from "./lib/empirical.js";
 import { tftDetailText } from "./lib/tft-detail.js";
 import { trendText } from "./lib/trend.js";
+import { queueStatsText } from "./lib/queue-stats.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -311,6 +312,19 @@ async function main() {
         },
       },
       {
+        name: "get_queue_stats",
+        description:
+          "按队列拆分看：海斗其实不止一个队列（2400 普通 / 2410 巅峰赛 / 2450 经典模式版 / 4310 官方无名的那个），云顶也有排位与各种活动队列。列出每个队列的场次、胜率或平均名次、时长、英雄数。样本 <10 局的队列只报数字不下结论。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            kind: { type: "string", enum: ["lol", "tft"], description: "看英雄联盟全部模式（默认 lol）还是云顶" },
+            min_games: { type: "number", description: "多少局以上才下结论（默认 10）" },
+          },
+        },
+      },
+      {
         name: "get_my_trend",
         description:
           "周趋势：把对局按自然周（周一起算）分桶，看场次/胜率/KDA/场均伤害的逐周变化，并给出「最近 4 个有效周 vs 之前 4 个有效周」的结论。用归档数据，攒得越久越能看出长期走势。可查云顶（kind=tft）或好友（who）。",
@@ -545,6 +559,15 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_queue_stats":
+          return text(
+            await queueStatsText({
+              who: args.who ? String(args.who) : undefined,
+              kind: args.kind === "tft" ? "tft" : "lol",
+              minGames: args.min_games ? Number(args.min_games) : undefined,
             })
           );
 
