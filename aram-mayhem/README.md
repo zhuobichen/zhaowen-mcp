@@ -155,7 +155,7 @@ npm run audit:direction # 结论方向：说「变强了」时差值真是正的
 npm run audit:confidence # 置信措辞：说「可以当真」时，点名的那个对象样本够吗
 npm run audit:recompute # 与原始数据对账：工具报的数，跟直接读归档独立算出来的对得上吗
 npm run audit:coldstart # 冷启动：归档为空 + 客户端离线时，工具会不会只回一个空壳（跑两遍：冷启动该提示、健康模式不该提示）
-npm run audit:wiring # 接线审计：有没有游离文件/死代码、工具与文档是否对得上、scripts 指向的文件在不在
+npm run audit:wiring # 接线审计：游离文件/死代码、工具↔文档↔scripts 对得上吗、每个 script 有没有交代、审计进程有没有设写盘闸
 npm run audit           # 上面 13 个依次跑一遍（约 3 分钟，任一失败即中断）
 npm run audit:health    # 健康报告：把上面 13 个各跑一遍，只留每份的结论行汇成一张表（约 165 秒）
 npm run audit:health:md # 同上，并写一份 HEALTH.md 存下来对照历史
@@ -174,6 +174,10 @@ npm run sgp:probe    # 实测 SGP 能翻到多少历史（需要客户端在线�
 npm run team:scout   # 选人阶段侦察队友（只读）
 npm run team:say     # 往选人频道发一条（需 --yes）
 ```
+
+上面没列到的，基本都是**各 MCP 工具的命令行版**：名字跟工具名对应（`get_my_trend` → `npm run trend`，`get_game_detail` → `npm run game`，`export_report_markdown` → `npm run report:md`……），把同一份输出直接打到终端。用在「没接 MCP 客户端、只想在命令行看一眼」或者排查工具本身的时候。`package.json` 里还有几个一次性的接口摸底探针（`sgp:probe`、`wegame:probe` 等），结论已经写进下面各节，平时不用跑。
+
+`npm run audit:wiring` 会检查**每个 script 是否都有交代** —— 要么出现在上面这段里，要么在豁免名单里写明理由；新加了 script 却两边都没写，会被报出来。这段清单是手工维护的（那些中文说明值得手写），所以给它配了检查，免得像别的地方那样悄悄烂掉。
 
 每次 `npm run refresh` 会按补丁号在 `data/patch-snapshots/<补丁>.json` 存一份快照，攒够两个版本后 `compare_patches` 就能做版本对比。
 

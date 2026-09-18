@@ -378,6 +378,19 @@ export interface RefreshResult {
 }
 
 /**
+ * 审计/测试进程的「不许写盘」闸。
+ *
+ * 起因是一次真实事故：冷启动审计（tools/audit-coldstart.mjs）遍历**全部**工具，
+ * 而它的参数表里没有 `refresh_data` —— 于是 `ARGS[name] ?? {}` 让它以 dryRun 缺省跑了，
+ * 一次只读审计实际发起了联网刷新、改写了 data/meta.json 的 updatedAt。
+ * 后果不只是慢：`get_data_info` 显示的「数据更新时间」会变成用户从没要求过的刷新。
+ *
+ * 靠「记得给每个审计加上 dry_run」是不牢靠的（已经漏过一次）。所以把闸设在**写盘处**：
+ * 审计进程设 MAYHEM_NO_WRITES=1，这里就跳过所有写操作，并如实说明。
+ */
+export const NO_WRITES = process.env.MAYHEM_NO_WRITES === "1";
+
+/**
  * 拉取三份数据源、合并、写盘。
  * @param opts.dryRun 只做合并与校验，不写任何文件
  */
@@ -1026,7 +1039,8 @@ export async function refreshData(opts: { dryRun?: boolean } = {}): Promise<Refr
     }
   }
 
-  if (!opts.dryRun) {
+  // 写盘闸：dryRun 显式要求不写；MAYHEM_NO_WRITES 是审计进程兜底的「一律不许写」
+  if (!opts.dryRun && !NO_WRITES) {
     await mkdir(SNAPSHOT_DIR, { recursive: true });
     const write = async (name: string, data: unknown, pretty = false) =>
       writeFile(

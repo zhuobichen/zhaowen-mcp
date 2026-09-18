@@ -55,7 +55,12 @@ function recompute() {
   return { games: games_, wins, winRate: games_ ? (wins / games_) * 100 : 0, kills, champs };
 }
 
-const child = spawn(process.execPath, [TSX, path.join(ROOT, "index.ts")], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] });
+const child = spawn(process.execPath, [TSX, path.join(ROOT, "index.ts")], {
+  cwd: ROOT,
+  stdio: ["pipe", "pipe", "pipe"],
+  // 审计进程一律不许写盘（闸设在 lib/refresh.ts 的写盘处）
+  env: { ...process.env, MAYHEM_NO_WRITES: "1" },
+});
 let buf = "";
 const pending = new Map();
 let nextId = 1;

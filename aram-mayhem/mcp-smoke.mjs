@@ -15,6 +15,7 @@ const TSX = path.join(HERE, "node_modules", "tsx", "dist", "cli.mjs");
 const child = spawn(process.execPath, [TSX, path.join(HERE, "index.ts")], {
   cwd: HERE,
   stdio: ["pipe", "pipe", "pipe"],
+  env: { ...process.env, MAYHEM_NO_WRITES: "1" },
 });
 
 let buf = "";

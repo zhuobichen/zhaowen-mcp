@@ -23,7 +23,7 @@ const flag = (f) => {
 const AUDITS = [
   { key: "fields", title: "字段审计", cmd: ["tools/audit-fields.mjs"], what: "归档采集的字段有没有「采了但从没被读」的" },
   { key: "analysis", title: "分析审计", cmd: ["tools/audit-analysis.mjs"], what: "字段是「被读过」还是「真被分析过」" },
-  { key: "wiring", title: "接线审计", cmd: ["tools/audit-wiring.mjs"], what: "游离文件/死代码/工具↔文档↔scripts 是否对得上" },
+  { key: "wiring", title: "接线审计", cmd: ["tools/audit-wiring.mjs"], what: "游离文件/死代码、工具↔文档↔scripts 是否对得上、每个 script 有没有交代、审计进程有没有设写盘闸" },
   { key: "surfaced", title: "可见性审计", cmd: ["tools/audit-surfaced.mjs"], what: "分析结果有没有进报告" },
   { key: "help", title: "引导覆盖", cmd: ["tools/audit-help.mjs"], what: "每个工具能否从场景引导里被找到" },
   { key: "length", title: "输出长度", cmd: ["tools/audit-length.mjs"], what: "真的调一遍量行数，超过 120 行就报" },

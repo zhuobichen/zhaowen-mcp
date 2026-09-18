@@ -136,6 +136,67 @@ for (const [name, cmd] of Object.entries(pkg.scripts ?? {})) {
 if (missingScriptFiles.length) bad(`指向不存在的文件：\n      ${missingScriptFiles.join("\n      ")}`);
 else ok(`${Object.keys(pkg.scripts ?? {}).length} 个 script 指向的文件都存在`);
 
+// ---------------------------------------------------------------- C2. 每个 script 在 README 里被提到了吗
+//
+// README 的「数据刷新与自检」那段也是**手工维护的第二份清单** —— 和刚修掉的
+// 「按处境查」表是同一类问题：加了个 script 忘了写进 README，用户就不知道它存在。
+// 这里不生成（那些中文说明手写才有价值），只查「有没有漏」。
+console.log("\nC2. 每个 script 有没有在 README 里露面");
+
+// 明确不写进 README 的：要么是上面那些的开关，要么是内部调试用。每个都要有理由。
+const UNDOCUMENTED_OK = new Map([
+  ["start", "就是 `npx tsx index.ts`，MCP 客户端自己会拉起，不是给人手打的"],
+  ["help:readme:check", "help:readme 的 --check 形式，README 里已一并说明"],
+  ["audit:recompute:html", "audit:recompute 的重活开关，默认不开（要 90 秒），README 里已一并说明"],
+  ["pc:capture:chained", "pc:capture 的链式代理变体，属排障用法"],
+  ["pc:proxy-status", "pc:proxy-on 的状态查询"],
+  ["wegame:probe", "是一次性的接口摸底探针，结论已写在 README 的抓包那节"],
+  ["wegame:enum", "同上，枚举 WeGame 接口用"],
+  ["export:csv", "export_games_csv 的命令行版"],
+  ["report:md", "export_report_markdown 的命令行版"],
+  ["matchups", "get_my_matchups 的命令行版"],
+  ["empirical", "符文实证榜的命令行版"],
+  ["tft:detail", "get_tft_detail 的命令行版"],
+  ["trend", "get_my_trend 的命令行版"],
+  ["queue:stats", "get_queue_stats 的命令行版"],
+  ["patches", "get_my_patches 的命令行版"],
+  ["comps", "get_enemy_comps 的命令行版"],
+  ["counters", "get_counter_items 的命令行版"],
+  ["contribution", "get_my_contribution 的命令行版"],
+  ["tilt", "get_my_tilt 的命令行版"],
+  ["checkup", "get_my_checkup 的命令行版"],
+  ["game", "get_game_detail 的命令行版"],
+  ["combat", "get_combat_profile 的命令行版"],
+]);
+
+const readmeText = read("README.md").replace(/\r\n/g, "\n"); // 仓库是 CRLF，不归一化则围栏一条都匹配不上
+const shBlocks = [...readmeText.matchAll(/```(?:sh|bash)\n([\s\S]*?)```/g)].map((m) => m[1]).join("\n");
+const documented = new Set([...shBlocks.matchAll(/npm run ([a-z0-9:_-]+)/g)].map((m) => m[1]));
+
+const scriptNames = Object.keys(pkg.scripts ?? {});
+const undocumented = scriptNames.filter((s) => !documented.has(s) && !UNDOCUMENTED_OK.has(s));
+const documentedGhosts = [...documented].filter((s) => !scriptNames.includes(s));
+const staleAllowlist = [...UNDOCUMENTED_OK.keys()].filter((s) => !scriptNames.includes(s));
+// 豁免名单里「其实 README 已经写了」的条目：说明那条豁免的理由是假的，
+// 留着会让「README 列了 N 个 + 豁免 M 个」这个加法对不上（数量会超过 script 总数）。
+const pointlessAllowlist = [...UNDOCUMENTED_OK.keys()].filter((s) => documented.has(s) && scriptNames.includes(s));
+
+if (documentedGhosts.length) bad(`README 里写了不存在的 script：${documentedGhosts.join(", ")}`);
+if (staleAllowlist.length) bad(`豁免名单里有过期的条目（script 已经删了）：${staleAllowlist.join(", ")}`);
+if (pointlessAllowlist.length) {
+  bad(`豁免名单里这些其实 README 已经列了（豁免理由不成立，删掉这几条）：${pointlessAllowlist.join(", ")}`);
+}
+if (undocumented.length) {
+  bad(`${undocumented.length} 个 script 既没进 README、也不在豁免名单里：\n      ${undocumented.join("\n      ")}`);
+}
+// 只有这一节三项都干净时才报 ✓ —— 否则会出现「✗ 上面一条 + ✓ 这一条」的自我矛盾
+if (!undocumented.length && !documentedGhosts.length && !staleAllowlist.length && !pointlessAllowlist.length) {
+  ok(
+    `${scriptNames.length} 个 script 都有交代 —— README 列了 ${documented.size} 个，` +
+      `另有 ${UNDOCUMENTED_OK.size} 个在豁免名单里、各写了理由`
+  );
+}
+
 // ---------------------------------------------------------------- D. probe/CLI 有没有 npm script
 console.log("\nD. probe / CLI 脚本有没有配套 npm script");
 const loose = [];
@@ -147,6 +208,32 @@ for (const dir of ["lib", "tools"]) {
 }
 if (loose.length) bad(`有脚本但没接进 npm scripts（只能靠手打路径跑）：\n      ${loose.join("\n      ")}`);
 else ok("所有 probe / CLI 都有配套 npm script");
+
+// ---------------------------------------------------------------- E. 审计进程不许写盘
+//
+// 这是真出过一次的事故：冷启动审计遍历**全部**工具，参数表里漏了 `refresh_data`，
+// 于是 `ARGS[name] ?? {}` 让它以 dryRun 缺省跑了 —— 一次只读审计发起了联网刷新、
+// 改写了 data/meta.json 的 updatedAt。更坏的是它不报错：`get_data_info` 显示的
+// 「数据更新时间」会变成用户从没要求过的刷新，而没人会想到去怀疑一个审计。
+//
+// 闸设在 lib/refresh.ts 的写盘处（环境变量 MAYHEM_NO_WRITES）。
+// 这里查「凡是会起 MCP 服务的审计，有没有设这道闸」—— 靠「记得加 dry_run」已经漏过一次。
+console.log("\nE. 审计进程有没有设「不许写盘」的闸");
+const spawners = [...readdirSync(path.join(ROOT, "tools"))]
+  .filter((f) => /^audit-.*\.mjs$/.test(f))
+  .map((f) => `tools/${f}`)
+  .concat(["mcp-smoke.mjs"]);
+const unguarded = spawners.filter((f) => {
+  const t = read(f);
+  if (!/\bspawn\(/.test(t)) return false; // 不起服务的（纯静态检查）不用管
+  return !t.includes("MAYHEM_NO_WRITES");
+});
+if (unguarded.length) {
+  bad(`这些脚本会起 MCP 服务但没设写盘闸，可能悄悄改数据：\n      ${unguarded.join("\n      ")}`);
+} else {
+  const n = spawners.filter((f) => /\bspawn\(/.test(read(f))).length;
+  ok(`${n} 个会起服务的审计/冒烟脚本都设了 MAYHEM_NO_WRITES`);
+}
 
 // 收尾结论行：健康报告按这一行的前缀分档（✓ 通过 / ⚠ 注意 / ✗ 失败）。
 // 原先只写「全部通过。」—— 绿是绿的，但没说什么通过了，聚合到一张表上等于没信息。

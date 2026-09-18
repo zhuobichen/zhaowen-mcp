@@ -28,6 +28,11 @@ const ARGS = {
   export_compare_report: { b: "丁ding" },
   get_champ_select_teammates: {},
   send_champ_select_message: { text: "x", confirm: false },
+  // 这个**必须**显式给 dry_run。本脚本遍历 tools/list 的**全部**工具，而下面用的是
+  // `ARGS[name] ?? {}` —— 漏了这一条就等于以 dryRun 缺省去调它，一次只读审计会真的
+  // 联网刷新并改写 data/meta.json 的 updatedAt（`get_data_info` 显示的「数据更新时间」
+  // 就此变成用户没要求过的刷新）。已经漏过一次，是「跑完审计发现 data/ 被改了」查出来的。
+  refresh_data: { dry_run: true },
 };
 
 const child = spawn(process.execPath, [TSX, path.join(ROOT, "index.ts")], {
@@ -39,7 +44,13 @@ const child = spawn(process.execPath, [TSX, path.join(ROOT, "index.ts")], {
   // （第一版就是这样，21 个工具全被误判成「没说清楚怎么办」）。
   // --healthy：正常数据下跑一遍，验证这条提示**不会**误触发。
   // 只测「该出现时出现」是不够的 —— 提示要是到处都出现，那比没有还糟（变成噪声）。
-  env: HEALTHY ? { ...process.env } : { ...process.env, MAYHEM_ARCHIVE_DIR: EMPTY, MAYHEM_LCU_OFFLINE: "1" },
+  // MAYHEM_NO_WRITES：审计进程一律不许写盘（闸设在 lib/refresh.ts 的写盘处）。
+  // 参数表里漏一个就靠它兜底 —— 这个脚本已经因为漏了 refresh_data 真写过一次。
+  env: {
+    ...process.env,
+    MAYHEM_NO_WRITES: "1",
+    ...(HEALTHY ? {} : { MAYHEM_ARCHIVE_DIR: EMPTY, MAYHEM_LCU_OFFLINE: "1" }),
+  },
 });
 
 let buf = "";

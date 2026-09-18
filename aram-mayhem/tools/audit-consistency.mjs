@@ -33,7 +33,7 @@ const EXPECTED = {
   analyze_my_playstyle: {},
 };
 
-const child = spawn(process.execPath, [TSX, path.join(ROOT, "index.ts")], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] });
+const child = spawn(process.execPath, [TSX, path.join(ROOT, "index.ts")], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, MAYHEM_NO_WRITES: "1" } });
 let buf = "";
 const pending = new Map();
 let nextId = 1;

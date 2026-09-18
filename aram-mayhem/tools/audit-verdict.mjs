@@ -23,7 +23,7 @@ const CASES = [
   { tool: "get_my_matchups", args: {} },
 ];
 
-const child = spawn(process.execPath, [TSX, path.join(ROOT, "index.ts")], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] });
+const child = spawn(process.execPath, [TSX, path.join(ROOT, "index.ts")], { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, MAYHEM_NO_WRITES: "1" } });
 let buf = "";
 const pending = new Map();
 let nextId = 1;
