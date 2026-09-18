@@ -73,13 +73,23 @@ interface Tally {
   wins: number;
 }
 
-/** 把归档里所有「带符文的海斗参与者行」扫一遍，交给回调聚合 */
-async function scan<T>(init: () => T, visit: (t: T, augments: number[], win: boolean) => void): Promise<{ acc: T; games: number; rows: number }> {
+/**
+ * 把归档里所有「带符文的海斗参与者行」扫一遍，交给回调聚合。
+ *
+ * `excludePuuid` 用来剔掉某个人自己的行 —— 于是剩下的就是「**其他人**拿同一个符文时打得如何」，
+ * 这才是「我打得差」该对比的基线（跟全服统计比会被口径差异污染）。
+ */
+async function scan<T>(
+  init: () => T,
+  visit: (t: T, augments: number[], win: boolean) => void,
+  excludePuuid?: string | null
+): Promise<{ acc: T; games: number; rows: number }> {
   const games = (await archivedGamesFor("lol")).filter(isMayhemGame);
   const acc = init();
   let rows = 0;
   for (const g of games) {
     for (const p of g.participants ?? []) {
+      if (excludePuuid && p.puuid === excludePuuid) continue;
       const s: any = p.stats ?? {};
       const ids: number[] = [];
       for (let i = 1; i <= 6; i++) {
@@ -92,6 +102,37 @@ async function scan<T>(init: () => T, visit: (t: T, augments: number[], win: boo
     }
   }
   return { acc, games: games.length, rows };
+}
+
+/**
+ * 「其他人」的符文胜率表：id → 胜率（%）。
+ *
+ * 用途是把个人的符文表现和**同局的其他人**比，而不是和全服统计比 ——
+ * 大家排在同一批对局里，版本、队列、分段都一致，差出来的才是你自己的问题。
+ */
+export async function othersAugmentRates(
+  myPuuid: string,
+  opts: { minGames?: number } = {}
+): Promise<Map<number, { games: number; winRate: number }>> {
+  const { acc } = await scan(
+    () => new Map<number, Tally>(),
+    (m, ids, win) => {
+      for (const id of ids) {
+        const c = m.get(id) ?? { games: 0, wins: 0 };
+        c.games++;
+        if (win) c.wins++;
+        m.set(id, c);
+      }
+    },
+    myPuuid
+  );
+  const min = opts.minGames ?? 30;
+  const out = new Map<number, { games: number; winRate: number }>();
+  for (const [id, t] of acc) {
+    if (t.games < min) continue;
+    out.set(id, { games: t.games, winRate: rate(t) });
+  }
+  return out;
 }
 
 function rate(t: Tally): number {

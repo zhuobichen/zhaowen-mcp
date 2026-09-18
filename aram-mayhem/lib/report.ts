@@ -147,6 +147,16 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
       augStat.set(id, c);
     }
   }
+  // 「其他人」基线：把同批对局里别人的行单独统计（剔掉我自己），
+  // 于是能看到「我打不好的符文是不是大家都打不好」——比拿全服统计比更干净。
+  let others = new Map<number, { games: number; winRate: number }>();
+  try {
+    const { othersAugmentRates } = await import("./empirical.js");
+    others = await othersAugmentRates(me.puuid, { minGames: 30 });
+  } catch {
+    /* 归档为空就拿不到，图层会少一列参照，不编数字 */
+  }
+
   const augments = [...augStat.entries()]
     .filter(([, v]) => v.g >= 8)
     .map(([id, v]) => {
@@ -159,6 +169,9 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
         winRate: pctNum(v.w, v.g),
         versionWr,
         versionRank: a?.stats?.rank ?? null,
+        /** 同批对局里其他人拿同一个符文的胜率（%），样本不足时为 null */
+        othersWr: others.get(id)?.winRate ?? null,
+        othersGames: others.get(id)?.games ?? null,
         rarity: a?.rarity ?? "unknown",
         availability: a?.availability ?? "unknown",
       };
@@ -421,6 +434,8 @@ function demoData() {
         winRate: pctNum(v.w, v.g),
         versionWr: a?.stats?.winRate ? Number(String(a.stats.winRate).replace("%", "")) : null,
         versionRank: a?.stats?.rank ?? null,
+        othersWr: null as number | null,
+        othersGames: null as number | null,
         rarity: a?.rarity ?? "unknown",
         availability: a?.availability ?? "unknown",
       };
@@ -1030,6 +1045,36 @@ function findings(data: Awaited<ReturnType<typeof collect>>): string[] {
     );
   }
 
+  // 「我 vs 同批对局里的其他人」：剔掉自己之后同一符文的胜率差
+  // 本地符文库里查不到名字的（未知#xxxx）不写进结论 —— 说不出名字的符文没法指导打法
+  const withOthers = augments.filter((a) => a.othersWr != null && a.games >= 8 && !a.name.startsWith("未知"));
+  const below = withOthers
+    .map((a) => ({ ...a, gap: (a.winRate as number) - (a.othersWr as number) }))
+    .filter((a) => a.gap <= -8)
+    .sort((a, b) => a.gap - b.gap)
+    .slice(0, 4);
+  const above = withOthers
+    .map((a) => ({ ...a, gap: (a.winRate as number) - (a.othersWr as number) }))
+    .filter((a) => a.gap >= 10)
+    .sort((a, b) => b.gap - a.gap)
+    .slice(0, 4);
+  if (below.length) {
+    out.push(
+      `**这些符文是你自己的问题，不是符文的问题。** 同一批对局里，别人拿它们的胜率是：` +
+        below
+          .map((a) => `${a.name}（你 ${fmtPct(a.winRate, 0)} vs 其他人 ${fmtPct(a.othersWr as number, 0)}，${a.games} 把）`)
+          .join("；") +
+        "。大家在同一批对局、同一个版本、同一个队列里，差出来的这部分只能归到用法上。"
+    );
+  }
+  if (above.length) {
+    out.push(
+      `**这几件你用得比旁人好：** ` +
+        above.map((a) => `${a.name}（+${a.gap.toFixed(0)} 个百分点）`).join("、") +
+        " —— 说明你的打法和它们契合，优先拿。"
+    );
+  }
+
   const byWr = champions.filter((c) => c.games >= 5).sort((a, b) => b.winRate - a.winRate);
   const good = byWr.slice(0, 3),
     bad = byWr.slice(-3).reverse();
@@ -1115,12 +1160,21 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
   const champTable = data.champions
     .map((c) => `<tr><td>${esc(c.name)}</td><td class="num">${c.games}</td><td class="num">${c.wins}</td><td class="num">${fmtPct(c.winRate, 1)}</td></tr>`)
     .join("");
+  const hasOthers = data.augments.some((a) => a.othersWr != null);
   const augTable = data.augments
-    .map(
-      (a) =>
+    .map((a) => {
+      // 和「其他人」的差：正数说明同一批对局里你比旁人打得好
+      const gap =
+        a.othersWr != null ? Number(a.winRate) - a.othersWr : null;
+      return (
         `<tr><td>${esc(a.name)}</td><td class="num">${a.games}</td><td class="num">${a.wins}</td><td class="num">${fmtPct(a.winRate, 1)}</td>` +
+        (hasOthers
+          ? `<td class="num">${a.othersWr != null ? fmtPct(a.othersWr, 1) : "—"}</td>` +
+            `<td class="num">${gap != null ? (gap >= 0 ? "+" : "") + gap.toFixed(1) : "—"}</td>`
+          : "") +
         `<td class="num">${a.versionWr != null ? fmtPct(a.versionWr, 1) : "—"}</td><td class="num">${a.versionRank ?? "—"}</td></tr>`
-    )
+      );
+    })
     .join("");
 
   const generated = new Date().toLocaleString("zh-CN", { hour12: false });
@@ -1178,8 +1232,8 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
     ${augmentBullets(data.augments.slice(0, 14))}
     <details>
       <summary>符文数据表（≥8 把）</summary>
-      <table><caption>符文胜率明细（版本胜率来自社区站强度榜）</caption>
-        <thead><tr><th>符文</th><th class="num">场次</th><th class="num">胜</th><th class="num">你的胜率</th><th class="num">版本胜率</th><th class="num">版本名次</th></tr></thead>
+      <table><caption>符文胜率明细（「其他人」= 同批对局里剔掉我之后、拿过同一个符文的人的胜率；版本胜率来自社区站强度榜）</caption>
+        <thead><tr><th>符文</th><th class="num">场次</th><th class="num">胜</th><th class="num">你的胜率</th>${hasOthers ? '<th class="num">其他人</th><th class="num">差值</th>' : ""}<th class="num">版本胜率</th><th class="num">版本名次</th></tr></thead>
         <tbody>${augTable}</tbody>
       </table>
     </details>
