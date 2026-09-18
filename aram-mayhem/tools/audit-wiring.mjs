@@ -152,6 +152,7 @@ const UNDOCUMENTED_OK = new Map([
   ["help:readme:check", "help:readme 的 --check 形式，README 里已一并说明"],
   ["audit:recompute:html", "audit:recompute 的重活开关，默认不开（要 90 秒），README 里已一并说明"],
   ["audit:protocol:selftest", "audit:protocol 的判据自测形式，README 里已一并说明"],
+  ["audit:thresholds:selftest", "audit:thresholds 的判据自测形式，README 里已一并说明"],
   ["pc:capture:chained", "pc:capture 的链式代理变体，属排障用法"],
   ["pc:proxy-status", "pc:proxy-on 的状态查询"],
   ["wegame:probe", "是一次性的接口摸底探针，结论已写在 README 的抓包那节"],

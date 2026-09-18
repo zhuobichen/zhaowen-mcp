@@ -87,7 +87,15 @@ function cachedGlobalWinRate(championId: number): number | null {
 }
 
 export async function analyzeMatchups(
-  opts: { who?: string; games?: number; minGames?: number; minChampionGames?: number; puuid?: string; name?: string } = {}
+  opts: {
+    who?: string;
+    games?: number;
+    minGames?: number;
+    minChampionGames?: number;
+    perPairGames?: number;
+    puuid?: string;
+    name?: string;
+  } = {}
 ): Promise<MatchupReport> {
   let puuid: string;
   let name: string;
@@ -173,7 +181,14 @@ export async function analyzeMatchups(
     .sort((a, b) => (a.residual ?? a.delta) - (b.residual ?? b.delta) || b.games - a.games);
 
   const minChampionGames = opts.minChampionGames ?? 15;
-  const perPair = opts.minGames ?? 5;
+  // perPair 原先读的是 `opts.minGames`，跟上面那个「对面英雄至少出现多少次」共用同一个输入、
+  // 默认值却不同（12 vs 5）。后果有两层：
+  //   ① 用户传 `min_games: 5` 会把**整体视角**的门槛也从 12 悄悄降到 5 ——
+  //      而 index.ts 的描述只说它管「对面英雄至少出现多少次」，没提这一层。
+  //   ② 更隐蔽：checkup.ts / report.ts 内部固定传 `minGames: 12`，
+  //      于是同一个分析从工具直接调（perPair=5）和从报告里调（perPair=12）**结果不一样**。
+  // 现在给它自己的选项，`minGames` 只管它该管的那一件事。
+  const perPair = opts.perPairGames ?? 5;
   const byChampion: ChampionMatchup[] = [...byChamp.entries()]
     .filter(([, v]) => v.games >= minChampionGames)
     .map(([id, v]) => {

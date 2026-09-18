@@ -44,7 +44,7 @@
         "combat": "tsx lib/combat-probe.ts",
         "audit:fields": "node tools/audit-fields.mjs",
         "audit:wiring": "node tools/audit-wiring.mjs",
-        "audit": "node tools/audit-protocol.mjs --selftest && node tools/audit-protocol.mjs && tsx tools/args-vectors.ts && node tools/audit-args.mjs && node tools/audit-enums.mjs && node tools/audit-health.mjs --selftest && node tools/audit-fields.mjs && node tools/audit-analysis.mjs && node tools/audit-wiring.mjs && node tools/audit-surfaced.mjs && node tools/audit-help.mjs && node tools/audit-length.mjs && node tools/audit-coldstart.mjs && node tools/audit-coldstart.mjs --healthy && node tools/audit-consistency.mjs && node tools/audit-verdict.mjs && node tools/audit-verdict-direction.mjs --selftest && node tools/audit-verdict-direction.mjs && node tools/audit-confidence.mjs --selftest && node tools/audit-confidence.mjs && node tools/audit-recompute.mjs",
+        "audit": "node tools/audit-protocol.mjs --selftest && node tools/audit-protocol.mjs && tsx tools/args-vectors.ts && node tools/audit-args.mjs && node tools/audit-enums.mjs && node tools/audit-thresholds.mjs --selftest && node tools/audit-thresholds.mjs && node tools/audit-health.mjs --selftest && node tools/audit-fields.mjs && node tools/audit-analysis.mjs && node tools/audit-wiring.mjs && node tools/audit-surfaced.mjs && node tools/audit-help.mjs && node tools/audit-length.mjs && node tools/audit-coldstart.mjs && node tools/audit-coldstart.mjs --healthy && node tools/audit-consistency.mjs && node tools/audit-verdict.mjs && node tools/audit-verdict-direction.mjs --selftest && node tools/audit-verdict-direction.mjs && node tools/audit-confidence.mjs --selftest && node tools/audit-confidence.mjs && node tools/audit-recompute.mjs",
         "audit:analysis": "node tools/audit-analysis.mjs",
         "audit:surfaced": "node tools/audit-surfaced.mjs",
         "report:compare": "tsx lib/report-compare-probe.ts",
@@ -67,7 +67,10 @@
         "help:readme:check": "node tools/gen-help-table.mjs --check",
         "audit:args": "node tools/audit-args.mjs",
         "audit:enums": "node tools/audit-enums.mjs",
-        "audit:args:vectors": "tsx tools/args-vectors.ts"
+        "audit:args:vectors": "tsx tools/args-vectors.ts",
+        "audit:thresholds": "node tools/audit-thresholds.mjs",
+        "audit:thresholds:selftest": "node tools/audit-thresholds.mjs --selftest",
+        "thresholds:doc": "node tools/audit-thresholds.mjs --write"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0"

@@ -27,6 +27,8 @@ const AUDITS = [
   { key: "args_vectors", title: "参数判据自测", cmd: ["node_modules/tsx/dist/cli.mjs", "tools/args-vectors.ts"], what: "校验判据本身对不对（合成用例：必填缺失、NaN、边界值、arguments 不是对象…）" },
   { key: "args", title: "参数校验", cmd: ["tools/audit-args.mjs"], what: "模型传错类型/枚举/参数名时拦得住吗，且不会误伤合法调用" },
   { key: "enums", title: "词表声明", cmd: ["tools/audit-enums.mjs"], what: "封闭词表参数的 enum 声明完整吗、值跟数据源对得上吗" },
+  { key: "thresholds_self", title: "门槛判据自测", cmd: ["tools/audit-thresholds.mjs", "--selftest"], what: "「可分辨差」的算法对不对" },
+  { key: "thresholds", title: "样本门槛登记", cmd: ["tools/audit-thresholds.mjs"], what: "每个「至少 N 局才下结论」都登记了吗、docs/THRESHOLDS.md 跟源码一致吗" },
   { key: "fields", title: "字段审计", cmd: ["tools/audit-fields.mjs"], what: "归档采集的字段有没有「采了但从没被读」的" },
   { key: "analysis", title: "分析审计", cmd: ["tools/audit-analysis.mjs"], what: "字段是「被读过」还是「真被分析过」" },
   { key: "wiring", title: "接线审计", cmd: ["tools/audit-wiring.mjs"], what: "游离文件/死代码、工具↔文档↔scripts 是否对得上、每个 script 有没有交代、审计进程有没有设写盘闸" },

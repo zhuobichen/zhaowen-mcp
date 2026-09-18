@@ -150,6 +150,40 @@ for (const [tool, args, param] of DIFF) {
   }
 }
 
+// ---- 改一个参数不该悄悄改另一个
+//
+// 起因：`get_my_matchups` 的 perPair 原先读的是 `opts.minGames` —— 跟整体视角共用输入、
+// 默认值却不同（12 vs 5）。用户传 `min_games: 5` 会把整体视角的门槛也从 12 降到 5，
+// 而 index.ts 的描述只说它管「对面英雄至少出现多少次」。
+// 更隐蔽的是内部调用：checkup.ts / report.ts 固定传 `minGames: 12`，
+// 于是同一个分析从工具直接调和从报告里调**结果不一样**。已拆成独立选项。
+//
+// 判据：只动 A 参数，B 参数生效的值不许变。
+const INDEPENDENCE = [
+  {
+    tool: "get_my_matchups",
+    only: "min_games",
+    values: [5, 30],
+    // 只受 min_champion_games 控制的那个值
+    probe: (t) => t.match(/单个对位\s*≥\s*(\d+)\s*次/)?.[1],
+    label: "单个对位门槛",
+  },
+];
+let coupled = 0;
+for (const c of INDEPENDENCE) {
+  const seen = new Set();
+  for (const v of c.values) {
+    const t = (await send("tools/call", { name: c.tool, arguments: { [c.only]: v } })).result?.content?.[0]?.text ?? "";
+    seen.add(c.probe(t));
+  }
+  if (seen.size !== 1 || seen.has(undefined)) {
+    coupled++;
+    console.log(`  ✗ ${c.tool}：只改 ${c.only}，${c.label}却跟着变了（${[...seen].join(" → ")}）—— 两个参数串了`);
+  } else {
+    console.log(`  ✓ ${c.tool}：只改 ${c.only} 时 ${c.label} 不动（恒为 ${[...seen][0]}）`);
+  }
+}
+
 // ---- 静态兜底：数字参数不许再用真值判断
 const idxSrc = readFileSync(path.join(ROOT, "index.ts"), "utf8").replace(/\r\n/g, "\n");
 const falsyNumeric = [...idxSrc.matchAll(/args\.(\w+) \? Number\(args\.\1\)/g)].map((m) => m[1]);
@@ -163,10 +197,10 @@ if (falsyNumeric.length) {
 child.kill();
 
 console.log("");
-const bad = leaked + killed + notHonored;
+const bad = leaked + killed + notHonored + coupled;
 console.log(
   bad
-    ? `✗ ${leaked} 种坏参数没被拦住、${killed} 个合法调用被误伤、${notHonored} 处数值参数没被采纳（共 ${CASES.length + GOOD.length + DIFF.length} 条）`
-    : `✓ ${rejected} 种坏参数全被明确拒绝，${GOOD.length} 个合法调用没被误伤，${DIFF.length} 个数值参数确认被采纳`
+    ? `✗ ${leaked} 种坏参数没被拦住、${killed} 个合法调用被误伤、${notHonored} 处数值参数没被采纳、${coupled} 处参数互相串（共 ${CASES.length + GOOD.length + DIFF.length + INDEPENDENCE.length} 条）`
+    : `✓ ${rejected} 种坏参数全被明确拒绝，${GOOD.length} 个合法调用没被误伤，${DIFF.length} 个数值参数确认被采纳，${INDEPENDENCE.length} 组参数确认互不串`
 );
 process.exit(bad ? 1 : 0);
