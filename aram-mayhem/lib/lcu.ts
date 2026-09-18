@@ -103,6 +103,10 @@ function fromDisk(): LcuAuth | null {
 
 /** 所有候选凭据，按可信度排序（新进程 > 旧进程 > lockfile） */
 export async function findLcuAuthCandidates(): Promise<LcuAuth[]> {
+  // 测试开关：强制当作「客户端没开」。冷启动审计（tools/audit-coldstart.mjs）要用它 ——
+  // 光把 MAYHEM_LCU_PORT 指向死端口不够，那只是「先试这个」，试不通还会回退到真实进程，
+  // 于是冷启动根本模拟不出来（第一版审计就是这么被骗的，21 个工具全误判）。
+  if (process.env.MAYHEM_LCU_OFFLINE === "1") return [];
   const list: LcuAuth[] = [];
   const envPort = process.env.MAYHEM_LCU_PORT;
   const envToken = process.env.MAYHEM_LCU_TOKEN;

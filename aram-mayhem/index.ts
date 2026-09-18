@@ -18,7 +18,9 @@ import { refreshData } from "./lib/refresh.js";
 import { analyzeMyAugments, myAccountStatus, myRecentGames } from "./lib/my.js";
 import { friendStats, listMyFriends } from "./lib/friends.js";
 import { tftStats } from "./lib/tft.js";
-import { archiveInfo } from "./lib/games.js";
+import { archiveInfo, NO_DATA_HINT, TOOLS_NEEDING_MY_DATA, TOOLS_WITH_OWN_EMPTY_MESSAGE } from "./lib/games.js";
+import { clientStatus } from "./lib/lcu.js";
+import { archiveStats } from "./lib/archive.js";
 import { analyzeMyPlaystyle } from "./lib/playstyle.js";
 import { socialText } from "./lib/social.js";
 import { buildsText } from "./lib/builds.js";
@@ -589,6 +591,7 @@ async function main() {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args = {} } = request.params;
+    hintThisRequest = await shouldAddNoDataHint(name);
     try {
       switch (name) {
         case "get_help":
@@ -907,8 +910,50 @@ async function main() {
   await server.connect(transport);
 }
 
+/**
+ * 冷启动兜底：依赖「我的对局数据」的工具，在一条数据都没有时补一句「怎么办」。
+ *
+ * 为什么放在分发层：冷启动审计（tools/audit-coldstart.mjs）发现这些工具在没有数据时
+ * 只返回空壳（标题 + 空表格 + 口径说明），看起来像装坏了。逐个模块改是 15 处改动、
+ * 容易漏；这里是唯一一处所有工具都会经过的地方。
+ *
+ * 判据用「前两行里有没有 0 把/0 局/0 行」——看着粗糙，但它可验证：冷启动审计会
+ * 检查这条提示**恰好**在该触发的那 15 个工具上触发，健康数据下不误触发。
+ */
+const NEEDS_MY_DATA = new Set(TOOLS_NEEDING_MY_DATA);
+
+const OWN_MESSAGE = new Set(TOOLS_WITH_OWN_EMPTY_MESSAGE);
+
+/**
+ * 这次请求该不该补「还没有数据」的提示。
+ *
+ * 判据看的是**数据本身**（客户端离线 + 本地归档为空），不是去嗅探输出文本。
+ * 前面两版都是嗅探文本，两次都错：
+ *   · 「出现过 0 把/0 局」→ get_my_patches 第二行的「0 局没有版本号」被误判成没数据；
+ *   · 「头部所有计数都是 0」→ 说明里「≥15 把」这种阈值又让它漏判。
+ * 文本嗅探要同时满足「不漏」和「不误」几乎做不到；查数据是一次判断、两种模式都对。
+ * 每次请求算一次（两次文件读），开销可以忽略。
+ */
+async function shouldAddNoDataHint(tool: string): Promise<boolean> {
+  if (!NEEDS_MY_DATA.has(tool) || OWN_MESSAGE.has(tool)) return false;
+  const st = await clientStatus();
+  if (st.reachable) return false;
+  const [lol, tft] = await Promise.all([archiveStats("lol"), archiveStats("tft")]);
+  return lol.total === 0 && tft.total === 0;
+}
+
+/**
+ * 当前正在处理的工具名。
+ *
+ * 为什么用状态变量而不是给每个 case 传参：分发是一个 44 个分支的 switch，
+ * 每个分支都 `return text(...)`，逐个改成传参是 44 处改动、容易漏。
+ * 这里在每次请求开头算一次「该不该补」，text() 据此统一处理 ——
+ * 注意算的时候要 await（要查客户端状态和归档），所以在 switch 之前 await 好。
+ */
+let hintThisRequest = false;
+
 function text(t: string) {
-  return { content: [{ type: "text" as const, text: t }] };
+  return { content: [{ type: "text" as const, text: hintThisRequest ? t + "\n\n" + NO_DATA_HINT : t }] };
 }
 
 main().catch(console.error);
