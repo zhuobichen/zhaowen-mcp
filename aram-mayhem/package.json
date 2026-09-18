@@ -56,7 +56,8 @@
     "audit:verdict": "node tools/audit-verdict.mjs",
     "audit:direction": "node tools/audit-verdict-direction.mjs",
     "audit:confidence": "node tools/audit-confidence.mjs",
-    "audit:recompute": "node tools/audit-recompute.mjs"
+    "audit:recompute": "node tools/audit-recompute.mjs",
+    "audit:recompute:html": "node tools/audit-recompute.mjs --with-html"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

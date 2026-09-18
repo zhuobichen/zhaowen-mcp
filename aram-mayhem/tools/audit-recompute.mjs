@@ -10,9 +10,9 @@
 //
 // 顺序很重要：先调工具（它会把实时对局并进归档），**再**读归档来算 ——
 // 否则工具能看到比归档更新的数据，比出来全是「工具多算了几局」的假差异。
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -109,6 +109,8 @@ for (const tool of PROBES) {
 for (const [key, name, args] of [
   ["get_my_patches_tft", "get_my_patches", { kind: "tft" }],
   ["get_my_trend_tft", "get_my_trend", { kind: "tft" }],
+  ["get_augment_tank", "get_augment", { name: "坦克引擎" }],
+  ["get_champion_guide_yasuo", "get_champion_guide", { champion: "亚索" }],
 ]) {
   const r = await send("tools/call", { name, arguments: args });
   reported[key] = r.result?.content?.[0]?.text ?? "";
@@ -1066,6 +1068,158 @@ function isBuildItem(it) {
       }
     }
   }
+}
+
+// ㉑ 云顶装备维度：get_tft_detail 的「装备偏好」那一半（上一轮只对了棋子）
+//    规格同棋子，但多一层：**过滤占位条目**（EmptyBag 之类不是玩家出的装备），
+//    而且同一局同一件只算一次。
+{
+  const tftRaw = JSON.parse(readFileSync(path.join(ROOT, "data/archive/tft-matches.json"), "utf8"));
+  const tftNames = JSON.parse(readFileSync(path.join(ROOT, "data/tft-names.json"), "utf8"));
+  const cn = (map, id) => (id ? map[id] ?? id.replace(/^TFT\d+_/i, "").replace(/^TFT_Item_/i, "") : "?");
+  const PLACEHOLDER = /^(emptybag|empty|placeholder|tft_item_emptybag)$/i;
+  const its = new Map();
+  for (const g of Object.values(tftRaw.games)) {
+    const p = (g.participants ?? []).find((x) => x.puuid === ME);
+    const place = Number(p?.placement ?? 0);
+    if (!p || !place) continue;
+    const seen = new Set();
+    for (const u of p.units ?? []) {
+      for (const it of u.itemNames ?? []) {
+        if (PLACEHOLDER.test(String(it))) continue; // ← 不过滤的话 EmptyBag 会霸榜
+        const key = cn(tftNames.items, it);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const c = its.get(key) ?? { g: 0, sum: 0 };
+        c.g++;
+        c.sum += place;
+        its.set(key, c);
+      }
+    }
+  }
+  // 工具**文本输出**里的节标题是「装备里最顺手的」——
+  // 「常见成装」是 HTML 报告那张图的图注，两者不是一回事（第一版就抓错了节，
+  // 结果拿棋子那一节的第一条来对装备，报了个假失败）
+  const td2 = reported["get_tft_detail"] ?? "";
+  const sec = /装备里最顺手的[^\n]*\n([\s\S]*?)(?=\n\S|$)/.exec(td2)?.[1] ?? "";
+  const listed = /· (\S+?)：(\d+) 局 · 平均名次 ([\d.]+)/.exec(sec);
+  if (listed) {
+    const [, name, gamesStr, avgStr] = listed;
+    const c = its.get(name);
+    const ok = c && c.g === Number(gamesStr) && Math.abs(c.sum / c.g - Number(avgStr)) < 0.006;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 云顶装备：工具列的第一个 ${name}　报 ${gamesStr} 局 平均名次 ${avgStr}` +
+        `　独立重算 ${c ? `${c.g} 局 平均名次 ${(c.sum / c.g).toFixed(2)}` : "（查不到）"}`
+    );
+  } else {
+    console.log("· 云顶装备：没在输出里找到装备行，跳过");
+  }
+}
+
+// ㉒ 符文详情里的「本机实证」：get_augment 说某符文被拿到 N 次、胜率 X%
+//    规格：**全归档所有参与者行**（不只我自己），同一局重复拿到要去重。
+{
+  const target = augDefs.find((a) => a.name === "坦克引擎");
+  if (target?.officialId != null) {
+    let g_ = 0;
+    let w_ = 0;
+    for (const g of mayhemGames) {
+      for (const p of g.participants ?? []) {
+        const s = p.stats ?? {};
+        if (s.win === undefined) continue;
+        const ids = new Set();
+        for (let i = 1; i <= 6; i++) {
+          const v = Number(s[`playerAugment${i}`] ?? 0);
+          if (v) ids.add(v);
+        }
+        if (!ids.has(target.officialId)) continue;
+        g_++;
+        if (s.win === true) w_++;
+      }
+    }
+    const ga = reported["get_augment_tank"] ?? "";
+    const m = /被拿到 (\d+) 次，胜率 ([\d.]+)%/.exec(ga);
+    const rate = g_ ? (w_ / g_) * 100 : 0;
+    const ok = m && Number(m[1]) === g_ && Math.abs(Number(m[2]) - rate) < 0.06;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 符文实证段：${target.name}　工具报 ${m ? `${m[1]} 次 ${m[2]}%` : "—"}` +
+        `　独立重算 ${g_} 次 ${rate.toFixed(1)}%`
+    );
+  }
+}
+
+// ㉓ 英雄详情里的「本机实证」：get_champion_guide 说某英雄归档里 N 局、整体胜率 X%
+//    规格：该英雄的**所有参与者行**（不只我自己），按 championId 匹配。
+{
+  const yasuo = champsJson.find((c) => c.id === "Yasuo");
+  const yasuoNum = Object.entries(cidMap).find(([, v]) => v.id === "Yasuo")?.[0];
+  if (yasuo && yasuoNum) {
+    let g_ = 0;
+    let w_ = 0;
+    for (const g of mayhemGames) {
+      for (const p of g.participants ?? []) {
+        if (Number(p.championId) !== Number(yasuoNum)) continue;
+        const s = p.stats ?? {};
+        if (s.win === undefined) continue;
+        // ⚠ 工具还要求**这一行有符文数据**（championAugmentEmpirical 里 `if (!ids.length) continue`）——
+        // 因为那份统计是「英雄 × 符文」交叉，没有符文的行没法进交叉表。
+        // 我第一版漏了这条，多算 1 局（389 vs 388，胜场数一样，差的那局没符文）。
+        // 这是这一层第 5 次因为规格没复现完整而误判工具。
+        let hasAug = false;
+        for (let i = 1; i <= 6; i++) {
+          if (Number(s[`playerAugment${i}`] ?? 0)) {
+            hasAug = true;
+            break;
+          }
+        }
+        if (!hasAug) continue;
+        g_++;
+        if (s.win === true) w_++;
+      }
+    }
+    const cg = reported["get_champion_guide_yasuo"] ?? "";
+    const m = /归档里 (\d+) 局[\s\S]*?该英雄整体胜率 ([\d.]+)%/.exec(cg);
+    const rate = g_ ? (w_ / g_) * 100 : 0;
+    const ok = m && Number(m[1]) === g_ && Math.abs(Number(m[2]) - rate) < 0.06;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 英雄实证段：亚索　工具报 ${m ? `${m[1]} 局 ${m[2]}%` : "—"}` +
+        `　独立重算 ${g_} 局 ${rate.toFixed(1)}%（全归档所有参与者）`
+    );
+  }
+}
+
+// ㉔ HTML 报告（可选，--with-html）：`npm run report:html` 要跑约 90 秒，
+//     所以默认不跑，免得把日常的 npm run audit 拖慢。需要时显式带参数跑一次。
+//     对的是 HTML 里的头部数字（局数、胜率）——那是报告里最显眼、也最该准的两个数。
+if (process.argv.includes("--with-html")) {
+  const out = path.join(ROOT, "reports", "_audit-html-check.html");
+  try {
+    execFileSync(process.execPath, [TSX, "lib/report.ts", "--out", out], {
+      cwd: ROOT,
+      stdio: "pipe",
+      timeout: 300000,
+    });
+    const html = readFileSync(out, "utf8");
+    // HTML 里页头写的是「306 把海斗」（不是「局」），hero 数字后面直接跟 % 号
+    const mMeta = /·\s*(\d+)\s*把海斗/.exec(html);
+    const mHero = /class="hero-num">([\d.]+)%/.exec(html);
+    const okGames = mMeta && Number(mMeta[1]) === truth.games;
+    const okRate = mHero && Math.abs(Number(mHero[1]) - truth.winRate) < 0.06;
+    const ok = okGames && okRate;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} HTML 报告：页头写「${mMeta ? mMeta[1] : "—"} 局 · 胜率 ${mHero ? mHero[1] : "—"}%」` +
+        `　独立重算「${truth.games} 局 · ${truth.winRate.toFixed(1)}%」`
+    );
+    unlinkSync(out);
+  } catch (e) {
+    console.log(`· HTML 报告：生成或读取失败（${e.message.slice(0, 60)}），跳过`);
+  }
+} else {
+  console.log("· HTML 报告：默认跳过（加 --with-html 才跑，因为要 90 秒）");
 }
 
 console.log("");
