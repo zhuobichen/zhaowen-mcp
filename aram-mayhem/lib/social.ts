@@ -10,6 +10,7 @@
 import { loadLolGames } from "./games.js";
 import { resolveAccountByName, resolveMe } from "./identity.js";
 import { isMayhemGame } from "./lcu.js";
+import { loadData } from "./store.js";
 
 export interface CoPlayer {
   puuid: string;
@@ -21,8 +22,8 @@ export interface CoPlayer {
   winRate: number;
   /** 最近一次同队时间 */
   lastSeen: number;
-  /** 同队时用的英雄（出现最多的几个） */
-  champions?: string[];
+  /** 同队时**我**用的英雄表现（≥4 局才列） */
+  myChampions?: Array<{ name: string; games: number; winRate: number }>;
 }
 
 export interface SocialReport {
@@ -64,11 +65,14 @@ export async function analyzeSocial(
     name = me.name;
   }
 
+  const d = loadData();
   const res = await loadLolGames(puuid, opts.games ?? 2000, name);
   const all = res.games.filter(isMayhemGame);
 
   const mates = new Map<string, CoPlayer>();
   const opps = new Map<string, CoPlayer>();
+  /** 队友 puuid → 我玩的英雄 → 战绩（用来看「和他一起时我玩什么最好」） */
+  const mateChamps = new Map<string, Map<string, { g: number; w: number }>>();
   let fullRoster = 0;
 
   for (const g of all) {
@@ -88,12 +92,35 @@ export async function analyzeSocial(
       cur.games++;
       if (win) cur.wins++;
       cur.lastSeen = Math.max(cur.lastSeen, g.gameCreation ?? 0);
+      // 同队时我用的英雄（只对队友记）
+      if (p.teamId === myTeam) {
+        const myCid = d.championIds[String(mePart.championId)];
+        const myName = myCid ? d.championById.get(myCid.id)?.name ?? myCid.name : null;
+        if (myName) {
+          const cm = mateChamps.get(p.puuid) ?? new Map<string, { g: number; w: number }>();
+          const cc = cm.get(myName) ?? { g: 0, w: 0 };
+          cc.g++;
+          if (win) cc.w++;
+          cm.set(myName, cc);
+          mateChamps.set(p.puuid, cm);
+        }
+      }
       if (!cur.name || cur.name === "（未知名字）") cur.name = p.summonerName ?? p.name ?? cur.name;
       target.set(p.puuid, cur);
     }
   }
   for (const map of [mates, opps]) {
     for (const v of map.values()) v.winRate = v.games ? (v.wins / v.games) * 100 : 0;
+  }
+  // 同队时我用的英雄：只留 ≥4 局的，按胜率排
+  for (const [puuid, cm] of mateChamps) {
+    const m = mates.get(puuid);
+    if (!m) continue;
+    m.myChampions = [...cm.entries()]
+      .filter(([, v]) => v.g >= 4)
+      .map(([name, v]) => ({ name, games: v.g, winRate: (v.w / v.g) * 100 }))
+      .sort((a, b) => b.winRate - a.winRate || b.games - a.games)
+      .slice(0, 4);
   }
 
   return {
@@ -150,6 +177,18 @@ export async function socialText(opts: { who?: string; games?: number; minGames?
   } else {
     out.push("  没有重复 ≥3 次的对手 —— 海斗匹配池很大，随机性强，这个维度没有可分析的稳定对手。");
     out.push(`  （遇到过的人里次数最多的：${opps.slice(0, 5).map((o) => `${o.name} ${o.games} 次`).join("、")}）`);
+  }
+
+  // 和常一起打的人配合时，我玩什么英雄最好
+  const withChamps = mates.filter((m) => (m.myChampions?.length ?? 0) > 0).slice(0, 4);
+  if (withChamps.length) {
+    out.push("", "和他们同队时，我玩什么英雄打得最好（每个英雄 ≥4 局）：");
+    for (const m of withChamps) {
+      out.push(`  ${m.name}（同队 ${m.games} 局，共同胜率 ${m.winRate.toFixed(0)}%）：`);
+      for (const c of m.myChampions!) {
+        out.push(`    · ${c.name}：${c.games} 局 ${c.winRate.toFixed(0)}%`);
+      }
+    }
   }
 
   out.push("", "说明：同队/对手关系取自每局的 10 人名单（SGP 提供）；样本 <3 次的不列出。");

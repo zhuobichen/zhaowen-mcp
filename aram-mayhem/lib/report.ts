@@ -268,6 +268,21 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     .sort((a, b) => a[0] - b[0])
     .map(([rank, c]) => ({ rank, games: c.g, wins: c.w, winRate: pctNum(c.w, c.g) }));
 
+  // 按星期几汇总（周一~周日）：回答「周几打得好」
+  const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const dowMap = new Map<number, { g: number; w: number }>();
+  for (const r of rows) {
+    const dow = (new Date(r.t).getDay() + 6) % 7; // 周一=0
+    const c = dowMap.get(dow) ?? { g: 0, w: 0 };
+    c.g++;
+    if (r.win) c.w++;
+    dowMap.set(dow, c);
+  }
+  const weekdays = WEEKDAYS.map((label, i) => {
+    const c = dowMap.get(i) ?? { g: 0, w: 0 };
+    return { label, games: c.g, wins: c.w, winRate: pctNum(c.w, c.g) };
+  }).filter((x) => x.games > 0);
+
   // 连败段（≥4 连败），在走势图上标出来
   const streaks: Array<{ startIdx: number; endIdx: number; len: number }> = [];
   let cur = 0;
@@ -372,6 +387,7 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     noPatch,
     damageRanks,
     rankGames,
+    weekdays,
     streaks,
     pairs,
     teammates,
@@ -570,6 +586,15 @@ function demoData() {
       { rank: 5, games: 30, wins: 13, winRate: 43.3 },
     ],
     rankGames: 212,
+    weekdays: [
+      { label: "周一", games: 30, wins: 16, winRate: 53.3 },
+      { label: "周二", games: 34, wins: 21, winRate: 61.8 },
+      { label: "周三", games: 40, wins: 20, winRate: 50.0 },
+      { label: "周四", games: 42, wins: 19, winRate: 45.2 },
+      { label: "周五", games: 48, wins: 26, winRate: 54.2 },
+      { label: "周六", games: 38, wins: 22, winRate: 57.9 },
+      { label: "周日", games: 28, wins: 14, winRate: 50.0 },
+    ],
     streaks,
     // 演示队友（真实数据来自 social.js）
     opponents: [
@@ -1067,6 +1092,56 @@ function itemBars(items: Array<{ name: string; price: number; games: number; win
 }
 
 /**
+ * 按星期几的胜率：柱=该天胜率，柱下标注局数。
+ * 和「时段表现」配对看：时段回答「几点打」，这张回答「周几打」。
+ * 不足 15 局的那天画半透明，免得一个周末打三五把的极值被当结论。
+ */
+function weekdayChart(rows: Array<{ label: string; games: number; wins: number; winRate: number }>): string {
+  const H = 200,
+    padL = 44,
+    padR = 16,
+    padT = 20,
+    padB = 42;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const slot = plotW / Math.max(1, rows.length);
+  const barW = Math.min(56, slot * 0.5);
+  const y = (v: number) => padT + plotH * (1 - v / 100);
+  const grid = [0, 25, 50, 75, 100]
+    .map(
+      (v) =>
+        `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${y(v) + 4}" text-anchor="end">${v}%</text>`
+    )
+    .join("");
+  const bars = rows
+    .map((r, i) => {
+      const cx = padL + slot * i + slot / 2;
+      const h = Math.max(2, (plotH * r.winRate) / 100);
+      const color = r.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      const thin = r.games < 15;
+      return (
+        `<rect class="bar" x="${(cx - barW / 2).toFixed(1)}" y="${y(r.winRate).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4"` +
+        ` fill="${color}"${thin ? ' fill-opacity="0.45"' : ""}` +
+        ` data-tip="${r.label}|${r.wins}/${r.games} 胜 · ${fmtPct(r.winRate, 1)}${thin ? "（样本少）" : ""}"/>` +
+        `<text class="row-value" x="${cx.toFixed(1)}" y="${(y(r.winRate) - 5).toFixed(1)}" text-anchor="middle">${r.winRate.toFixed(0)}%</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 24}" text-anchor="middle">${r.label}</text>` +
+        `<text class="axis-label" x="${cx.toFixed(1)}" y="${H - 10}" text-anchor="middle">${r.games} 局</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>按星期几的胜率（柱高=该天胜率，虚线为 50% 基准；半透明=不足 15 局）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="按星期几的胜率">
+    ${grid}
+    <line class="baseline" x1="${padL}" x2="${W - padR}" y1="${y(50)}" y2="${y(50)}"/>
+    ${bars}
+  </svg>
+</figure>`;
+}
+
+/**
  * 队内名次 vs 胜率（伤害）：柱=该名次下的胜率，柱下是局数。
  * 用来看「你是不是得自己 carry」——第一名的胜率如果明显高于后面，说明依赖你输出。
  * 注意这是相关性：赢的局大家数据都好看，所以图注里点明了这一点。
@@ -1508,6 +1583,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
   <section>
     <h2>走势与分布</h2>
     ${lineChart(data.rolling, data.streaks)}
+    ${data.weekdays.length > 2 ? weekdayChart(data.weekdays) : ""}
     ${data.damageRanks.length > 2 ? damageRankBars(data.damageRanks) : ""}
     ${data.weekly.length > 1 ? weeklyChart(data.weekly) : ""}
     ${data.patches.length > 1 ? patchChart(data.patches, data.noPatch) : ""}
