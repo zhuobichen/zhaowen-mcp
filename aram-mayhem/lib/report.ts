@@ -689,6 +689,98 @@ function hourChart(rows: Array<{ t: number; win: boolean }>): string {
 </figure>`;
 }
 
+/**
+ * 符文四象限散点：x=版本胜率，y=你的胜率。
+ * 斜线上方=你打得比版本平均好；右下方（版本强、你偏低）= 该考虑换掉的符文。
+ */
+function augmentScatter(
+  pts: Array<{ name: string; games: number; winRate: number; versionWr: number }>
+): string {
+  const H = 380,
+    padL = 56,
+    padR = 24,
+    padT = 28,
+    padB = 46;
+  const W2 = W;
+  const plotW = W2 - padL - padR,
+    plotH = H - padT - padB;
+  // 坐标范围取数据与 45%~65% 的并集，保证斜线与多数点都在框内
+  const xs = pts.map((p) => p.versionWr);
+  const ys = pts.map((p) => p.winRate);
+  const xMin = Math.floor(Math.min(45, ...xs) / 5) * 5;
+  const xMax = Math.ceil(Math.max(60, ...xs) / 5) * 5;
+  const yMin = Math.floor(Math.min(20, ...ys) / 5) * 5;
+  const yMax = Math.ceil(Math.max(90, ...ys) / 5) * 5;
+  const X = (v: number) => padL + (plotW * (v - xMin)) / (xMax - xMin);
+  const Y = (v: number) => padT + plotH * (1 - (v - yMin) / (yMax - yMin));
+  const r = (g: number) => Math.min(16, 4 + Math.sqrt(g) * 2.4);
+
+  const grid: string[] = [];
+  for (let v = xMin; v <= xMax; v += 5) {
+    grid.push(
+      `<line class="grid" x1="${X(v)}" x2="${X(v)}" y1="${padT}" y2="${padT + plotH}"/>` +
+        `<text class="axis-label" x="${X(v)}" y="${H - 24}" text-anchor="middle">${v}%</text>`
+    );
+  }
+  for (let v = yMin; v <= yMax; v += 10) {
+    grid.push(
+      `<line class="grid" x1="${padL}" x2="${W2 - padR}" y1="${Y(v)}" y2="${Y(v)}"/>` +
+        `<text class="axis-label" x="${padL - 8}" y="${Y(v) + 4}" text-anchor="end">${v}%</text>`
+    );
+  }
+  // 45° 参照线：y = x（在绘图范围内取两端）
+  const dFrom = Math.max(xMin, yMin);
+  const dTo = Math.min(xMax, yMax);
+  const diagonal =
+    `<line class="baseline" x1="${X(dFrom)}" y1="${Y(dFrom)}" x2="${X(dTo)}" y2="${Y(dTo)}"/>` +
+    `<text class="axis-label" x="${X(dTo) - 6}" y="${Y(dTo) + 16}" text-anchor="end">你和版本一样（y=x）</text>`;
+
+  // 只标注「场次最多」与「偏离斜线最多」的点：50 个点全标会糊成一团
+  const labelSet = new Set<string>();
+  [...pts].sort((a, b) => b.games - a.games).slice(0, 4).forEach((p) => labelSet.add(p.name));
+  [...pts]
+    .sort((a, b) => b.winRate - b.versionWr - (a.winRate - a.versionWr))
+    .slice(0, 3)
+    .forEach((p) => labelSet.add(p.name));
+  [...pts]
+    .sort((a, b) => a.winRate - a.versionWr - (b.winRate - b.versionWr))
+    .slice(0, 4)
+    .forEach((p) => labelSet.add(p.name));
+
+  const dots = pts
+    .map((p, i) => {
+      const above = p.winRate >= p.versionWr;
+      const color = above ? "var(--pos)" : "var(--neg)";
+      const dot =
+        `<circle class="bar" cx="${X(p.versionWr).toFixed(1)}" cy="${Y(p.winRate).toFixed(1)}" r="${r(p.games).toFixed(1)}"` +
+        ` fill="${color}" fill-opacity="0.72" stroke="var(--surface-1)" stroke-width="2"` +
+        ` data-tip="${esc(p.name)}|你 ${fmtPct(p.winRate, 0)} vs 版本 ${fmtPct(p.versionWr, 1)} · ${p.games} 把"/>`;
+      if (!labelSet.has(p.name)) return dot;
+      // 相邻标签错开高度，减少重叠
+      const dy = r(p.games) + 4 + (i % 2) * 11;
+      return (
+        dot +
+        `<text class="axis-label" x="${X(p.versionWr).toFixed(1)}" y="${(Y(p.winRate) - dy).toFixed(1)}" text-anchor="middle" style="font-size:10.5px;font-weight:600">${esc(p.name)}</text>`
+      );
+    })
+    .join("");
+
+  return `
+<figure class="chart">
+  <figcaption>符文四象限：横轴=版本胜率，纵轴=你的胜率，圆点大小=你的场次；斜线右下方（版本强、你偏低）是该换掉的</figcaption>
+  <svg viewBox="0 0 ${W2} ${H}" role="img" aria-label="符文版本胜率与个人胜率散点图">
+    ${grid.join("")}
+    ${diagonal}
+    <text class="axis-label" x="${X(xMax) - 4}" y="${padT + 12}" text-anchor="end">版本强·我也强</text>
+    <text class="axis-label" x="${X(xMin) + 4}" y="${padT + 12}">版本一般·我打得好</text>
+    <text class="axis-label" x="${X(xMax) - 4}" y="${padT + plotH - 6}" text-anchor="end">版本强·我打不出 ← 该换</text>
+    <text class="axis-label" x="${X(xMin) + 4}" y="${padT + plotH - 6}">都偏低</text>
+    <text class="axis-label" x="${padL + plotW / 2}" y="${H - 6}" text-anchor="middle">版本胜率 →</text>
+    ${dots}
+  </svg>
+</figure>`;
+}
+
 // ---------------------------------------------------------------- 文案
 
 function findings(data: Awaited<ReturnType<typeof collect>>): string[] {
@@ -943,6 +1035,11 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
       <span><i class="swatch" style="background:var(--neg)"></i>你的胜率低于版本</span>
       <span><i class="swatch" style="background:var(--text-primary)"></i>版本胜率刻度</span>
     </div>
+    ${augmentScatter(
+      data.augments
+        .filter((a) => a.versionWr != null && a.games >= 5)
+        .map((a) => ({ name: a.name, games: a.games, winRate: a.winRate, versionWr: a.versionWr as number }))
+    )}
     ${augmentBullets(data.augments.slice(0, 14))}
     <details>
       <summary>符文数据表（≥8 把）</summary>

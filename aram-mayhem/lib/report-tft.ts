@@ -206,6 +206,57 @@ function preferenceBars(
 </figure>`;
 }
 
+/**
+ * 等级 × 名次 散点：横轴=收尾等级，纵轴=名次（1 在上）。
+ * 高等级+差名次 = 运营/阵容问题；低等级+好名次 = 速通或天胡。
+ */
+function levelPlacementScatter(rows: TftRow[]): string {
+  const H = 320,
+    padL = 44,
+    padR = 20,
+    padT = 22,
+    padB = 42;
+  const plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const levels = rows.map((r) => r.level).filter((v) => v > 0);
+  const minL = Math.max(3, Math.min(...levels) - 1);
+  const maxL = Math.max(...levels) + 1;
+  const X = (lv: number) => padL + (plotW * (lv - minL)) / Math.max(1, maxL - minL);
+  const Y = (p: number) => padT + plotH * ((p - 1) / 7);
+  const grid: string[] = [];
+  for (let lv = minL; lv <= maxL; lv++) {
+    grid.push(
+      `<line class="grid" x1="${X(lv)}" x2="${X(lv)}" y1="${padT}" y2="${padT + plotH}"/>` +
+        `<text class="axis-label" x="${X(lv)}" y="${H - 24}" text-anchor="middle">${lv}</text>`
+    );
+  }
+  for (let p = 1; p <= 8; p++) {
+    grid.push(
+      `<line class="grid" x1="${padL}" x2="${W - padR}" y1="${Y(p)}" y2="${Y(p)}"/>` +
+        `<text class="axis-label" x="${padL - 6}" y="${Y(p) + 4}" text-anchor="end">${p}</text>`
+    );
+  }
+  const dots = rows
+    .map((r) => {
+      const good = r.placement <= 4;
+      return (
+        `<circle class="bar" cx="${X(r.level).toFixed(1)}" cy="${Y(r.placement).toFixed(1)}" r="6"` +
+        ` fill="${good ? "var(--pos)" : "var(--neg)"}" fill-opacity="0.7" stroke="var(--surface-1)" stroke-width="2"` +
+        ` data-tip="Lv${r.level} · 第 ${r.placement} 名|${new Date(r.t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short" })} · ${r.minutes} 分 · ${esc(r.queue)}"/>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>等级 × 名次（横轴=收尾等级，纵轴=名次，越靠上越好；蓝=前四，红=后四）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="等级与名次散点图">
+    ${grid.join("")}
+    <text class="axis-label" x="${padL + plotW / 2}" y="${H - 6}" text-anchor="middle">收尾等级 →</text>
+    ${dots}
+  </svg>
+</figure>`;
+}
+
 // ---------------------------------------------------------------- 渲染
 
 function render(data: Awaited<ReturnType<typeof collect>>): string {
@@ -357,6 +408,7 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
     <h2>名次与走势</h2>
     ${placementBars(dist)}
     ${placementTrend(rows)}
+    ${levelPlacementScatter(rows)}
   </section>
 
   <section>

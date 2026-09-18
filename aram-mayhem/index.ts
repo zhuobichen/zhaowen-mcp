@@ -20,6 +20,7 @@ import { friendStats, listMyFriends } from "./lib/friends.js";
 import { tftStats } from "./lib/tft.js";
 import { archiveInfo } from "./lib/games.js";
 import { analyzeMyPlaystyle } from "./lib/playstyle.js";
+import { myRanked } from "./lib/ranked.js";
 import {
   analyzeSynergy,
   championGuide,
@@ -214,6 +215,17 @@ async function main() {
         inputSchema: { type: "object", properties: {} },
       },
       {
+        name: "get_my_ranked",
+        description:
+          "查排位段位与战绩（单双排/灵活组排/云顶排位等）：段位、LP、胜负与连胜连败。默认查自己，传 friend 试查好友（客户端可能只给当前登录账号的）。需要客户端在线。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            friend: { type: "string", description: "可选：好友名字（部分匹配）" },
+          },
+        },
+      },
+      {
         name: "get_archive_info",
         description:
           "查看本地对局归档的覆盖情况（海斗/英雄联盟 与 云顶各存了多少局、时间跨度、按模式分布）。归档随每次查询自动累积，客户端没开时分析就用它。",
@@ -322,6 +334,9 @@ async function main() {
 
         case "analyze_my_playstyle":
           return text(await analyzeMyPlaystyle());
+
+        case "get_my_ranked":
+          return text(await myRanked({ friend: args.friend ? String(args.friend) : undefined }));
 
         case "get_archive_info":
           return text(await archiveInfo());

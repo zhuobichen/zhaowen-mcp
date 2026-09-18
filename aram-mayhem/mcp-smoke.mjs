@@ -31,6 +31,7 @@ const cases = [
   { name: "get_friend_stats", args: { friend: "丁ding" } },
   { name: "get_tft_stats", args: { limit: 3 } },
   { name: "analyze_my_playstyle", args: {} },
+  { name: "get_my_ranked", args: {} },
   { name: "get_archive_info", args: {} },
 ];
 for (const c of cases) {
