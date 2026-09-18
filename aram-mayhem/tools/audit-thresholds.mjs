@@ -33,7 +33,7 @@ const SAMPLE_REGISTRY = {
   "lib/matchups.ts:analyzeMatchups:minChampionGames": {
     tool: "get_my_matchups",
     splits: "我玩过的英雄",
-    why: "实测（thresholds:sweep）：门槛 5→20 时列出 22→0 个英雄，**20 就一个都没有了**；本号够样本的只有 2 个（霞 17 把、库奇 16 把）。它的作用只是「别把只玩过两三次的英雄列出来」，不是统计门槛 —— 但 15 这个数本身仍未说明",
+    why: "实测（thresholds:sweep，扫 3/5/8/10/12/15/20/30）：列出英雄数 34→22→15→12→7→**2**→**0**。所以 15 已经**贴着上限**（只剩 2 个英雄，20 就空了）—— 它的作用只是「别把只玩过两三次的英雄列出来」，不是统计门槛；数值本身没依据，但**上有硬约束**：再高列表就空了",
   },
   "lib/matchups.ts:analyzeMatchups:perPairGames": {
     tool: "get_my_matchups",
@@ -363,7 +363,7 @@ const INLINE_REGISTRY = {
   "lib/compare.ts:profileOf:inline:>=5": {
     tool: "compare_accounts",
     kind: "统计门槛",
-    why: "未说明。决定双账号对比里「常玩英雄」列出哪些",
+    why: "管的是**符文偏好**那一栏（登记表原先写成「常玩英雄」，是我写错的 —— 代码里这个 `>= 5` 在 augmentPrefs 上）。实测（thresholds:sweep）：本号候选 75 个、噪声尺度 **±46.5 个百分点**。**这个门槛硬编码在 profileOf 里，探针改不了 —— 所以只量得到候选池形状、量不到拐点**，这一点如实记下",
   },
   "lib/compare.ts:compareAccounts:inline:>=10": {
     tool: "compare_accounts",
@@ -373,12 +373,12 @@ const INLINE_REGISTRY = {
   "lib/comps.ts:analyzeComps:inline:>=30": {
     tool: "get_enemy_comps",
     kind: "统计门槛",
-    why: "与同文件的 opts.minGames 作用相同（哪些标签够格进极差比较），**但一个是参数默认值、一个是硬编码** —— 传了参数就绕开它，两处会不一致",
+    why: "实测（thresholds:sweep）：门槛 5~100 下，byCount 的 20 档**全部 ≥30 局** —— 这个内联值从不 bind（byCount 被截断到 20 档，样本本来就厚）。数值本身没依据，但对这份数据不起作用；真正的隐患是它和同文件的「opts.minGames ?? 30」**并存**，传参数就绕开它",
   },
   "lib/playstyle.ts:analyzeMyPlaystyle:inline:>=10": {
     tool: "analyze_my_playstyle",
     kind: "统计门槛",
-    why: "未说明。两处同值，决定时段 / 英雄池统计里哪些分组够格",
+    why: "实测（thresholds:sweep）：四个时段的场次是 46/11/51/198 把，**全部 ≥10** —— 从不 bind。而且它是硬编码，探针改不了、只能从输出里读当前值。两处同值（时段与英雄池各一处），互不相关却用同一个数",
   },
   "lib/report-tft.ts:weeklyPlacement:inline:<5": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "图表里样本不足的柱子不标数字" },
   "lib/report-tft.ts:patchPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "同上" },
@@ -677,9 +677,18 @@ function reasonStats() {
     ...diffs.map((d) => d.why),
     ...[...inlineFound.keys()].map((k) => INLINE_REGISTRY[k]?.why ?? ""),
   ];
-  const blank = whys.filter((w) => w.startsWith("未说明")).length;
-  const partial = whys.filter((w) => !w.startsWith("未说明") && w.includes("未说明")).length;
-  return `${blank} 条空白 + ${partial} 条半说明`;
+  // 三种状态，单看任何一条规则都会分错（两种都试过、都错）：
+  //   · 按「以『未说明』开头」判 → 误伤 trend 那条（以它开头，后面却写满了实测）
+  //   · 按「有没有数字」判       → 误伤「图表里样本不足的柱子不标数字」这类
+  //                                **有理由但本来就不需要数字**的条目
+  // 所以两个条件一起用：
+  //   实测   —— 带数字（每条真正量过的都会引数字：门槛 5→20 / 12.6pp / 0.7 倍）
+  //   无交代 —— 以「未说明」开头**且**没有数字（真的是一个字都没查过）
+  //   有说明 —— 没数字但也没说「未说明」（理由是非实测性质的：图表用途、分类说明、有意独立）
+  const measured = whys.filter((w) => /\d/.test(w)).length;
+  const unexplained = whys.filter((w) => !/\d/.test(w) && w.startsWith("未说明")).length;
+  const byDesign = whys.filter((w) => !/\d/.test(w) && !w.startsWith("未说明")).length;
+  return `${measured} 条有实测 · ${byDesign} 条说明了用途/性质（非实测） · ${unexplained} 条一个字都没查过`;
 }
 console.log(
   problems.length

@@ -24,6 +24,7 @@ import { analyzeCounters } from "../lib/counters.js";
 import { analyzeSocial } from "../lib/social.js";
 import { augmentEmpirical, championAugmentEmpirical, checkSynergySets, empiricalAugments, empiricalPairs, othersAugmentRates } from "../lib/empirical.js";
 import { resolveMe } from "../lib/identity.js";
+import { noiseCeiling, noiseMultiple } from "../lib/thresholds.js";
 
 const SWEEP = [5, 8, 10, 12, 15, 20, 30, 40, 60, 80, 120, 200];
 
@@ -497,5 +498,70 @@ function belowNoise(items: unknown[]): boolean {
         `  ${String(n).padStart(4)}   ${t.with}　${t.games} 局 ${t.winRate.toFixed(1)}%　协同 ${t.synergy >= 0 ? "+" : ""}${t.synergy.toFixed(1)}　${se > 0 ? `${(Math.abs(t.synergy) / se).toFixed(1)} 倍` : "—"}`
       );
     }
+  }
+}
+
+// ---- 18. 剩下几条「空白」的数值本身：扫拐点，看它偏高还是偏低
+//
+// 这三处的共同点：**数值本身还没量过**（处理方式量过，但「为什么是这个数」没量）。
+// 照 augmentEmpirical 那套 —— 看榜首位样本量随门槛怎么变，拐点在哪。
+{
+  console.log("\n=== (a) minChampionGames（matchups 的「我玩过的英雄」，默认 15）===");
+  console.log("  门槛   列出英雄数   榜首（英雄 / 样本 / 胜率 / 倍数）");
+  for (const n of [3, 5, 8, 10, 12, 15, 20, 30]) {
+    const r = await analyzeMatchups({ ...WHO, minChampionGames: n });
+    const f = r.byChampion[0];
+    console.log(
+      `  ${String(n).padStart(4)}   ${String(r.byChampion.length).padStart(8)}   ` +
+        (f ? `${f.champion} ${f.games} 把 ${f.winRate.toFixed(0)}%（${noiseMultiple(f.games, f.winRate).toFixed(1)} 倍）` : "—")
+    );
+  }
+
+  console.log("\n=== (b) comps 的内联 `>= 30`（和 opts.minGames ?? 30 并存的那处）===");
+  console.log("  门槛   具体档位保留数");
+  for (const n of [5, 15, 30, 60, 100]) {
+    const r = await analyzeComps({ ...WHO, minGames: n });
+    const byCount = r.byCount.filter((x) => x.games >= 30);
+    console.log(`  ${String(n).padStart(4)}   ${String(byCount.length).padStart(6)} 档（byCount 总共 ${r.byCount.length}）`);
+  }
+  {
+    const r = await analyzeComps({ ...WHO, minGames: 30 });
+    console.log(`  默认下：byCount ${r.byCount.length} 档，其中 ≥30 局 ${r.byCount.filter((x) => x.games >= 30).length} 档；present ${r.present.length} 类`);
+  }
+
+  console.log("\n=== (c) playstyle 的内联 `>= 10`（时段，默认 10）===");
+  console.log("  门槛   够样本的时段数 / 共 4 个");
+  for (const n of [5, 10, 20, 40, 60]) {
+    const t = await import("../lib/playstyle.js").then((m) => m.analyzeMyPlaystyle());
+    // playstyle 的门槛是硬编码的，改不了 —— 只能从输出里读当前这一档
+    if (n === 10) {
+      const m = t.match(/样本 ≥(\d+) 把的时段里，最好/);
+      const cnt = (t.match(/（\d+ 把）/g) ?? []).length;
+      console.log(`  ${String(n).padStart(4)}   （硬编码，改不了）当前门槛 ${m ? m[1] : "?"} —— 四个时段各自场次：${(t.match(/凌晨 0-5 \d+ 把|上午 6-11 \d+ 把|下午 12-17 \d+ 把|晚上 18-23 \d+ 把/g) ?? []).join(" · ")}`);
+      break;
+    }
+  }
+}
+
+// ---- 19. compare.profileOf 的内联 `>= 5`
+//
+// 登记表里我原先把它写成了「决定『常玩英雄』列出哪些」—— **写错了**。
+// 代码里那个 `>= 5` 在 augmentPrefs 上，管的是**符文偏好**那一栏。已改正。
+// 这个门槛是硬编码的（profileOf 只收 puuid/name/limit），所以只能量**候选池**，
+// 不能扫拐点 —— 这点本身也该如实标出来。
+{
+  console.log("\n=== compare.profileOf 的内联 `>= 5`（符文偏好候选池）===");
+  const { profileOf } = await import("../lib/compare.js");
+  const p = await profileOf(WHO.puuid, WHO.name);
+  const prefs = p.augmentPrefs;
+  console.log(`  ${WHO.name}：符文偏好候选 ${prefs.length} 个（都是 ≥5 把的）`);
+  if (prefs.length) {
+    const ceil = noiseCeiling(prefs.map((x) => ({ games: x.games, rate: x.winRate })));
+    const topByShare = [...prefs].sort((a, b) => b.share - a.share)[0];
+    console.log(
+      `  出现比例最高的：${topByShare.name}　${topByShare.games} 把　占比 ${(topByShare.share * 100).toFixed(1)}%　胜率 ${topByShare.winRate.toFixed(0)}%`
+    );
+    console.log(`  噪声尺度（从 ${prefs.length} 个里挑胜率极值）：±${ceil.toFixed(1)} 个百分点`);
+    console.log("  注：门槛 5 硬编码在 profileOf 里，探针改不了 —— 只能量候选池形状，量不了拐点。");
   }
 }
