@@ -21,6 +21,7 @@ import { queueStats } from "../lib/queue-stats.js";
 import { tftDetail } from "../lib/tft-detail.js";
 import { analyzeCounters } from "../lib/counters.js";
 import { analyzeSocial } from "../lib/social.js";
+import { checkSynergySets, empiricalAugments, empiricalPairs } from "../lib/empirical.js";
 import { resolveMe } from "../lib/identity.js";
 
 const SWEEP = [5, 8, 10, 12, 15, 20, 30, 40, 60, 80, 120, 200];
@@ -220,4 +221,28 @@ function summarize2<T extends { games: number }>(
     rows.push({ n, ...summarize2([...r.teammates, ...r.opponents], (x) => x.winRate, n) });
   }
   table("social：同队过的账号之间胜率的极差", "pp", rows);
+}
+
+// ---- 11~13. lib/empirical.ts：一个文件 8 处门槛、7 个函数。
+//     之前登记表只能把它们合并成一行写「未说明为何不同」；键细到函数级之后才拆得开。
+//     这里量的是同一件事：门槛会不会改变幸存集合（幸存条目数在 5~200 之间稳不稳）。
+{
+  const sections: Array<[string, () => Promise<{ games: number; winRate: number }[]>]> = [
+    ["empiricalAugments：单件符文的胜率极差", async () => (await empiricalAugments({ minGames: 0 })).augments],
+    ["empiricalPairs：符文组合的胜率极差", async () => (await empiricalPairs({ minGames: 0 })).pairs],
+    ["checkSynergySets：羁绊的胜率极差", async () => (await checkSynergySets({ minGames: 0 })).sets],
+  ];
+  for (const [title, load] of sections) {
+    const all = await load();
+    const rows = SWEEP.map((n) => ({
+      n,
+      alive: `${all.filter((x) => x.games >= n).length} 条够样本（总共 ${all.length} 条）`,
+      effect: null as number | null,
+      se: null as number | null,
+    }));
+    console.log(`\n=== ${title}（只看门槛卡掉多少条）===`);
+    console.log("  门槛   存活");
+    for (const r of rows) console.log(`  ${String(r.n).padStart(4)}   ${r.alive}`);
+    console.log("  （这一族没算极差：条目多、极差是最大值统计量，算了也不能当效应量读）");
+  }
 }

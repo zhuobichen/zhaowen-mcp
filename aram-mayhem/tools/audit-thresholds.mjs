@@ -24,76 +24,152 @@ const read = (p) => readFileSync(path.join(ROOT, p), "utf8").replace(/\r\n/g, "\
  * why 写不出理由就写「未说明」—— 不要编一个听起来合理的，那比没有更坏，下一个人会照着改。
  */
 const SAMPLE_REGISTRY = {
-  "lib/matchups.ts:minGames": {
+  // ---- get_my_matchups（一个分析里三个门槛）
+  "lib/matchups.ts:analyzeMatchups:minGames": {
     tool: "get_my_matchups",
     splits: "对面出现过的英雄（约 170 个）",
     why: "实测（thresholds:sweep）：门槛从 5 升到 20，点名英雄的残差从 -32.3 → -20.3 → -17.9 一路缩小 —— 典型的「低门槛把噪声算进来了」。默认 12 时比值 1.4，跟噪声分不开，所以结论里必须带「样本太少」的折扣（代码里已经有）",
   },
-  "lib/matchups.ts:minChampionGames": { tool: "get_my_matchups", splits: "我玩过的英雄", why: "未说明" },
-  "lib/matchups.ts:perPairGames": {
+  "lib/matchups.ts:analyzeMatchups:minChampionGames": {
+    tool: "get_my_matchups",
+    splits: "我玩过的英雄",
+    why: "未说明",
+  },
+  "lib/matchups.ts:analyzeMatchups:perPairGames": {
     tool: "get_my_matchups",
     splits: "我×对面 的组合（英雄视角）",
     why: "未说明。原先是读 opts.minGames 的，跟整体视角共用输入但默认值不同 —— 已拆开（见该文件注释）",
   },
 
-  "lib/contribution.ts:minGames": {
+  // ---- 队内名次那一族（三个分析各 15/15/20，分桶方式其实是同一套）
+  "lib/contribution.ts:analyzeContribution:minGames": {
     tool: "get_my_contribution",
     splits: "队内名次档（第 1 / 2 / 3 / 4 及以后）",
     why: "实测（thresholds:sweep）：5~80 之间取值都不改变结论的数值 —— 它只决定「够不够下结论」，不改变效应本身。效应 12.6pp / 标准误 6.4 / 比值 2.0，在临界。这个号 306 局的量级下，门槛定多少都一样",
   },
-  "lib/combat-profile.ts:minGames": { tool: "get_combat_profile", splits: "队内名次档（同上）", why: "未说明" },
-  "lib/tilt.ts:minGames": {
+  "lib/combat-profile.ts:analyzeCombat:minGames": {
+    tool: "get_combat_profile",
+    splits: "队内名次档（同上，6 个指标各分一次）",
+    why: "未说明。与 contribution / tilt 同为「队内名次分档」语义，三处用了 15 / 15 / 20 三个不同数字，看不出区别的依据",
+  },
+  "lib/tilt.ts:analyzeTilt:minGames": {
     tool: "get_my_tilt",
     splits: "连败/连胜长度档",
     why: "实测（thresholds:sweep）：门槛 20→40→80 会依次把「连输 3 把及以上」那档挤出去（3 档→2 档→1 档），效应也跟着从 -6.0 缩到 -2.9。默认 20 保住了三档，是有意义的下限。**这次扫描正是发现它结论过度声称的起因**（详见 lib/tilt.ts 注释）",
   },
-  "lib/patches.ts:minGames": { tool: "get_my_patches", splits: "补丁（通常 5~10 个）", why: "只用于「列进明细」，不下结论" },
-  "lib/patches.ts:verdictMinGames": {
+
+  // ---- get_my_patches
+  "lib/patches.ts:analyzePatches:minGames": {
     tool: "get_my_patches",
-    splits: "同上，但用于跨版本结论",
+    splits: "补丁（通常 5~10 个）",
+    why: "只用于「列进明细」，不下结论",
+  },
+  "lib/patches.ts:analyzePatches:verdictMinGames": {
+    tool: "get_my_patches",
+    splits: "同上，但用于跨版本结论（第 216 行判定、第 294 行注释文本各读一次）",
     why: "刻意比列明细的门槛高 —— 列出来是陈述事实，下结论才有样本要求",
   },
 
-  "lib/comps.ts:minGames": {
+  // ---- 对面阵容
+  "lib/comps.ts:analyzeComps:minGames": {
     tool: "get_enemy_comps",
     splits: "对面 6 类标签 × 胜负",
     why: "实测（thresholds:sweep）：5~200 之间取值都不改变结论 —— 六类标签本来就都过线。效应（极差）只有 3.0pp，而噪声 4.6pp，比值 0.7：这个量级下根本看不出差别，门槛高低无所谓",
   },
-  "lib/counters.ts:minItemGames": {
+  "lib/counters.ts:analyzeCounters:minItemGames": {
     tool: "get_counter_items",
     splits: "装备（成装约 150 件）",
     why: "实测（thresholds:sweep）：门槛 5→120 幸存条目一直是 50，说明这些装备本来就都过线，门槛不 bind；极差 23pp 全程不变（同样是最大值统计量，别当效应量）",
   },
-  "lib/counters.ts:minBucketGames": { tool: "get_counter_items", splits: "对面阵容档 × 装备", why: "全库最高的门槛 —— 二维交叉，单元最多" },
-
-  "lib/empirical.ts:minGames": {
-    tool: "get_empirical_augments 等",
-    splits: "符文 / 组合 / 羁绊（该文件有 6 处不同门槛）",
-    why: "同一个文件里 20/30/60/100 都出现了，未说明为何不同",
+  "lib/counters.ts:analyzeCounters:minBucketGames": {
+    tool: "get_counter_items",
+    splits: "对面阵容档 × 装备",
+    why: "全库最高的门槛 —— 二维交叉，单元最多",
   },
-  "lib/builds.ts:minGames": {
+
+  // ---- lib/empirical.ts：**一个文件 8 处、7 个函数**，之前只能合并成一行写「未说明为何不同」。
+  //      键细到函数级之后才拆得开。下面这些数之间的相对大小**看不出规律**：
+  //      单符文 100、符文对 60、英雄×符文 60、其他玩家口径 30、羁绊 30、某英雄的符文 20 ——
+  //      按理「单元越多、每个单元需要的样本越多」，但英雄×符文（单元最多）反而是 20。
+  "lib/empirical.ts:empiricalAugments:minGames": {
+    tool: "get_empirical_augments",
+    splits: "符文（约 200 件，本号归档 2 万行符文记录）",
+    why: "实测（thresholds:sweep）：277 件符文里，门槛 100 保留约 210 条（76%）—— **基本不 bind**（全归档 2 万行摊下来每件样本都够）。所以它更像「兜底，别把长尾露出来」，而不是在筛噪声",
+  },
+  "lib/empirical.ts:empiricalPairs:minGames": {
+    tool: "get_augment_pairs",
+    splits: "符文两两组合（组合数远多于单件）",
+    why: "实测（thresholds:sweep）：组合有 **22164 个单元**，门槛 60 下仍留 455 条（2%）—— 这个是**真的在 bind**。但方向是反的：组合的单元比单件多两个数量级、门槛反而更低（60 vs 100），从「单元越多越容易被噪声挑中」的角度应该更高",
+  },
+  "lib/empirical.ts:augmentEmpirical:minGames": {
+    tool: "get_augment（本机实证段）",
+    splits: "单件符文（与 empiricalAugments 同类）",
+    why: "**未说明**：与 empiricalAugments 是同一类统计，门槛却是 60 vs 100，两者的差别没有依据",
+  },
+  "lib/empirical.ts:othersAugmentRates:minGames": {
+    tool: "get_augment / get_empirical_augments（对照口径）",
+    splits: "其他人的符文使用率",
+    why: "未说明。30 —— 它是对照组，样本来自全归档（比本号厚得多），门槛反而更低",
+  },
+  "lib/empirical.ts:checkSynergySets:minGames": {
+    tool: "check_synergy_sets",
+    splits: "羁绊（约几十套）",
+    why: "实测（thresholds:sweep）：门槛 5~200 **全程 0 套够样本** —— 全库 3861 把里一次都没凑齐过。所以这个门槛本身不 bind，因为前提就不成立。工具的输出里已经说明了这是设计使然（羁绊要 4~8 件指定符文，而一局里多数人只有 4 个符文位），这条扫描只是**独立证实了它的那句话**",
+  },
+  "lib/empirical.ts:championAugmentEmpirical:minGames": {
+    tool: "get_champion_guide（本机实证段）",
+    splits: "英雄 × 符文（二维交叉，单元最多）",
+    why: "**未说明，且与「单元越多门槛越高」相反**：这是全文件单元数最多的一处，门槛却是最低的 20",
+  },
+  "lib/empirical.ts:synergyCheckText:minGames": {
+    tool: "check_synergy_sets（输出层）",
+    splits: "同上，第 648/677 行各读一次",
+    why: "同一个选项在判定与文案里各读一次，值一致（30）",
+  },
+
+  // ---- 其余
+  "lib/builds.ts:analyzeBuilds:minGames": {
     tool: "get_my_builds",
     splits: "装备 × 槽位（成装约 150 件，本号够样本的 30~50 件）",
     why: "实测（thresholds:sweep）：门槛从 5 升到 80，幸存条目 52→4，而「幸存者极差」从 69pp 一路缩到 5pp —— 典型的低门槛把噪声算进来了。但**极差是最大值统计量**（条目越多必然越大），不能当效应量读，所以这组数字只能说明「极差随门槛单调缩小」",
   },
-  "lib/queue-stats.ts:minGames": {
+  "lib/queue-stats.ts:queueStats:minGames": {
     tool: "get_queue_stats",
     splits: "队列（4~6 个）",
     why: "实测（thresholds:sweep）：门槛从 5 扫到 200，**幸存队列始终是 1 个** —— 这个号的局几乎全在一个队列里，门槛定多少都不影响结论。在玩多个模式的账号上才会起作用",
   },
-  "lib/tft-detail.ts:minGames": {
+  "lib/queue-stats.ts:queueStatsText:minGames": {
+    tool: "get_queue_stats（输出层）",
+    splits: "同上，注释文本里重读一次",
+    why: "是同一个选项在文案里重读，值一致（10）。**但两处各写了一遍默认值**，改一处忘另一处就会让文案和判定对不上",
+  },
+  "lib/tft-detail.ts:tftDetail:minGames": {
     tool: "get_tft_detail",
     splits: "棋子 / 装备（本号够样本的 90~110 个棋子）",
     why: "实测（thresholds:sweep）：门槛 12→200，名次极差从 -4.3 缩到 -0.4，而比值一直在 0.5 上下 —— 整段都跟噪声分不开。也就是说棋子之间的名次差异这份数据看不出来，门槛高低都改变不了这一点",
   },
-  "lib/leaderboard.ts:minGames": { tool: "get_friend_leaderboard", splits: "账号（个位数）", why: "上榜最低局数，不是统计门槛" },
-  "lib/trend.ts:minGamesPerWeek": { tool: "get_my_trend", splits: "自然周", why: "未说明" },
-  "lib/social.ts:minGames": {
-    tool: "get_my_teammates",
+  "lib/leaderboard.ts:leaderboard:minGames": {
+    tool: "get_friend_leaderboard",
+    splits: "账号（个位数）",
+    why: "上榜最低局数，不是统计门槛",
+  },
+  "lib/social.ts:analyzeSocial:minGames": {
+    tool: "get_my_teammates（队友/对手榜）",
     splits: "队友 / 对手（本号同队过的 12 个账号）",
-    why: "实测（thresholds:sweep）：门槛 5→40 幸存账号 12→2，极差 41pp→15.5pp，比值 1.9~2.1 卡在线上。默认 3 时条目最多、但那个 41pp 是 12 个账号里的极差（同样是最大值统计量）",
+    why: "实测（thresholds:sweep）：门槛 5→40 幸存账号 12→2，极差 41pp→15.5pp，比值 1.9~2.1 卡在线上。默认 1 等于不过滤，但那个 41pp 是 12 个账号里的极差（同样是最大值统计量）",
+  },
+  "lib/social.ts:socialText:minGames": {
+    tool: "get_my_teammates（结论段）",
+    splits: "同上，判定用 1、下结论用 3",
+    why: "同一个分析里两个门槛：榜单用 1（全列）、结论用 3（只对够局的账号下结论）—— 这个分层是有意的，但两处默认值不同且没有共用常量",
+  },
+  "lib/trend.ts:analyzeTrend:minGamesPerWeek": {
+    tool: "get_my_trend",
+    splits: "自然周",
+    why: "未说明。5 局/周是全库最低的样本门槛，而它后面还要拿这个去下「有没有趋势」的结论 —— 实测（thresholds:sweep 相关那一节）：4 个有效周加起来也分辨不了 10 个百分点",
   },
 };
+
 
 /**
  * 差值阈值登记表：手动登记（这类写法太多样，扫不干净），但**核对值有没有被改**。
@@ -280,12 +356,19 @@ if (process.argv.includes("--selftest")) {
 }
 
 // ---- 扫描样本门槛
+// 键要细到**函数**级：lib/empirical.ts 一个文件里有 8 处 `minGames`，分属 7 个函数
+// （符文榜 100 / 组合 60 / 羁绊 30 / 英雄×符文 20…）。只用 `文件:变量名` 当键，
+// 它们会被合并成一条，登记表里就只能写「同文件多个门槛，未说明为何不同」——
+// 而那个「为何不同」正是要回答的问题。
 const found = [];
 for (const f of readdirSync(path.join(ROOT, "lib")).filter((x) => x.endsWith(".ts"))) {
+  let fn = "(顶层)";
   read(`lib/${f}`).split("\n").forEach((l, i) => {
+    const fm = l.match(/^(?:export )?(?:async )?function (\w+)/);
+    if (fm) fn = fm[1];
     for (const m of l.matchAll(/opts\.(\w+)\s*\?\?\s*(\d+)/g)) {
       if (!/^(min|verdictMin|perPair)/.test(m[1])) continue;
-      found.push({ file: `lib/${f}`, line: i + 1, name: m[1], value: Number(m[2]), key: `lib/${f}:${m[1]}` });
+      found.push({ file: `lib/${f}`, line: i + 1, name: m[1], value: Number(m[2]), fn, key: `lib/${f}:${fn}:${m[1]}` });
     }
   });
 }
