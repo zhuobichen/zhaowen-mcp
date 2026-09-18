@@ -31,7 +31,7 @@ const AUDITS = [
   { key: "analysis", title: "分析审计", cmd: ["tools/audit-analysis.mjs"], what: "字段是「被读过」还是「真被分析过」" },
   { key: "wiring", title: "接线审计", cmd: ["tools/audit-wiring.mjs"], what: "游离文件/死代码、工具↔文档↔scripts 是否对得上、每个 script 有没有交代、审计进程有没有设写盘闸" },
   { key: "surfaced", title: "可见性审计", cmd: ["tools/audit-surfaced.mjs"], what: "分析结果有没有进报告" },
-  { key: "help", title: "引导覆盖", cmd: ["tools/audit-help.mjs"], what: "每个工具能否从场景引导里被找到" },
+  { key: "help", title: "引导表", cmd: ["tools/audit-help.mjs"], what: "工具覆盖 + 内容质量（重复的 when / 歧义的说法 / 空描述）+ README 那张表有没有漂移" },
   { key: "length", title: "输出长度", cmd: ["tools/audit-length.mjs"], what: "真的调一遍量行数，超过 120 行就报" },
   { key: "coldstart", title: "冷启动", cmd: ["tools/audit-coldstart.mjs"], what: "空归档+离线时会不会只回空壳" },
   { key: "healthy", title: "冷启动反向", cmd: ["tools/audit-coldstart.mjs", "--healthy"], what: "有数据时**不该**被补「没有数据」提示" },

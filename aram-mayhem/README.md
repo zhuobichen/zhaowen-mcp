@@ -150,7 +150,7 @@ npm run audit:enums    # 词表声明：封闭词表参数的 enum 完整吗、�
 npm run audit:fields # 字段审计：归档采集的统计字段有没有「采了但从没被分析」的
 npm run audit:analysis # 分析审计：字段是「被读过」还是「真被分析过」（只在 CSV 里露过面不算）
 npm run audit:surfaced # 可见性审计：分析的结果有没有进报告（只在工具输出里 = 不问就看不到）
-npm run audit:help     # 引导覆盖：每个工具是否都能从 lib/help.ts 的场景表里被找到 + README 那张表有没有漂移
+npm run audit:help     # 引导表三查：工具覆盖 / 内容质量（重复的 when、指到两处的说法、空描述）/ README 那张表有没有漂移
 npm run help:readme    # 按 lib/help.ts 重新生成 README 的「按处境查」表（--check 只检查）
 npm run audit:length   # 输出长度：真的把每个工具调一遍量行数，超过 120 行就报
 npm run audit:consistency # 跨工具一致性：同一个数（我的总局数/胜率）在各工具里是否一致
