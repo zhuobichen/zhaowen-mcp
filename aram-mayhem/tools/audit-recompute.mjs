@@ -94,7 +94,7 @@ await send("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
 
 // 先调几个会报「我的总局数 / 胜率」的工具 —— 顺带把它们看到的新对局并进归档
-const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds"];
+const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend"];
 const reported = {};
 for (const tool of PROBES) {
   const r = await send("tools/call", { name: tool, arguments: {} });
@@ -304,6 +304,124 @@ function isBuildItem(it) {
     }
   } else {
     console.log(`· 符文：checkup 这次没有点名符文（样本不足），跳过对账；全归档非我行数 ${otherRows}`);
+  }
+}
+
+// ④ 对手维度：get_my_matchups 点名的克星，它的场次和残差
+{
+  const vs = new Map();
+  for (const g of mayhemGames) {
+    const parts = g.participants ?? [];
+    const me = parts.find((p) => p.puuid === ME);
+    if (!me?.stats || me.stats.win === undefined) continue;
+    for (const p of parts) {
+      if (p.teamId === me.teamId || !p.championId) continue;
+      const id = Number(p.championId);
+      const c = vs.get(id) ?? { g: 0, w: 0 };
+      c.g++;
+      if (me.stats.win === true) c.w++;
+      vs.set(id, c);
+    }
+  }
+  const cidMap = JSON.parse(readFileSync(path.join(ROOT, "data/champion-ids.json"), "utf8"));
+  const champsJson = JSON.parse(readFileSync(path.join(ROOT, "data/champions.json"), "utf8"));
+  const nameOf = (id) => {
+    const cid = cidMap[String(id)];
+    return cid ? (champsJson.find((c) => c.id === cid.id)?.name ?? cid.name) : `英雄#${id}`;
+  };
+  const m = /最吃力的是对面有\s*(\S+?)（(\d+) 把/.exec(reported["get_my_matchups"] ?? "");
+  if (m) {
+    const [, champ, gamesStr] = m;
+    const entry = [...vs.entries()].find(([id]) => nameOf(id) === champ);
+    const ok = entry && entry[1].g === Number(gamesStr);
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 对手：点名克星 ${champ}　工具报 ${gamesStr} 把　独立重算 ${entry ? entry[1].g : "—"} 把` +
+        (entry ? `（你赢 ${entry[1].w} 把）` : "")
+    );
+  } else {
+    console.log("· 对手：matchups 这次没点名克星，跳过");
+  }
+}
+
+// ⑤ 出装胜率（不只是场次）
+{
+  const stat = new Map();
+  for (const g of mayhemGames) {
+    const me = (g.participants ?? []).find((p) => p.puuid === ME);
+    if (!me?.stats || me.stats.win === undefined) continue;
+    const seen = new Set();
+    for (let i = 0; i <= 6; i++) {
+      const id = Number(me.stats[`item${i}`] ?? 0);
+      if (!id || seen.has(id) || !isBuildItem(items[String(id)])) continue;
+      seen.add(id);
+      const c = stat.get(id) ?? { g: 0, w: 0 };
+      c.g++;
+      if (me.stats.win === true) c.w++;
+      stat.set(id, c);
+    }
+  }
+  const top = [...stat.entries()].sort((a, b) => b[1].g - a[1].g)[0];
+  const name = top ? items[String(top[0])]?.name : null;
+  if (name) {
+    const re = new RegExp(name + "（\\d+ 金）：(\\d+) 把 · 胜率 (\\d+)%");
+    const m = re.exec(reported["get_my_builds"] ?? "");
+    const rate = Math.round((top[1].w / top[1].g) * 100);
+    const ok = m && Number(m[2]) === rate;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 出装胜率：${name}　工具报 ${m ? m[2] : "—"}%　独立重算 ${rate}%（${top[1].w}/${top[1].g}）`
+    );
+  }
+}
+
+// ⑥ 趋势的分周聚合：最近 4 个有效周 vs 之前 4 个
+{
+  const WEEK = 7 * 86400 * 1000;
+  const weekOf = (t) => {
+    const d = new Date(t);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d.getTime();
+  };
+  const byWeek = new Map();
+  for (const g of mayhemGames) {
+    const me = (g.participants ?? []).find((p) => p.puuid === ME);
+    if (!me?.stats || me.stats.win === undefined) continue;
+    const k = weekOf(Number(g.gameCreation ?? 0));
+    const c = byWeek.get(k) ?? { g: 0, w: 0 };
+    c.g++;
+    if (me.stats.win === true) c.w++;
+    byWeek.set(k, c);
+  }
+  void WEEK;
+  // 「有效周」= 该周 ≥5 局（trend.ts 的 minGamesPerWeek 默认值）
+  const usable = [...byWeek.entries()].sort((a, b) => a[0] - b[0]).filter(([, c]) => c.g >= 5);
+  const sum = (list) => {
+    const g = list.reduce((s, [, c]) => s + c.g, 0);
+    const w = list.reduce((s, [, c]) => s + c.w, 0);
+    return { g, w, rate: g ? (w / g) * 100 : 0 };
+  };
+  const recent = sum(usable.slice(-4));
+  const earlier = sum(usable.slice(-8, -4));
+  const m = /最近 (\d+) 个有效周 (\d+) 把 (\d+\.\d)%，之前 (\d+) 个有效周 (\d+) 把 (\d+\.\d)%/.exec(
+    reported["get_my_checkup"] ?? ""
+  );
+  const raw = reported["get_my_trend"] ?? "";
+  const m2 = /最近 (\d+) 个有效周：(\d+) 把 ([\d.]+)%　之前 (\d+) 个：(\d+) 把 ([\d.]+)%/.exec(raw);
+  const hit = m2 ?? m;
+  if (hit) {
+    const okG = Number(hit[2]) === recent.g && Number(hit[5]) === earlier.g;
+    const okR =
+      Math.abs(Number(hit[3]) - recent.rate) < 0.06 && Math.abs(Number(hit[6]) - earlier.rate) < 0.06;
+    const ok = okG && okR;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 趋势分周：工具报「最近 ${hit[2]} 把 ${hit[3]}% / 之前 ${hit[5]} 把 ${hit[6]}%」` +
+        `　独立重算「${recent.g} 把 ${recent.rate.toFixed(1)}% / ${earlier.g} 把 ${earlier.rate.toFixed(1)}%」（有效周 ${usable.length} 个）`
+    );
+  } else {
+    console.log(`· 趋势分周：没在输出里找到该句（有效周 ${usable.length} 个），跳过`);
   }
 }
 
