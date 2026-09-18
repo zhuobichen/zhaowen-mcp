@@ -24,7 +24,11 @@ const read = (p) => readFileSync(path.join(ROOT, p), "utf8").replace(/\r\n/g, "\
  * why 写不出理由就写「未说明」—— 不要编一个听起来合理的，那比没有更坏，下一个人会照着改。
  */
 const SAMPLE_REGISTRY = {
-  "lib/matchups.ts:minGames": { tool: "get_my_matchups", splits: "对面出现过的英雄（约 170 个）", why: "未说明" },
+  "lib/matchups.ts:minGames": {
+    tool: "get_my_matchups",
+    splits: "对面出现过的英雄（约 170 个）",
+    why: "实测（thresholds:sweep）：门槛从 5 升到 20，点名英雄的残差从 -32.3 → -20.3 → -17.9 一路缩小 —— 典型的「低门槛把噪声算进来了」。默认 12 时比值 1.4，跟噪声分不开，所以结论里必须带「样本太少」的折扣（代码里已经有）",
+  },
   "lib/matchups.ts:minChampionGames": { tool: "get_my_matchups", splits: "我玩过的英雄", why: "未说明" },
   "lib/matchups.ts:perPairGames": {
     tool: "get_my_matchups",
@@ -32,9 +36,17 @@ const SAMPLE_REGISTRY = {
     why: "未说明。原先是读 opts.minGames 的，跟整体视角共用输入但默认值不同 —— 已拆开（见该文件注释）",
   },
 
-  "lib/contribution.ts:minGames": { tool: "get_my_contribution", splits: "队内名次档（第 1 / 2 / 3 / 4 及以后）", why: "未说明" },
+  "lib/contribution.ts:minGames": {
+    tool: "get_my_contribution",
+    splits: "队内名次档（第 1 / 2 / 3 / 4 及以后）",
+    why: "实测（thresholds:sweep）：5~80 之间取值都不改变结论的数值 —— 它只决定「够不够下结论」，不改变效应本身。效应 12.6pp / 标准误 6.4 / 比值 2.0，在临界。这个号 306 局的量级下，门槛定多少都一样",
+  },
   "lib/combat-profile.ts:minGames": { tool: "get_combat_profile", splits: "队内名次档（同上）", why: "未说明" },
-  "lib/tilt.ts:minGames": { tool: "get_my_tilt", splits: "连败/连胜长度档", why: "未说明" },
+  "lib/tilt.ts:minGames": {
+    tool: "get_my_tilt",
+    splits: "连败/连胜长度档",
+    why: "实测（thresholds:sweep）：门槛 20→40→80 会依次把「连输 3 把及以上」那档挤出去（3 档→2 档→1 档），效应也跟着从 -6.0 缩到 -2.9。默认 20 保住了三档，是有意义的下限。**这次扫描正是发现它结论过度声称的起因**（详见 lib/tilt.ts 注释）",
+  },
   "lib/patches.ts:minGames": { tool: "get_my_patches", splits: "补丁（通常 5~10 个）", why: "只用于「列进明细」，不下结论" },
   "lib/patches.ts:verdictMinGames": {
     tool: "get_my_patches",
@@ -42,7 +54,11 @@ const SAMPLE_REGISTRY = {
     why: "刻意比列明细的门槛高 —— 列出来是陈述事实，下结论才有样本要求",
   },
 
-  "lib/comps.ts:minGames": { tool: "get_enemy_comps", splits: "对面 6 类标签 × 胜负", why: "未说明" },
+  "lib/comps.ts:minGames": {
+    tool: "get_enemy_comps",
+    splits: "对面 6 类标签 × 胜负",
+    why: "实测（thresholds:sweep）：5~200 之间取值都不改变结论 —— 六类标签本来就都过线。效应（极差）只有 3.0pp，而噪声 4.6pp，比值 0.7：这个量级下根本看不出差别，门槛高低无所谓",
+  },
   "lib/counters.ts:minItemGames": { tool: "get_counter_items", splits: "装备（成装约 150 件）", why: "未说明" },
   "lib/counters.ts:minBucketGames": { tool: "get_counter_items", splits: "对面阵容档 × 装备", why: "全库最高的门槛 —— 二维交叉，单元最多" },
 

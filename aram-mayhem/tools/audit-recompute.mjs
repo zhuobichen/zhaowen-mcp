@@ -1360,7 +1360,9 @@ const UNRECONCILABLE = [
 ];
 console.log("");
 console.log("覆盖边界（这些**故意不在**对账范围内，原因如下）：");
-for (const [name, why] of UNRECONCILABLE) console.log(`  ✗ ${name} —— ${why}`);
+// 用「—」不用「✗」：这些是**不在范围内**，不是**失败**。
+// 之前用 ✗ 标，一眼扫下来像是十几项没过 —— 报错行说错原因比不报还坏，会把人引错地方。
+for (const [name, why] of UNRECONCILABLE) console.log(`  — ${name} —— ${why}`);
 console.log(`  本次可对账的项：33 项（上面带 ✓ 的），覆盖 ${new Set(PROBES).size} 个工具 + 3 个换参数的调用`);
 
 console.log("");

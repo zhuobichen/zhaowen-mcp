@@ -166,28 +166,47 @@ export async function analyzeTilt(
     if (w3.enough) {
       parts.push(`连赢 3 把及以上之后：${w3.games} 局 ${w3.winRate.toFixed(1)}%（${w3.delta >= 0 ? "+" : ""}${w3.delta.toFixed(1)}）`);
     }
-    const worst = Math.min(l1.delta, l3.enough ? l3.delta : 99);
+    const worstBucket = l3.enough && l3.delta < l1.delta ? l3 : l1;
+    const worst = worstBucket.delta;
+    // 判定要跟**噪声**比，不能跟一个固定的百分点比 ——
+    // 原先写的是 `worst <= -5`：同一个 -5 个百分点，在 300 局的桶里是实打实的，
+    // 在 36 局的桶里标准误就有 8 个点，跟 0 区分不开。
+    // 是「门槛扫描」（tools/thresholds-sweep.ts）量出来的：这个号连输 3 把以上那档
+    // -6.0 个百分点、标准误 8.8，比值 0.7，而结论原本写的是「明显走低」。
+    // 做法照抄 lib/comps.ts：用 k 倍标准误，让它自动随样本量收紧。
+    const se = (b: StreakBucket) => Math.sqrt(Math.max(b.winRate * (100 - b.winRate), 1) / Math.max(b.games, 1));
+    const worstSE = se(worstBucket);
+    const k = worstSE > 0 ? Math.abs(worst) / worstSE : 0;
+    // 2 倍标准误（≈95%）才算跟噪声分得开
+    const significant = k > 2;
     // 死亡数只有在明显高于自己平时水平时才是「急了」的证据，绝对值没有意义
     const deathNote =
       baseDeaths > 0 && l1.deaths - baseDeaths >= 1
         ? `，而且场均死亡从平时的 ${baseDeaths.toFixed(1)} 涨到 ${l1.deaths.toFixed(1)}`
         : "";
-    if (worst <= -5) {
+    if (significant && worst < 0) {
       verdict =
         parts.join("；") +
-        ` —— 连败之后明显走低（最多 ${worst.toFixed(1)} 个百分点）${deathNote}` +
+        ` —— 连败之后明显走低（最多 ${worst.toFixed(1)} 个百分点，${worstBucket.games} 局；` +
+        `这个偏差约是噪声的 ${k.toFixed(1)} 倍）${deathNote}` +
         "。这个模式下「输两把就停」比硬打划算。";
-    } else if (worst >= 5) {
+    } else if (significant && worst >= 0) {
       verdict = parts.join("；") + " —— 输完之后反而打得更好，顶得住，不用刻意停。";
     } else {
       verdict =
         parts.join("；") +
-        " —— 都在整体胜率附近波动，看不出明显的上头或越打越好。" +
+        ` —— 都在整体胜率附近波动：偏离最大的一档是 ${worst.toFixed(1)} 个百分点，` +
+        `而那一档只有 ${worstBucket.games} 局，它自己的噪声（一个标准误）就有 ±${worstSE.toFixed(1)} 个百分点，` +
+        "两者分不开 —— 看不出明显的上头或越打越好。" +
         "注意胜率本来就会向 50% 回归，所以「接近基准」本身就说明没有额外影响。";
     }
     // 连胜到一定长度也走低的话，方向和「连败」不一样，但同样是「状态被影响」的证据
-    if (w3.enough && w3.delta <= -5) {
-      verdict += `\n另外注意连赢那头：连赢 3 把以上之后的 ${w3.games} 局只有 ${w3.winRate.toFixed(1)}%（${w3.delta.toFixed(1)}）—— 不只是输了才上头，赢多了也会飘。`;
+    // 连胜这头同样要过噪声线，不能只看「低于 -5 个百分点」
+    const w3SE = w3.enough ? se(w3) : 0;
+    if (w3.enough && w3.delta < 0 && w3SE > 0 && Math.abs(w3.delta) / w3SE > 2) {
+      verdict +=
+        `\n另外注意连赢那头：连赢 3 把以上之后的 ${w3.games} 局只有 ${w3.winRate.toFixed(1)}%（${w3.delta.toFixed(1)}，` +
+        `约是噪声的 ${(Math.abs(w3.delta) / w3SE).toFixed(1)} 倍）—— 不只是输了才上头，赢多了也会飘。`;
     }
     if (imm.enough) {
       verdict += `\n补充：上一把输了、30 分钟内接着开的那 ${imm.games} 局，胜率 ${imm.winRate.toFixed(1)}%（${imm.delta >= 0 ? "+" : ""}${imm.delta.toFixed(1)}）。`;

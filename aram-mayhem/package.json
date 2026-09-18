@@ -70,7 +70,8 @@
         "audit:args:vectors": "tsx tools/args-vectors.ts",
         "audit:thresholds": "node tools/audit-thresholds.mjs",
         "audit:thresholds:selftest": "node tools/audit-thresholds.mjs --selftest",
-        "thresholds:doc": "node tools/audit-thresholds.mjs --write"
+        "thresholds:doc": "node tools/audit-thresholds.mjs --write",
+        "thresholds:sweep": "tsx tools/thresholds-sweep.ts"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0"
