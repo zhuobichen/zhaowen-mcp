@@ -12,6 +12,7 @@
 // 注意区分「拒绝」和「本来就没有」：参数合法但查不到东西（`get_augment({name:"不存在的符文"})`）
 // 返回「没找到」是**对的**，不在本审计范围内。
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -124,13 +125,48 @@ for (const [tool, args, why] of GOOD) {
   }
 }
 
+// ---- 数值参数必须真的被采纳：拿 **0 vs 完全不传** 比
+//
+// 起因：handler 里原本一律写 `args.X ? Number(args.X) : undefined` —— JS 的真值判断，
+// `min_games: 0`（不设样本门槛，是合理请求）会被当成「没传」而静默换成默认值。
+//
+// 判据为什么是「0 vs 不传」而不是「0 vs 500」：后者两种写法都会不同，
+// **抓不到这个 bug**（第一版就是这么写的，等于没测）。只有把 0 和不传放在一起比，
+// 才能验出「0 是不是被吞了」—— 被吞掉的话两者输出会一模一样。
+const DIFF = [
+  ["get_empirical_augments", { min_games: 0 }, "min_games"],
+  ["get_my_trend", { min_games_per_week: 0 }, "min_games_per_week"],
+];
+let notHonored = 0;
+for (const [tool, args, param] of DIFF) {
+  const withZero = (await send("tools/call", { name: tool, arguments: args })).result?.content?.[0]?.text ?? "";
+  const without = (await send("tools/call", { name: tool, arguments: {} })).result?.content?.[0]?.text ?? "";
+  if (withZero === without) {
+    notHonored++;
+    console.log(`  ✗ ${tool}：${param}=0 与不传这个参数输出完全相同 —— 0 被当成「没传」吞掉了`);
+    console.log(`      两者都是 ${withZero.length} 字符`);
+  } else {
+    console.log(`  ✓ ${tool}：${param}=0 与不传结果不同（${withZero.length} vs ${without.length} 字符），0 没被吞`);
+  }
+}
+
+// ---- 静态兜底：数字参数不许再用真值判断
+const idxSrc = readFileSync(path.join(ROOT, "index.ts"), "utf8").replace(/\r\n/g, "\n");
+const falsyNumeric = [...idxSrc.matchAll(/args\.(\w+) \? Number\(args\.\1\)/g)].map((m) => m[1]);
+if (falsyNumeric.length) {
+  notHonored += falsyNumeric.length;
+  console.log(`  ✗ 还有 ${falsyNumeric.length} 处数字参数在用真值判断（0 会被当成没传）：${[...new Set(falsyNumeric)].join(", ")}`);
+} else {
+  console.log(`  ✓ 数字参数都改成了显式判 undefined，没有 ` + "`args.X ? Number(args.X)` 的写法");
+}
+
 child.kill();
 
 console.log("");
-const bad = leaked + killed;
+const bad = leaked + killed + notHonored;
 console.log(
   bad
-    ? `✗ ${leaked} 种坏参数没被拦住、${killed} 个合法调用被误伤（共 ${CASES.length + GOOD.length} 条）`
-    : `✓ ${rejected} 种坏参数全被明确拒绝，${GOOD.length} 个合法调用没被误伤`
+    ? `✗ ${leaked} 种坏参数没被拦住、${killed} 个合法调用被误伤、${notHonored} 处数值参数没被采纳（共 ${CASES.length + GOOD.length + DIFF.length} 条）`
+    : `✓ ${rejected} 种坏参数全被明确拒绝，${GOOD.length} 个合法调用没被误伤，${DIFF.length} 个数值参数确认被采纳`
 );
 process.exit(bad ? 1 : 0);

@@ -664,7 +664,7 @@ async function main() {
               rarity: args.rarity ? String(args.rarity) : undefined,
               mode: args.mode ? String(args.mode) : undefined,
               scope: args.scope ? (String(args.scope) as "live" | "unknown" | "retired" | "all") : undefined,
-              limit: args.limit ? Number(args.limit) : undefined,
+              limit: args.limit === undefined ? undefined : Number(args.limit),
               sort: args.sort === "name" ? "name" : args.sort === "rank" ? "rank" : undefined,
             })
           );
@@ -685,7 +685,7 @@ async function main() {
             listChampions({
               tier: args.tier ? String(args.tier) : undefined,
               sort: args.sort === "tier" ? "tier" : undefined,
-              limit: args.limit ? Number(args.limit) : undefined,
+              limit: args.limit === undefined ? undefined : Number(args.limit),
             })
           );
 
@@ -694,7 +694,7 @@ async function main() {
           return text(
             await championGuideAsync({
               champion: String(args.champion),
-              limit: args.limit ? Number(args.limit) : undefined,
+              limit: args.limit === undefined ? undefined : Number(args.limit),
             })
           );
 
@@ -712,13 +712,13 @@ async function main() {
         case "get_my_recent_games":
           return text(
             await myRecentGames({
-              limit: args.limit ? Number(args.limit) : undefined,
+              limit: args.limit === undefined ? undefined : Number(args.limit),
               only_mayhem: args.only_mayhem !== false,
             })
           );
 
         case "analyze_my_augments":
-          return text(await analyzeMyAugments({ limit: args.limit ? Number(args.limit) : undefined }));
+          return text(await analyzeMyAugments({ limit: args.limit === undefined ? undefined : Number(args.limit) }));
 
         case "list_my_friends":
           return text(await listMyFriends());
@@ -726,14 +726,14 @@ async function main() {
         case "get_friend_stats":
           if (!args.friend) return text("请提供好友名字 friend");
           return text(
-            await friendStats({ friend: String(args.friend), limit: args.limit ? Number(args.limit) : undefined })
+            await friendStats({ friend: String(args.friend), limit: args.limit === undefined ? undefined : Number(args.limit) })
           );
 
         case "get_tft_stats":
           return text(
             await tftStats({
               friend: args.friend ? String(args.friend) : undefined,
-              limit: args.limit ? Number(args.limit) : undefined,
+              limit: args.limit === undefined ? undefined : Number(args.limit),
             })
           );
 
@@ -747,15 +747,15 @@ async function main() {
           return text(
             await socialText({
               who: args.who ? String(args.who) : undefined,
-              minGames: args.min_games ? Number(args.min_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
             })
           );
 
         case "get_friend_leaderboard":
           return text(
             await leaderboard({
-              minGames: args.min_games ? Number(args.min_games) : undefined,
-              top: args.top ? Number(args.top) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
+              top: args.top === undefined ? undefined : Number(args.top),
             })
           );
 
@@ -764,14 +764,14 @@ async function main() {
           return text(await compareAccounts(args.a ? String(args.a) : undefined, String(args.b)));
 
         case "get_my_builds":
-          return text(await buildsText({ minGames: args.min_games ? Number(args.min_games) : undefined }));
+          return text(await buildsText({ minGames: args.min_games === undefined ? undefined : Number(args.min_games) }));
 
         case "get_my_matchups":
           return text(
             await matchupsText({
               who: args.who ? String(args.who) : undefined,
-              minGames: args.min_games ? Number(args.min_games) : undefined,
-              minChampionGames: args.min_champion_games ? Number(args.min_champion_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
+              minChampionGames: args.min_champion_games === undefined ? undefined : Number(args.min_champion_games),
             })
           );
 
@@ -788,7 +788,7 @@ async function main() {
           return text(
             await combatText({
               name: args.who ? String(args.who) : undefined,
-              minGames: args.min_games ? Number(args.min_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
             })
           );
 
@@ -806,7 +806,7 @@ async function main() {
           return text(
             await reportSelfCompareText({
               who: args.who ? String(args.who) : undefined,
-              window: args.window ? Number(args.window) : undefined,
+              window: args.window === undefined ? undefined : Number(args.window),
               out: args.out ? String(args.out) : undefined,
             })
           );
@@ -822,7 +822,7 @@ async function main() {
         case "get_game_detail":
           return text(
             await gameDetailText({
-              index: args.index ? Number(args.index) : undefined,
+              index: args.index === undefined ? undefined : Number(args.index),
               which: args.which ? String(args.which) : undefined,
               who: args.who ? String(args.who) : undefined,
             })
@@ -835,7 +835,7 @@ async function main() {
           return text(
             await tiltText({
               who: args.who ? String(args.who) : undefined,
-              minGames: args.min_games ? Number(args.min_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
             })
           );
 
@@ -843,15 +843,15 @@ async function main() {
           return text(
             await contributionText({
               name: args.who ? String(args.who) : undefined,
-              minGames: args.min_games ? Number(args.min_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
             })
           );
 
         case "get_counter_items":
           return text(
             await countersText({
-              minItemGames: args.min_item_games ? Number(args.min_item_games) : undefined,
-              minBucketGames: args.min_bucket_games ? Number(args.min_bucket_games) : undefined,
+              minItemGames: args.min_item_games === undefined ? undefined : Number(args.min_item_games),
+              minBucketGames: args.min_bucket_games === undefined ? undefined : Number(args.min_bucket_games),
             })
           );
 
@@ -859,7 +859,7 @@ async function main() {
           return text(
             await compsText({
               name: args.who ? String(args.who) : undefined,
-              minGames: args.min_games ? Number(args.min_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
             })
           );
 
@@ -868,8 +868,8 @@ async function main() {
             await patchesText({
               who: args.who ? String(args.who) : undefined,
               kind: args.kind === "tft" ? "tft" : "mayhem",
-              minGames: args.min_games ? Number(args.min_games) : undefined,
-              verdictMinGames: args.verdict_min_games ? Number(args.verdict_min_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
+              verdictMinGames: args.verdict_min_games === undefined ? undefined : Number(args.verdict_min_games),
             })
           );
 
@@ -878,7 +878,7 @@ async function main() {
             await queueStatsText({
               who: args.who ? String(args.who) : undefined,
               kind: args.kind === "tft" ? "tft" : "lol",
-              minGames: args.min_games ? Number(args.min_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
             })
           );
 
@@ -887,7 +887,7 @@ async function main() {
             await trendText({
               who: args.who ? String(args.who) : undefined,
               kind: args.kind === "tft" ? "tft" : args.kind === "mayhem" ? "mayhem" : undefined,
-              minGamesPerWeek: args.min_games_per_week ? Number(args.min_games_per_week) : undefined,
+              minGamesPerWeek: args.min_games_per_week === undefined ? undefined : Number(args.min_games_per_week),
             })
           );
 
@@ -895,36 +895,36 @@ async function main() {
           return text(
             await tftDetailText({
               who: args.who ? String(args.who) : undefined,
-              minGames: args.min_games ? Number(args.min_games) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
             })
           );
 
         case "get_empirical_augments":
           return text(
             await empiricalAugmentsText({
-              minGames: args.min_games ? Number(args.min_games) : undefined,
-              top: args.top ? Number(args.top) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
+              top: args.top === undefined ? undefined : Number(args.top),
             })
           );
 
         case "get_augment_pairs":
           return text(
             await empiricalPairsText({
-              minGames: args.min_games ? Number(args.min_games) : undefined,
-              top: args.top ? Number(args.top) : undefined,
+              minGames: args.min_games === undefined ? undefined : Number(args.min_games),
+              top: args.top === undefined ? undefined : Number(args.top),
             })
           );
 
         case "check_synergy_sets":
           return text(
-            await synergyCheckText({ minGames: args.min_games ? Number(args.min_games) : undefined })
+            await synergyCheckText({ minGames: args.min_games === undefined ? undefined : Number(args.min_games) })
           );
 
         case "get_champ_select_teammates": {
           const me = await resolveMe();
           const r = await scoutTeammates({
             myPuuid: me?.puuid ?? null,
-            games: args.games ? Number(args.games) : undefined,
+            games: args.games === undefined ? undefined : Number(args.games),
           });
           return text(r.text);
         }
