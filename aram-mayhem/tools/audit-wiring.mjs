@@ -4,7 +4,10 @@
 //   A. lib/ 里有没有游离文件或死代码（写了却没人调）
 //   B. MCP 工具 ↔ README 工具表是否两边对得上
 //   C. package.json 的 scripts 指向的文件在不在
+//   C2. 每个 script 在 README 里有没有交代（或在豁免名单里写了理由）
 //   D. lib/ 和 tools/ 下的 probe / CLI 脚本有没有配套的 npm script
+//   E. 会起 MCP 服务的审计有没有设「不许写盘」的闸
+//   F. handler 读的 args.X 都声明在 inputSchema 里吗（lib/args.ts 严格校验的安全前提）
 //
 // 这些不会让程序报错，但会让「以为有」和「实际有」错位 —— 正是最该被检查的那类问题。
 //
@@ -234,6 +237,81 @@ if (unguarded.length) {
 } else {
   const n = spawners.filter((f) => /\bspawn\(/.test(read(f))).length;
   ok(`${n} 个会起服务的审计/冒烟脚本都设了 MAYHEM_NO_WRITES`);
+}
+
+// ---------------------------------------------------------------- F. handler 读的 args.X 都声明在 schema 里吗
+//
+// 这一节是 `lib/args.ts` 的**安全前提**：那边对「未知参数」一律报错，
+// 依据就是「handler 不会读没声明的参数」。少了这一节，只要有一处 handler 读了个
+// 没声明的名字，所有客户端传那个参数都会被校验拦下来 —— 把一个本来能用的功能打死。
+//
+// （这个检查是补写的。args.ts 的注释里**早就写着**「由 tools/audit-wiring.mjs 的
+// 另一节保证」—— 但那一节当时并不存在，注释在替一个不存在的保证背书。
+// 写检查时先确认它在不在，别信注释。）
+console.log("\nF. handler 读的 args.X 有没有都声明在 inputSchema 里");
+const idxSrc2 = read("index.ts").replace(/\r\n/g, "\n");
+const idxLines = idxSrc2.split("\n");
+
+/** tool → 声明了的参数名集合 */
+const declaredOf = new Map();
+let t2 = null;
+let inS = false;
+for (let i = 0; i < idxLines.length; i++) {
+  const tm = idxLines[i].match(/^        name: "([a-z_]+)",/);
+  if (tm) {
+    t2 = tm[1];
+    declaredOf.set(t2, new Set());
+    inS = false;
+    continue;
+  }
+  if (/^        inputSchema: \{/.test(idxLines[i])) {
+    inS = true;
+    continue;
+  }
+  if (inS && /^        \},/.test(idxLines[i])) {
+    inS = false;
+    continue;
+  }
+  if (!inS || !t2) continue;
+  const one = idxLines[i].match(/^            (\w+): \{/);
+  if (one) declaredOf.get(t2).add(one[1]);
+}
+
+/** tool → 读过的 args.X 集合 */
+const readOf = new Map();
+let t3 = null;
+for (const l of idxLines) {
+  const cm = l.match(/^        case "([a-z_]+)":/);
+  if (cm) {
+    t3 = cm[1];
+    if (!readOf.has(t3)) readOf.set(t3, new Set());
+    continue;
+  }
+  if (/^        default:/.test(l)) {
+    t3 = null;
+    continue;
+  }
+  if (!t3) continue;
+  for (const m of l.matchAll(/\bargs\.(\w+)/g)) readOf.get(t3).add(m[1]);
+}
+
+const undeclared = [];
+let readParams = 0;
+for (const [t, reads] of readOf) {
+  const decl = declaredOf.get(t);
+  if (!decl) {
+    undeclared.push(`${t}：整份 case 找不到对应的 inputSchema 声明`);
+    continue;
+  }
+  for (const r of reads) {
+    readParams++;
+    if (!decl.has(r)) undeclared.push(`${t} 读了 args.${r}，但 inputSchema 里没声明这个参数`);
+  }
+}
+if (undeclared.length) {
+  bad(`有 handler 在读没声明的参数（会被参数校验拦掉，等于功能被自己打死）：\n      ${undeclared.join("\n      ")}`);
+} else {
+  ok(`${readOf.size} 个 case 读了 ${readParams} 处参数，全部在各自的 inputSchema 里声明过`);
 }
 
 // 收尾结论行：健康报告按这一行的前缀分档（✓ 通过 / ⚠ 注意 / ✗ 失败）。
