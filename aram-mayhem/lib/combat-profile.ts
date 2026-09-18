@@ -7,6 +7,9 @@
  *   · timeCCingOthers           93% 有值 → 分析
  *   · longestTimeSpentLiving    99% 有值 → 分析
  *   · damageDealtToObjectives   80% 有值 → 分析
+ * 另外两项（totalDamageTaken 承伤 / champLevel 局内等级）是更严的一轮审计查出来的 ——
+ * 它们早就在采集列表里、也进了导出的 CSV，但**没有任何模块对它们做判断**。
+ * 判据的区别：「被读过」和「被分析过」不是一回事，只在 CSV 里露过面不算分析。
  *   · visionScore               98% 是 0  → **不分析**，海斗没有眼位系统，这个字段在这里没意义
  *   · timeSpentDead             0% 有值   → **不分析**，源里根本没给这个字段（采集列表里声明了但取不到）
  *
@@ -55,6 +58,10 @@ const METRICS: Array<{ key: string; label: string }> = [
   { key: "totalHeal", label: "治疗量" },
   { key: "longestTimeSpentLiving", label: "最长存活" },
   { key: "damageDealtToObjectives", label: "对目标伤害" },
+  // 下面两项是更严的审计（audit:analysis，判据是「有没有被判断过」而不是「被读过」）查出来的：
+  // 它们早就采了、也进了 CSV，但没有任何模块对它们做判断。
+  { key: "totalDamageTaken", label: "承伤" },
+  { key: "champLevel", label: "局内等级" },
 ];
 
 export async function analyzeCombat(
@@ -182,8 +189,19 @@ export async function analyzeCombat(
     const durSame =
       durationFirst != null && durationLast != null && Math.abs(durationFirst - durationLast) < 2;
 
+    // 退化检测：如果绝大多数局都落在队内第一（并列太多），这个「名次」就没有区分度，
+    // 拿它比胜率会得出看着有差、实则无意义的结论。大乱斗的局内等级就是这种情况
+    // —— 共享经验，五个人的等级本来就几乎一样。
+    const topShare = first && n ? first.games / n : 0;
+    const degenerate = topShare > 0.6;
+
     let verdict: string;
-    if (spread == null) {
+    if (degenerate) {
+      verdict =
+        `**这个指标在这里没有区分度**：${first!.games}/${n} 局（${(topShare * 100).toFixed(0)}%）你都排队内第一 ` +
+        `—— 说明五个人的这项数值几乎一样（并列按同名次算就会都落进第一档），` +
+        `拿它分档比胜率没有意义。这一项不做结论。`;
+    } else if (spread == null) {
       verdict = "样本不足（队内第一或垫底的场次不够），不下结论。";
     } else if (Math.abs(spread) < 5) {
       verdict = `队内第一和垫底差 ${spread.toFixed(1)} 个百分点 —— 看不出这项与胜负有关。`;

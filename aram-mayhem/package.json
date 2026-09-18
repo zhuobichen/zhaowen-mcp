@@ -44,7 +44,8 @@
     "combat": "tsx lib/combat-probe.ts",
     "audit:fields": "node tools/audit-fields.mjs",
     "audit:wiring": "node tools/audit-wiring.mjs",
-    "audit": "node tools/audit-fields.mjs && node tools/audit-wiring.mjs"
+    "audit": "node tools/audit-fields.mjs && node tools/audit-analysis.mjs && node tools/audit-wiring.mjs",
+    "audit:analysis": "node tools/audit-analysis.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
