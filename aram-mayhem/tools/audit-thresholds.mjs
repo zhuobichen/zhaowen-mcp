@@ -331,6 +331,85 @@ const DIFF_REGISTRY = [
   },
 ];
 
+/**
+ * 内联样本过滤登记表（第三类）。
+ *
+ * 为什么还要一张：前两张表的扫描只认 `opts.X ?? N`，而代码里还有一批**写死在过滤条件里**的
+ * 阈值 —— 例如 buildsText 的「出了它胜率最高（≥10 把）」「出得多但胜率偏低（≥15 把）」。
+ * 这些从来没被登记过，而登记表当时还在说「全部登记」。**扫描面不够，那句「全部」就是假的。**
+ *
+ * 分类：
+ *   · 统计门槛 —— 它撑着一句主张（「胜率最高」「胜率偏低」），漏了会让结论没依据
+ *   · 显示阈值 —— 只决定图表里哪些柱子标数字、哪段文字列出来，不影响任何主张
+ */
+const INLINE_REGISTRY = {
+  "lib/builds.ts:buildsText:inline:>=10": {
+    tool: "get_my_builds",
+    kind: "统计门槛",
+    why: "撑着「出了它胜率最高（≥10 把）」这句 —— 而它是在**所有 ≥10 把的装备里挑胜率最高**，是最大值统计量。实测（thresholds:sweep，按榜首样本量看）：门槛 5→15→30 时榜首分别是 6 局 83.3%（2.2 倍噪声）、18 局 77.8%（2.8 倍）、69 局 59.4%（1.6 倍）—— 10 把这一档榜首多半只有十来局，2 倍出头正是「从几十条里挑最大」能造出的水平",
+  },
+  "lib/builds.ts:buildsText:inline:>=15": {
+    tool: "get_my_builds",
+    kind: "统计门槛",
+    why: "撑着「出得多但胜率偏低（≥15 把，可以考虑换）」。与上一条同源、方向相反；实测同上：15 把时榜首 18 局，倍数 2.8 —— 同样落在「挑最大」能造出的范围里",
+  },
+  "lib/checkup.ts:checkup:inline:>=15": {
+    tool: "get_my_checkup",
+    kind: "统计门槛",
+    why: "未说明。它决定体检里哪些维度够格进「该看哪几条」",
+  },
+  "lib/compare.ts:profileOf:inline:>=5": {
+    tool: "compare_accounts",
+    kind: "统计门槛",
+    why: "未说明。决定双账号对比里「常玩英雄」列出哪些",
+  },
+  "lib/compare.ts:compareAccounts:inline:>=10": {
+    tool: "compare_accounts",
+    kind: "统计门槛",
+    why: "未说明。两处同值，决定「两人都拿过的符文」里胜率差最大的那几件从哪些里挑",
+  },
+  "lib/comps.ts:analyzeComps:inline:>=30": {
+    tool: "get_enemy_comps",
+    kind: "统计门槛",
+    why: "与同文件的 opts.minGames 作用相同（哪些标签够格进极差比较），**但一个是参数默认值、一个是硬编码** —— 传了参数就绕开它，两处会不一致",
+  },
+  "lib/playstyle.ts:analyzeMyPlaystyle:inline:>=10": {
+    tool: "analyze_my_playstyle",
+    kind: "统计门槛",
+    why: "未说明。两处同值，决定时段 / 英雄池统计里哪些分组够格",
+  },
+  "lib/report-tft.ts:weeklyPlacement:inline:<5": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "图表里样本不足的柱子不标数字" },
+  "lib/report-tft.ts:patchPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "同上" },
+  "lib/report-tft.ts:weekdayPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "同上" },
+  "lib/report.ts:collect:inline:>=3": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "收集阶段的过滤，不直接对应某句话" },
+  "lib/report.ts:weekdayChart:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "图表里样本不足的柱子不标数字" },
+  "lib/report.ts:damageRankBars:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
+  "lib/report.ts:patchChart:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
+  "lib/report.ts:weeklyChart:inline:<5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
+  "lib/report.ts:findings:inline:>=8": {
+    tool: "（海斗 HTML 报告）",
+    kind: "统计门槛",
+    why: "撑着报告里「发现」那一段的几条结论。8 未说明，而且它比同一份报告别处用的 15 低不少",
+  },
+  "lib/report.ts:findings:inline:>=5": {
+    tool: "（海斗 HTML 报告）",
+    kind: "统计门槛",
+    why: "**同一个函数里 8 和 5 并存**，未说明为何不同",
+  },
+  "lib/report.ts:advice:inline:>=8": {
+    tool: "（海斗 HTML 报告）",
+    kind: "统计门槛",
+    why: "撑着「建议」那一段。与 findings 同值但没有共用常量",
+  },
+  "lib/report.ts:advice:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "统计门槛", why: "同上" },
+  "lib/report.ts:render:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "渲染阶段过滤" },
+  "lib/tools.ts:championGuideAsync:inline:<30": {
+    tool: "get_champion_guide",
+    kind: "统计门槛",
+    why: "「这个英雄在你归档里只打过 N 局，样本太少，不下结论」—— 这句判据本身，有意独立于符文层的门槛",
+  },
+};
+
 /** 两个比例、每组 n 局时，95% 置信下能分辨的胜率差（百分点）。取 p=0.5 最坏情况。 */
 const detectable = (n) => 1.96 * Math.sqrt(0.5 / n) * 100;
 /** 反过来：要分辨 d 个百分点，每组需要多少局。 */
@@ -371,6 +450,8 @@ for (const m of read("lib/thresholds.ts").matchAll(/export const (\w+)[^=]*=\s*(
 
 const found = [];
 const unresolvedConsts = [];
+/** 内联过滤（`.games >= N`）—— 按 key 合并 */
+const inlineFound = new Map();
 for (const f of readdirSync(path.join(ROOT, "lib")).filter((x) => x.endsWith(".ts"))) {
   let fn = "(顶层)";
   read(`lib/${f}`).split("\n").forEach((l, i) => {
@@ -391,6 +472,17 @@ for (const f of readdirSync(path.join(ROOT, "lib")).filter((x) => x.endsWith(".t
       }
       found.push({ file: `lib/${f}`, line: i + 1, name: m[1], value, fn, viaConst, key: `lib/${f}:${fn}:${m[1]}` });
     }
+    // 第三类：**写死在过滤条件里**的样本阈值（`.games >= 10` 这种）。
+    // 前两张表原先都看不见它们 —— 而它们照样撑着一句主张
+    // （如 buildsText 的「出了它胜率最高（≥10 把）」）。扫描面不够，那句「全部登记」就是假的。
+    // 排除 `> 0`：那是「别把空桶算进来」，不是样本门槛。
+    for (const m of l.matchAll(/\.games\s*(>=|>|<|<=)\s*(\d+)/g)) {
+      if (m[2] === "0") continue;
+      const key = `lib/${f}:${fn}:inline:${m[1]}${m[2]}`;
+      const cur = inlineFound.get(key) ?? { key, file: `lib/${f}`, fn, op: m[1], val: Number(m[2]), lines: [] };
+      cur.lines.push(i + 1);
+      inlineFound.set(key, cur);
+    }
   });
 }
 const merged = new Map();
@@ -401,6 +493,13 @@ for (const t of found) {
   merged.set(t.key, cur);
 }
 const problems = [...unresolvedConsts];
+// 内联过滤也要登记 —— 这是「全部登记」这句话能不能成立的关键：前两张表看不见它们。
+for (const k of inlineFound.keys()) {
+  if (!INLINE_REGISTRY[k]) problems.push(`内联样本过滤没登记：${k}（${inlineFound.get(k).file}:${inlineFound.get(k).lines.join(",")}）`);
+}
+for (const k of Object.keys(INLINE_REGISTRY)) {
+  if (!inlineFound.has(k)) problems.push(`登记表里的内联过滤已不存在：${k}`);
+}
 for (const k of merged.keys()) if (!SAMPLE_REGISTRY[k]) problems.push(`样本门槛没登记：${k} = ${[...merged.get(k).values].join("/")}（${merged.get(k).file}:${merged.get(k).lines.join(",")}）`);
 for (const k of Object.keys(SAMPLE_REGISTRY)) if (!merged.has(k)) problems.push(`登记表里的样本门槛已不存在：${k}`);
 
@@ -514,7 +613,24 @@ function render() {
   out.push("`report.gap` 是展示用的「高光」门槛（不主张因果，所以措辞本身就带折扣）。");
   out.push("");
   const unstated = sampleRows.filter((r) => /未说明/.test(r.reg.why)).length + diffs.filter((d) => /未说明/.test(d.why)).length;
-  out.push(`共 ${sampleRows.length} 个样本门槛 + ${diffs.length} 个差值阈值登记在册；其中 ${unstated} 个的理由是「未说明」。`);
+  out.push("## 四、内联在过滤条件里的阈值（第三类）");
+  out.push("");
+  out.push("上面两张表原先只扫 `opts.X ?? N`，**看不见这一类** —— 而它们照样撑着一句主张：");
+  out.push("例如 `buildsText` 的「出了它胜率最高（≥10 把）」就是在**所有 ≥10 把的装备里挑胜率最高**。");
+  out.push("登记表当时还在说「全部登记」——扫描面不够，那句话就是假的。");
+  out.push("");
+  out.push("| 位置 | 值 | 类别 | 撑着什么 / 为什么 |");
+  out.push("|---|---|---|---|");
+  const inlineRows = [...inlineFound.values()].sort((a, b) => a.key.localeCompare(b.key));
+  for (const r of inlineRows) {
+    const reg = INLINE_REGISTRY[r.key];
+    out.push(`| \`${r.file}:${r.lines.join(",")}\` | \`.games ${r.op}${r.val}\` | ${reg?.kind ?? "?"} | ${reg?.why ?? "?"} |`);
+  }
+  const statCount = inlineRows.filter((r) => INLINE_REGISTRY[r.key]?.kind === "统计门槛").length;
+  out.push("");
+  out.push(`共 ${inlineRows.length} 处，其中 **${statCount} 处是统计门槛**（撑着一句主张）、${inlineRows.length - statCount} 处只影响图表显示。`);
+  out.push("");
+  out.push(`共 ${sampleRows.length} 个样本门槛 + ${diffs.length} 个差值阈值 + ${inlineRows.length} 处内联过滤登记在册；其中 ${unstated} 个的理由是「未说明」。`);
   out.push("理由写不出来就写「未说明」—— 不要编一个听起来合理的，那比没有更坏，下一个人会照着它改。");
   out.push("");
   out.push("## 怎么维护");
@@ -533,7 +649,7 @@ if (process.argv.includes("--write")) {
   }
   if (!existsSync(path.join(ROOT, "docs"))) mkdirSync(path.join(ROOT, "docs"));
   writeFileSync(path.join(ROOT, DOC), render(), "utf8");
-  console.log(`✓ 已写出 ${DOC}（${merged.size} 个样本门槛 + ${diffs.length} 个差值阈值）`);
+  console.log(`✓ 已写出 ${DOC}（${merged.size} 个样本门槛 + ${diffs.length} 个差值阈值 + ${inlineFound.size} 处内联过滤）`);
   process.exit(0);
 }
 
@@ -549,6 +665,6 @@ const unstated = [...merged.keys()].filter((k) => /未说明/.test(SAMPLE_REGIST
 console.log(
   problems.length
     ? `✗ 门槛登记有 ${problems.length} 处问题`
-    : `✓ ${merged.size} 个样本门槛 + ${diffs.length} 个差值阈值都已登记、配对一致、文档与源码同步（其中 ${unstated} 个理由是「未说明」）`
+    : `✓ ${merged.size} 个样本门槛 + ${diffs.length} 个差值阈值 + ${inlineFound.size} 处内联过滤都已登记、配对一致、文档与源码同步（其中 ${unstated} 个理由是「未说明」）`
 );
 process.exit(problems.length ? 1 : 0);

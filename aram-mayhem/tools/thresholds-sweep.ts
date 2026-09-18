@@ -407,3 +407,67 @@ function summarize2<T extends { games: number }>(
     }
   }
 }
+
+// ---- 16. 把四条「幸存者极差」的量法重做一遍
+//
+// 那四条（builds / counters / tft-detail / social）当时用的是「幸存者里最高与最低之差」——
+// 后来我在同一个文件里写明：**极差是最大值统计量，条目越多必然越大，不能当效应量读**。
+// 也就是说那四条的实测结论引用了**我自己否掉的度量**。改用现在这套
+// 「榜首位那条的样本 / 倍数」重做 —— 它才回答得了「门槛低时榜首位是不是几局的噪声」。
+
+/** 给定一组条目，报告：某个门槛下、按 rate 排序的榜首位是谁、多少样本、几倍噪声 */
+function topRow<T extends { games: number }>(
+  items: T[],
+  rateOf: (x: T) => number,
+  n: number,
+  higherIsBetter = true
+): { alive: number; top: string } {
+  const alive = items.filter((x) => x.games >= n);
+  if (!alive.length) return { alive: 0, top: "—" };
+  const sorted = [...alive].sort((a, b) => (higherIsBetter ? rateOf(b) - rateOf(a) : rateOf(a) - rateOf(b)));
+  const t = sorted[0];
+  const r = rateOf(t);
+  const base = higherIsBetter ? 50 : 0; // 胜率跟 50 比；名次不适用倍数
+  const se = Math.sqrt(Math.max(r * (100 - r), 1) / Math.max(t.games, 1));
+  const k = belowNoise(items) ? null : Math.abs(r - base) / se;
+  return {
+    alive: alive.length,
+    top: `${t.games} 局 ${r.toFixed(1)}%${k != null && Number.isFinite(k) ? `（${k.toFixed(1)} 倍噪声）` : ""}`,
+  };
+}
+/** 名次类（越小越好）不适用「偏离 50% 几倍」的说法 */
+function belowNoise(items: unknown[]): boolean {
+  return items.length > 0 && "avgPlacement" in (items[0] as object);
+}
+
+{
+  console.log("\n=== 重做：榜首位那条的样本 / 倍数（原来那四栏用的是被否掉的最大值统计量）===");
+  console.log("  口径                 门槛   榜首位是谁（样本 / 值 / 倍数）");
+
+  const sections: Array<[string, (n: number) => Promise<{ games: number; winRate: number }[]>]> = [
+    ["builds 装备", async (n) => (await analyzeBuilds({ ...WHO, minGames: n })).items],
+    ["counters 装备", async (n) => {
+      const r = await analyzeCounters({ ...WHO, minBucketGames: n });
+      return r.buckets.flatMap((b) => [...(b.best ?? []), ...(b.worst ?? [])]);
+    }],
+    ["social 队友/对手", async (n) => {
+      const r = await analyzeSocial({ ...WHO, minGames: n });
+      return [...r.teammates, ...r.opponents];
+    }],
+  ];
+  for (const [title, load] of sections) {
+    for (const n of [5, 15, 30, 60]) {
+      const items = await load(n);
+      const t = topRow(items, (x) => x.winRate, n);
+      console.log(`  ${title.padEnd(20)} ${String(n).padStart(4)}   ${t.top}（共 ${t.alive} 条够样本）`);
+    }
+  }
+  // tft-detail 是名次，单独一栏
+  console.log("  tft-detail 棋子（名次，越小越好）");
+  for (const n of [5, 15, 30, 60]) {
+    const r = await tftDetail({ ...WHO, minGames: n });
+    const alive = r.units.filter((x) => x.games >= n);
+    const best = [...alive].sort((a, b) => a.avgPlacement - b.avgPlacement)[0];
+    console.log(`  ${"".padEnd(20)} ${String(n).padStart(4)}   ${best ? `${best.games} 局 平均名次 ${best.avgPlacement.toFixed(2)}` : "—"}（共 ${alive.length} 条够样本）`);
+  }
+}
