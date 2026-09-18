@@ -174,6 +174,19 @@ export function expandGame(g: ArchivedGame): any {
   };
 }
 
+
+/**
+ * 一局是否属于某个账号。
+ * 判据（重要）：**看这局的参与者里有没有他** —— SGP 记录带全部 10 人，
+ * 所以同一局（比如你和好友同队）会同时属于多个人；
+ * 只按「当初存给谁」归属，会把同队的好友那份算漏（曾出现：好友 995 局只统计出 786 局）。
+ * LCU 来源的记录只有自己那一行，此时退回 provenance 字段兜底。
+ */
+export function gameBelongsTo(g: ArchivedGame, puuid: string): boolean {
+  if (g.participants?.some((p) => p.puuid === puuid)) return true;
+  return g.puuid === puuid;
+}
+
 async function readArchive(kind: ArchiveKind): Promise<ArchiveFile> {
   const f = fileOf(kind);
   if (!existsSync(f)) return { updatedAt: "", games: {} };
@@ -208,9 +221,13 @@ export async function mergeIntoArchive(
     const existing = cur.games[key];
     if (existing) {
       known++;
-      // 已有记录若缺符文（SGP 摘要没有 playerAugment），而这次带来了，就用这份更全的覆盖
-      const hasAug = (x: ArchivedGame) => x.participants?.some((pp) => pp.stats && pp.stats.playerAugment1);
-      if (!hasAug(existing) && hasAug(incoming) && !(existing.source === "lcu")) {
+      // 同一局可能被多个来源存过：保留「信息更全」的那份
+      // （SGP 带全部 10 人 + 符文；LCU 只有自己那一行）
+      const score = (x: ArchivedGame, who: string | null | undefined) =>
+        (x.participants?.length ?? 0) +
+        (x.participants?.some((pp) => pp.stats && pp.stats.playerAugment1) ? 2 : 0) +
+        (who && x.participants?.some((pp) => pp.puuid === who) ? 3 : 0);
+      if (score(incoming, puuid) > score(existing, puuid)) {
         cur.games[key] = incoming;
         added++;
       }
@@ -235,7 +252,7 @@ export async function mergeIntoArchive(
 /** 归档里属于该账号的对局（时间倒序，已展开成客户端摘要形态） */
 export async function archivedGamesFor(kind: ArchiveKind, puuid?: string | null): Promise<any[]> {
   const a = await readArchive(kind);
-  const games = Object.values(a.games).filter((g) => !puuid || g.puuid === puuid);
+  const games = Object.values(a.games).filter((g) => !puuid || gameBelongsTo(g, puuid));
   return games.sort((x, y) => y.gameCreation - x.gameCreation).map(expandGame);
 }
 
@@ -255,7 +272,7 @@ export interface ArchiveStats {
 
 export async function archiveStats(kind: ArchiveKind, puuid?: string | null): Promise<ArchiveStats> {
   const a = await readArchive(kind);
-  const games = Object.values(a.games).filter((g) => !puuid || g.puuid === puuid);
+  const games = Object.values(a.games).filter((g) => !puuid || gameBelongsTo(g, puuid));
   const times = games.map((g) => g.gameCreation).filter(Boolean).sort((x, y) => x - y);
   const byMode: Record<string, number> = {};
   const byQueue: Record<string, number> = {};

@@ -40,7 +40,7 @@ export async function loadLolGames(puuid: string, limit = 200, name?: string | n
     try {
       const { getSgpContext, fetchSgpHistory, sgpToGame } = await import("./sgp.js");
       const ctx = await getSgpContext();
-      const games = await fetchSgpHistory(ctx, puuid, { pageSize: 100, maxGames: 500 });
+      const games = await fetchSgpHistory(ctx, puuid, { pageSize: 100, maxGames: 2000 });
       if (games.length) out.push({ source: "sgp", games: games.map((g) => sgpToGame(g, puuid)) });
     } catch {
       /* SGP 不通就只靠 LCU */
