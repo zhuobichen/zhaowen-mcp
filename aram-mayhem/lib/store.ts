@@ -47,6 +47,38 @@ export function tftName(kind: "traits" | "champions" | "items", id: string | und
 
 const tftNormCache: Partial<Record<"traits" | "champions" | "items", Map<string, string>>> = {};
 
+/**
+ * 是不是「出完了的装备」—— 成装，而不是散件/鞋/消耗品。
+ *
+ * 为什么必须区分：散件（短剑 250、红水晶 400）留在最终背包里，往往说明那局结束得早
+ * 或者干脆没发育起来；实测直接统计散件会得到「打坦克时出短剑胜率最高」这种反向因果的
+ * 结论（赢的队结束得快，反而更容易剩下没合完的散件）。
+ *
+ * 判据用价格：本地装备表里成装最低 2000（瑞格之灯/烈焰之炬），
+ * 而散件最高 1300（暴风之剑）、鞋子最高 1250 —— 2000 是一条干净的界。
+ */
+export function isFinishedItem(item?: { price: number; categories: string[]; inStore: boolean }): boolean {
+  if (!item) return false;
+  if (item.categories.includes("Trinket") || item.categories.includes("Consumable")) return false;
+  if (item.categories.includes("Boots")) return false;
+  if (item.price < 2000) return false;
+  return item.inStore || item.price > 0 || item.categories.length > 0;
+}
+
+/**
+ * 是不是「算得出装」的一件 —— 成装，或已经升过级的鞋。
+ *
+ * 和 isFinishedItem 的区别：那个用于「对面阵容 → 该出什么」那种对比分析，鞋不参与；
+ * 这个用于「我平时出什么」，鞋是实打实的选择，要算进来。散件两边都不算，
+ * 理由见 isFinishedItem 的注释（散件留在背包里是「结束得早」的信号，不是出装选择）。
+ */
+export function isBuildItem(item?: { price: number; categories: string[]; inStore: boolean }): boolean {
+  if (!item) return false;
+  if (item.categories.includes("Trinket") || item.categories.includes("Consumable")) return false;
+  if (item.categories.includes("Boots")) return item.price >= 900; // 草鞋不算，二级鞋算
+  return item.price >= 2000;
+}
+
 export function normalize(s: unknown): string {
   return String(s ?? "")
     .normalize("NFKC")

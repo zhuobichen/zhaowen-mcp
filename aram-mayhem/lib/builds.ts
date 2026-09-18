@@ -8,7 +8,7 @@
 import { loadLolGames } from "./games.js";
 import { resolveMe } from "./identity.js";
 import { isMayhemGame } from "./lcu.js";
-import { loadData } from "./store.js";
+import { isBuildItem, loadData } from "./store.js";
 
 export interface ItemStat {
   id: number;
@@ -25,13 +25,6 @@ export interface BuildReport {
   /** 统计到的装备（≥minGames 次） */
   items: ItemStat[];
   note: string;
-}
-
-function isEquipment(it?: { price: number; categories: string[]; inStore: boolean }): boolean {
-  if (!it) return false;
-  if (it.categories.includes("Trinket") || it.categories.includes("Consumable")) return false;
-  // 魄罗佳肴这类：既不在售、又没有价格、也没有类别 —— 不是出装
-  return it.inStore || it.price > 0 || it.categories.length > 0;
 }
 
 export async function analyzeBuilds(
@@ -56,7 +49,7 @@ export async function analyzeBuilds(
     for (let i = 0; i <= 6; i++) {
       const id = Number((p.stats as any)[`item${i}`] ?? 0);
       if (!id || seen.has(id)) continue;
-      if (!isEquipment(d.items[String(id)])) continue;
+      if (!isBuildItem(d.items[String(id)])) continue;
       seen.add(id);
       const c = stat.get(id) ?? { games: 0, wins: 0 };
       c.games++;
@@ -85,7 +78,8 @@ export async function analyzeBuilds(
     name: me.name,
     games: counted,
     items,
-    note: `${games.length} 把海斗中 ${counted} 把读到了出装数据；只统计同局出现过的装备（≥${minGames} 次）`,
+    note: `${games.length} 把海斗中 ${counted} 把读到了出装数据；只统计**成装与二级鞋**（≥${minGames} 次）—— 散件不算，` +
+      `散件留在最终背包多半只说明那局结束得早，不是你的出装选择。`,
   };
 }
 
@@ -112,6 +106,6 @@ export async function buildsText(opts: { minGames?: number } = {}): Promise<stri
     out.push("", "出得多但胜率偏低（≥15 把，可以考虑换）：");
     for (const it of weak) out.push(`  · ${it.name}：${it.games} 把 ${it.winRate.toFixed(0)}%`);
   }
-  out.push("", "说明：装备按「在你背包里出现过」统计（数据是槽位不是购买顺序），消耗品与饰品不计入。");
+  out.push("", "说明：装备按「在你背包里出现过」统计（数据是槽位不是购买顺序）；只算成装与二级鞋，散件、消耗品与饰品都不计入。");
   return out.join("\n");
 }

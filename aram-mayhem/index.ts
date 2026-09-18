@@ -30,6 +30,7 @@ import { trendText } from "./lib/trend.js";
 import { queueStatsText } from "./lib/queue-stats.js";
 import { patchesText } from "./lib/patches.js";
 import { compsText } from "./lib/comps.js";
+import { countersText } from "./lib/counters.js";
 import { compareAccounts } from "./lib/compare.js";
 import { leaderboard } from "./lib/leaderboard.js";
 import { myRanked } from "./lib/ranked.js";
@@ -314,6 +315,18 @@ async function main() {
         },
       },
       {
+        name: "get_counter_items",
+        description:
+          "对面阵容 → 赢的人出什么：面对「对面 ≥2 个坦克 / 战士 / 刺客…… 」这类阵容时，归档里赢的一方最终带的是哪些成装、胜率如何。样本是全部参与者行（几万行，不只你自己）。只统计成装（排除散件与鞋）—— 散件留在背包是「那局结束得早」的信号，不排会得出反向因果的假结论。注意这是相关性不是因果，输出里写明了。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            min_item_games: { type: "number", description: "单件装备至少出现多少次才列入（默认 150）" },
+            min_bucket_games: { type: "number", description: "分组至少多少行才纳入（默认 300）" },
+          },
+        },
+      },
+      {
         name: "get_enemy_comps",
         description:
           "对面阵容构成：对面带坦克/战士/刺客/法师/射手/辅助标签的人有几个时，你的胜率如何；并给出一句结论（有影响还是没影响）。定位标签取自 Riot 官方英雄数据，一名英雄可挂多个标签，所以是「几个人的标签里有它」而不是「几个纯职业」。单档 <30 局、标签级 <60 局不下结论。",
@@ -587,6 +600,14 @@ async function main() {
               who: args.who ? String(args.who) : undefined,
               kind: args.kind ? (String(args.kind) as "mayhem" | "lol" | "tft") : undefined,
               out: args.out ? String(args.out) : undefined,
+            })
+          );
+
+        case "get_counter_items":
+          return text(
+            await countersText({
+              minItemGames: args.min_item_games ? Number(args.min_item_games) : undefined,
+              minBucketGames: args.min_bucket_games ? Number(args.min_bucket_games) : undefined,
             })
           );
 
