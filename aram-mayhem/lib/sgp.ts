@@ -93,21 +93,40 @@ export async function sgpGet<T = any>(path: string, ctx: SgpContext): Promise<T>
   }
 }
 
-/** 一页对局摘要（结构随版本变化，这里只声明我们关心的字段，其余原样保留） */
+/**
+ * SGP 每条形如 `{ metadata: {...}, json: {真正的对局数据} }`（实测 2026-09-18）。
+ * metadata：tags（如 ["normal","q_2400"]，q_2400 即海斗）、participants（puuid 数组）、match_id、timestamp
+ * json：gameId / gameCreation / gameDuration / queueId / gameMode / participants[10]（字段平铺）…
+ */
 export interface SgpSummary {
-  gameId?: number;
-  gameCreation?: number;
-  gameDuration?: number;
-  queueId?: number;
-  gameMode?: string;
-  participants?: Array<{
-    puuid?: string;
-    participantId?: number;
-    championId?: number;
-    teamId?: number;
-    stats?: Record<string, unknown>;
-  }>;
+  metadata?: {
+    product?: string;
+    tags?: string[];
+    participants?: string[];
+    timestamp?: string;
+    match_id?: string;
+    data_version?: string;
+    info_type?: string;
+    private?: boolean;
+  };
+  json?: any;
   [k: string]: unknown;
+}
+
+/** 取出真正对局数据（有的版本把它放成 JSON 字符串） */
+export function unwrapSgp(item: SgpSummary): any {
+  const j = (item as any).json;
+  if (!j) return null;
+  return typeof j === "string" ? JSON.parse(j) : j;
+}
+
+/** 从 metadata.tags 里取队列号（如 q_2400） */
+export function queueIdFromTags(item: SgpSummary): number | null {
+  for (const t of item.metadata?.tags ?? []) {
+    const m = /^q_(\d+)$/.exec(t);
+    if (m) return Number(m[1]);
+  }
+  return null;
 }
 
 export interface SgpPage {
@@ -130,11 +149,12 @@ export async function fetchSgpHistory(
   const maxGames = Math.max(1, opts.maxGames ?? 1000);
   const out: SgpSummary[] = [];
   for (let start = 0; start < maxGames; start += pageSize) {
-    const page = await sgpGet<{ games?: { games?: SgpSummary[] } } | SgpSummary[]>(
+    const page = await sgpGet<any>(
       `/match-history-query/v1/products/lol/player/${encodeURIComponent(puuid)}/SUMMARY?startIndex=${start}&count=${pageSize}`,
       ctx
     );
-    const games: SgpSummary[] = Array.isArray(page) ? page : (page?.games?.games ?? []);
+    // 实测结构：{ games: [ {metadata, json}, ... ] }（也兼容直接给数组的写法）
+    const games: SgpSummary[] = Array.isArray(page) ? page : (page?.games ?? []);
     opts.onPage?.({ startIndex: start, count: games.length, games });
     if (!games.length) break; // 翻到底了
     out.push(...games);
@@ -143,32 +163,57 @@ export async function fetchSgpHistory(
   return out;
 }
 
-/** SGP 摘要 → 本地归档用的对局形态（字段名按实测结构尽量兼容） */
-export function sgpToGame(raw: SgpSummary, puuid: string): any {
-  const parts = (raw.participants ?? []).map((p) => ({
-    participantId: p.participantId ?? 0,
-    championId: p.championId ?? 0,
-    teamId: p.teamId ?? 0,
-    puuid: p.puuid ?? null,
-    stats: (p.stats ?? {}) as Record<string, unknown>,
-  }));
-  // 有些版本把「我」的信息放在顶层
-  if (!parts.length && (raw.championId || raw.teamId)) {
-    parts.push({
-      participantId: 0,
-      championId: Number(raw.championId ?? 0),
-      teamId: Number(raw.teamId ?? 0),
-      puuid,
-      stats: {},
-    });
-  }
+/**
+ * SGP 记录 → 本地归档用的对局形态。
+ * 要点：SGP 的 participant 字段是**平铺**的（kills/win/playerAugment1… 不在 stats 子对象里），
+ * 这里包一层 `stats`，让上层分析代码（读 p.stats.*）不用区分来源。
+ * 另外 SGP 给的是**全部 10 个参与者**（LCU 只给自己的那一行），所以队友/对手分析要靠它。
+ */
+const SGP_STAT_KEYS = [
+  "win",
+  "kills",
+  "deaths",
+  "assists",
+  "goldEarned",
+  "totalDamageDealtToChampions",
+  "totalDamageTaken",
+  "totalHeal",
+  "visionScore",
+  "champLevel",
+  "playerAugment1",
+  "playerAugment2",
+  "playerAugment3",
+  "playerAugment4",
+  "playerAugment5",
+  "playerAugment6",
+  "playerSubteamId",
+];
+
+export function sgpToGame(item: SgpSummary, puuid: string): any {
+  const j = unwrapSgp(item) ?? {};
+  const queueId = j.queueId ?? queueIdFromTags(item) ?? 0;
+  const parts = (j.participants ?? []).map((p: any, idx: number) => {
+    const stats: Record<string, unknown> = {};
+    for (const k of SGP_STAT_KEYS) if (p[k] !== undefined) stats[k] = p[k];
+    return {
+      participantId: p.participantId ?? idx,
+      championId: p.championId ?? 0,
+      teamId: p.teamId ?? 0,
+      puuid: p.puuid ?? null,
+      summonerName: p.riotIdGameName ?? p.summonerName ?? null,
+      stats,
+    };
+  });
   return {
-    gameId: raw.gameId,
-    gameCreation: raw.gameCreation,
-    gameDuration: raw.gameDuration,
-    gameMode: raw.gameMode ?? "",
-    queueId: raw.queueId ?? 0,
+    gameId: j.gameId,
+    gameCreation: j.gameCreation,
+    gameDuration: j.gameDuration,
+    gameMode: j.gameMode ?? "",
+    queueId,
     participants: parts,
-    participantIdentities: parts.map((p) => ({ participantId: p.participantId, player: { puuid: p.puuid } })),
+    participantIdentities: parts.map((p: any) => ({
+      participantId: p.participantId,
+      player: { puuid: p.puuid, summonerName: p.summonerName },
+    })),
   };
 }

@@ -9,26 +9,27 @@
  * 所有关心的账号一次性补齐，攒得更快（归档只增不减，攒久了覆盖时间能超过接口窗口）。
  */
 import { archiveStats, mergeIntoArchive } from "./archive.js";
-import { clientStatus, getMatchHistory } from "./lcu.js";
+import { clientStatus } from "./lcu.js";
+import { loadLolGames, loadTftGames } from "./games.js";
 import { listFriends } from "./friends.js";
-import { getTftGames } from "./tft.js";
 import { resolveMe } from "./identity.js";
 
 const fmt = (t: number | null) => (t ? new Date(t).toLocaleDateString("zh-CN") : "—");
 
 async function syncOne(name: string, puuid: string) {
   const out: string[] = [];
+  // 联盟：走双源（SGP 深度分页 + LCU 细节），比单用 LCU 深得多
   try {
-    const { games } = await getMatchHistory(200, puuid);
-    const r = await mergeIntoArchive("lol", games, puuid, name);
-    out.push(`  联盟：读到 ${games.length} 局，新并入 ${r.added} 局（归档共 ${r.total} 局）`);
+    const res = await loadLolGames(puuid, 1000, name);
+    out.push(`  联盟：归档现有 ${res.archivedTotal} 局（本次读到 ${res.fresh} 局，新并入 ${res.added} 局）`);
+    if (!res.clientOnline) out.push("    （客户端不在线，只用了归档）");
   } catch (e: any) {
     out.push(`  联盟：读取失败 —— ${e?.message ?? e}`);
   }
+  // 云顶
   try {
-    const tft = await getTftGames(puuid);
-    const r = await mergeIntoArchive("tft", tft, puuid, name);
-    out.push(`  云顶：读到 ${tft.length} 局，新并入 ${r.added} 局（归档共 ${r.total} 局）`);
+    const res = await loadTftGames(puuid, name);
+    out.push(`  云顶：归档现有 ${res.archivedTotal} 局（本次读到 ${res.fresh} 局，新并入 ${res.added} 局）`);
   } catch (e: any) {
     out.push(`  云顶：读取失败 —— ${e?.message ?? e}`);
   }
@@ -67,7 +68,8 @@ async function main() {
   console.log("\n=== 归档现状 ===");
   console.log(`联盟：${lol.total} 局（${fmt(lol.from)} ~ ${fmt(lol.to)}），账号 ${lol.accounts.length} 个`);
   console.log(`云顶：${tft.total} 局（${fmt(tft.from)} ~ ${fmt(tft.to)}），账号 ${tft.accounts.length} 个`);
-  console.log(`提示：${withFriends ? "" : "加 --friends 可把好友的一并同步；"}归档只增不减，定期跑一次就能越攒越全。`);
+  const friendHint = withFriends ? "" : "加 --friends 可把好友的一并同步；";
+  console.log("提示：" + friendHint + "归档只增不减，定期跑一次就能越攒越全。");
 }
 
 main().catch((e) => {

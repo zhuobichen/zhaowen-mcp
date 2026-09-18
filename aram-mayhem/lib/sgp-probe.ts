@@ -10,7 +10,7 @@
  * 探针只读、低频；不写任何文件（除 stdout）。
  */
 import { clientStatus, isMayhemGame } from "./lcu.js";
-import { fetchSgpHistory, getSgpContext, type SgpSummary } from "./sgp.js";
+import { fetchSgpHistory, getSgpContext, queueIdFromTags, unwrapSgp, type SgpSummary } from "./sgp.js";
 import { queueName } from "./queues.js";
 
 const fmt = (t?: number) => (t ? new Date(t).toLocaleString("zh-CN", { hour12: false, dateStyle: "short", timeStyle: "short" }) : "?");
@@ -88,38 +88,48 @@ async function main() {
     return;
   }
 
-  const mayhem = games.filter((g) => isMayhemGame({ gameMode: g.gameMode ?? "", queueId: g.queueId ?? 0 } as any));
-  const times = games.map((g) => g.gameCreation ?? 0).filter(Boolean).sort((a, b) => a - b);
+  const gamesPlain = games.map((g) => ({ item: g, j: unwrapSgp(g) ?? {}, q: queueIdFromTags(g) ?? unwrapSgp(g)?.queueId ?? 0 }));
+  const mayhem = gamesPlain.filter((g) => g.q === 2400 || /KIWI/.test(String(g.j.gameMode ?? "")));
+  const times = gamesPlain.map((g) => Number(g.j.gameCreation ?? 0)).filter(Boolean).sort((a, b) => a - b);
   const byQueue = new Map<number, number>();
-  for (const g of games) byQueue.set(g.queueId ?? 0, (byQueue.get(g.queueId ?? 0) ?? 0) + 1);
+  for (const g of gamesPlain) byQueue.set(g.q, (byQueue.get(g.q) ?? 0) + 1);
 
   console.log("\n=== 实测结果 ===");
-  console.log(`共取到 ${games.length} 局${emptyAt != null ? `（翻到 startIndex=${emptyAt} 时为空，说明到底了）` : `（达到本次上限 ${maxGames}，还能继续翻）`}`);
-  console.log(`时间跨度：${fmt(times[0])} ~ ${fmt(times[times.length - 1])}`);
+  console.log(
+    `共取到 ${games.length} 局${emptyAt != null || games.length % pageSize !== 0 ? "（翻到底了，这就是 SGP 保留的深度）" : `（达到本次上限 ${maxGames}，还能继续翻）`}`
+  );
+  console.log(`时间跨度：${times.length ? fmt(times[0]) + " ~ " + fmt(times[times.length - 1]) : "未知"}`);
   console.log(`其中海斗：${mayhem.length} 局`);
   console.log("队列分布：");
   for (const [id, c] of [...byQueue.entries()].sort((a, b) => b[1] - a[1])) {
     console.log(`  · ${await queueName(id)}（${id}）：${c} 局`);
   }
   const first = games[0];
+  const j0 = unwrapSgp(first) ?? {};
   console.log("\n首条记录的字段（用于写解析）：");
-  console.log("  " + Object.keys(first).join(", "));
-  console.log("  " + JSON.stringify(first).slice(0, 500));
-  console.log("\n对比：本地客户端上限是海斗 200 局 / 云顶 20 局。");
+  console.log("  metadata.tags = " + JSON.stringify(first.metadata?.tags));
+  console.log("  json keys = " + Object.keys(j0).join(", "));
+  const ps = j0.participants ?? [];
+  const me = ps.find((p: any) => p.puuid === targetPuuid) ?? ps[0] ?? {};
+  console.log(`  participants = ${ps.length} 人；我这行：championId=${me.championId} win=${me.win} 符文=${[
+    1, 2, 3, 4, 5, 6,
+  ].map((i) => me["playerAugment" + i]).filter(Boolean).join("/")}`);
+  console.log("\n对比：本地客户端上限是海斗 200 局 / 云顶 20 局，且只有自己那一行数据（SGP 有全部 10 人）。");
 
-  // 首条游戏的详情接口（确认 DETAILS 是否可用）
-  const firstId = first.gameId;
+  // 详情接口：拿第一局的 DETAILS 看看能不能取到更多
+  const firstId = j0.gameId;
   if (firstId) {
-    const idStr = `${(first as any).gameId}`;
     try {
-      const detail = await (await import("./sgp.js")).sgpGet<any>(
-        `/match-history-query/v1/products/lol/${idStr}/DETAILS`,
+      const detail: any = await (await import("./sgp.js")).sgpGet<any>(
+        `/match-history-query/v1/products/lol/HN1_${firstId}/DETAILS`,
         ctx
       );
       const keys = Object.keys(detail ?? {});
-      console.log(`\nDETAILS 接口可用：字段 ${keys.slice(0, 14).join(", ")}${keys.length > 14 ? " …" : ""}`);
+      console.log(`
+DETAILS 接口可用：字段 ${keys.slice(0, 12).join(", ")}${keys.length > 12 ? " …" : ""}`);
     } catch (e: any) {
-      console.log(`\nDETAILS 接口未通：${String(e?.message ?? e).slice(0, 120)}`);
+      console.log(`
+DETAILS 接口未通：${String(e?.message ?? e).slice(0, 120)}`);
     }
   }
 }
