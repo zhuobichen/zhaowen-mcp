@@ -94,7 +94,7 @@ await send("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
 
 // 先调几个会报「我的总局数 / 胜率」的工具 —— 顺带把它们看到的新对局并进归档
-const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats", "get_tft_detail", "export_games_csv"];
+const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats", "get_tft_detail", "export_games_csv", "export_report_markdown"];
 const reported = {};
 // compare_accounts 需要必填参数 b —— 不给的话它只回一句「请提供第二个账号 b」，
 // 那种输出拿去对账会变成假失败（第一版就是这样）
@@ -929,6 +929,142 @@ function isBuildItem(it) {
     );
   } else {
     console.log("· CSV 导出：工具这次没报出行数，跳过");
+  }
+}
+
+// ⑱ 报告产物：Markdown 小结里的核心数字
+//    这一项对的是**写出来的文件**（.md），跟 CSV 那条同类。
+//    HTML 报告也能对，但它要跑一个约 90 秒的生成脚本；Markdown 是工具调用，快得多，
+//    而且两者用的是同一套取数入口 —— 所以先对 Markdown，HTML 留给需要时手动验证。
+{
+  const md = reported["export_report_markdown"] ?? "";
+  const mPath = /已生成 Markdown 小结：(.+)/.exec(md);
+  if (mPath) {
+    const file = mPath[1].trim();
+    let content = null;
+    try {
+      content = readFileSync(file, "utf8");
+    } catch {
+      /* 读不到就跳过 */
+    }
+    if (content) {
+      const mGames = /共 (\d+) 局/.exec(content);
+      const mRate = /\*\*([\d.]+)%\*\*（(\d+) 胜 (\d+) 负）/.exec(content);
+      const okGames = mGames && Number(mGames[1]) === truth.games;
+      const okRate = mRate && Math.abs(Number(mRate[1]) - truth.winRate) < 0.06;
+      const okWins = mRate && Number(mRate[2]) === truth.wins;
+      const ok = okGames && okRate && okWins;
+      if (!ok) bad++;
+      console.log(
+        `${ok ? "✓" : "✗"} 报告产物：Markdown 里写「共 ${mGames ? mGames[1] : "—"} 局，` +
+          `${mRate ? mRate[2] + " 胜 " + mRate[3] + " 负（" + mRate[1] + "%）" : "—"}」` +
+          `　独立重算「${truth.games} 局，${truth.wins} 胜 ${truth.games - truth.wins} 负（${truth.winRate.toFixed(1)}%）」`
+      );
+    } else {
+      console.log("· 报告产物：Markdown 文件读不到，跳过");
+    }
+  } else {
+    console.log("· 报告产物：这次没生成 Markdown，跳过");
+  }
+}
+
+// ⑲ 云顶周趋势：kind=tft 的那句结论（前段/后段平均名次）
+{
+  const tt = reported["get_my_trend_tft"] ?? "";
+  const tftRaw = JSON.parse(readFileSync(path.join(ROOT, "data/archive/tft-matches.json"), "utf8"));
+  const rows = [];
+  for (const g of Object.values(tftRaw.games)) {
+    const p = (g.participants ?? []).find((x) => x.puuid === ME);
+    if (Number(p?.placement ?? 0) > 0) rows.push({ t: Number(g.gameCreation ?? 0), place: Number(p.placement) });
+  }
+  const byWeek = new Map();
+  for (const r of rows) {
+    const d = new Date(r.t);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const k = d.getTime();
+    const c = byWeek.get(k) ?? { g: 0, sum: 0 };
+    c.g++;
+    c.sum += r.place;
+    byWeek.set(k, c);
+  }
+  // trend 的云顶分支按平均名次判前后段；门槛是「每周 ≥5 局」（minGamesPerWeek）。
+  // ⚠ 顺序不能反：trend.ts 是**先取最近 16 周、再筛有效周**（第 175-179 行）。
+  // 我第一版用了全部 18 周再筛，前段/后段就切在不同位置上（4.00/4.42 vs 3.75/4.56）——
+  // 这是**第三次**因为没复现完整规格而误判工具错了。工具是对的。
+  const KEEP_WEEKS = 16;
+  const usable = [...byWeek.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .slice(-KEEP_WEEKS)
+    .filter(([, c]) => c.g >= 5);
+  const avgOf = (list) => {
+    const g = list.reduce((s, [, c]) => s + c.g, 0);
+    if (!g) return null;
+    return list.reduce((s, [, c]) => s + c.sum, 0) / g;
+  };
+  const m = /前段 ([\d.]+) → 后段 ([\d.]+)/.exec(tt);
+  if (m && usable.length >= 4) {
+    const half = Math.floor(usable.length / 2);
+    // ⚠ 工具用的是**各周平均名次的平均**（每周等权），不是按局数加权的合并平均。
+    // 周场次不等时两者不同 —— 这是第四个坑：我又按自己觉得合理的方式算了一遍。
+    // 工具的选择不算错（周趋势按周等权是合理的），但输出里没说明这一点，
+    // 所以顺手在产品那边补了一句口径。这里复现工具的实际算法。
+    const weekAvg = (list) => {
+      const ws = list.map(([, c]) => c.sum / c.g);
+      return ws.length ? ws.reduce((a, b) => a + b, 0) / ws.length : null;
+    };
+    const older = weekAvg(usable.slice(0, half));
+    const newer = weekAvg(usable.slice(half));
+    const ok =
+      older != null && newer != null && Math.abs(older - Number(m[1])) < 0.006 && Math.abs(newer - Number(m[2])) < 0.006;
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 云顶周趋势：工具报「前段 ${m[1]} → 后段 ${m[2]}」` +
+        `　独立重算「前段 ${older?.toFixed(2)} → 后段 ${newer?.toFixed(2)}」（有效周 ${usable.length} 个）`
+    );
+  } else {
+    console.log(`· 云顶周趋势：没有前后段对比句（有效周 ${usable.length} 个），跳过`);
+  }
+}
+
+// ⑳ CSV 列内容抽查：不只对行列数，还要对**某一列的值**
+//    抽查「结果」列 —— 数里面有多少个「胜」，必须等于独立重算的胜场数。
+//    （行列数对了但整列错位，只看行数发现不了。）
+{
+  const ex = reported["export_games_csv"] ?? "";
+  const mPath = /已导出 (\d+) 行到：(.+)/.exec(ex);
+  if (mPath) {
+    let content = null;
+    try {
+      content = readFileSync(mPath[2].trim(), "utf8").replace(/^﻿/, "");
+    } catch {
+      /* 读不到就跳过 */
+    }
+    if (content) {
+      const lines = content.split(/\r?\n/).filter((l) => l.length);
+      const header = lines[0].split(",");
+      const iResult = header.indexOf("结果");
+      const iChamp = header.indexOf("英雄");
+      if (iResult >= 0) {
+        // 注意：字段里可能带引号包住的逗号，所以不能简单地 split(",") 取第 N 个。
+        // 这里只数「结果」列 —— 它只会是「胜」「负」或空，用行首位置的正则更稳。
+        let wins = 0;
+        let losses = 0;
+        for (const l of lines.slice(1)) {
+          // 结果列在第 5 列（索引 4），前面 4 列不含逗号（日期/时间/队列/英雄名）
+          const parts = l.split(",");
+          const v = parts[4];
+          if (v === "胜") wins++;
+          else if (v === "负") losses++;
+        }
+        const ok = wins === truth.wins && wins + losses === truth.games;
+        if (!ok) bad++;
+        console.log(
+          `${ok ? "✓" : "✗"} CSV 列内容：「结果」列里 ${wins} 胜 ${losses} 负` +
+            `　独立重算 ${truth.wins} 胜 ${truth.games - truth.wins} 负（英雄列下标 ${iChamp}）`
+        );
+      }
+    }
   }
 }
 
