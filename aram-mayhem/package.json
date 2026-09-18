@@ -44,12 +44,13 @@
     "combat": "tsx lib/combat-probe.ts",
     "audit:fields": "node tools/audit-fields.mjs",
     "audit:wiring": "node tools/audit-wiring.mjs",
-    "audit": "node tools/audit-fields.mjs && node tools/audit-analysis.mjs && node tools/audit-wiring.mjs && node tools/audit-surfaced.mjs && node tools/audit-help.mjs",
+    "audit": "node tools/audit-fields.mjs && node tools/audit-analysis.mjs && node tools/audit-wiring.mjs && node tools/audit-surfaced.mjs && node tools/audit-help.mjs && node tools/audit-length.mjs",
     "audit:analysis": "node tools/audit-analysis.mjs",
     "audit:surfaced": "node tools/audit-surfaced.mjs",
     "report:compare": "tsx lib/report-compare-probe.ts",
     "report:self": "tsx lib/report-self-probe.ts",
-    "audit:help": "node tools/audit-help.mjs"
+    "audit:help": "node tools/audit-help.mjs",
+    "audit:length": "node tools/audit-length.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
