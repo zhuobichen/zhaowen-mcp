@@ -62,7 +62,7 @@ const SAMPLE_REGISTRY = {
   "lib/patches.ts:analyzePatches:minGames": {
     tool: "get_my_patches",
     splits: "补丁（通常 5~10 个）",
-    why: "只用于「列进明细」，不下结论",
+    why: "（统计上无关）只用于「列进明细」，不下结论",
   },
   "lib/patches.ts:analyzePatches:verdictMinGames": {
     tool: "get_my_patches",
@@ -152,7 +152,7 @@ const SAMPLE_REGISTRY = {
   "lib/leaderboard.ts:leaderboard:minGames": {
     tool: "get_friend_leaderboard",
     splits: "账号（个位数）",
-    why: "上榜最低局数，不是统计门槛",
+    why: "（统计上无关）上榜最低局数，不是统计门槛",
   },
   "lib/social.ts:analyzeSocial:minGames": {
     tool: "get_my_teammates（队友/对手榜）",
@@ -380,11 +380,11 @@ const INLINE_REGISTRY = {
     kind: "统计门槛",
     why: "实测（thresholds:sweep）：四个时段的场次是 46/11/51/198 把，**全部 ≥10** —— 从不 bind。而且它是硬编码，探针改不了、只能从输出里读当前值。两处同值（时段与英雄池各一处），互不相关却用同一个数",
   },
-  "lib/report-tft.ts:weeklyPlacement:inline:<5": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "图表里样本不足的柱子不标数字" },
+  "lib/report-tft.ts:weeklyPlacement:inline:<5": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
   "lib/report-tft.ts:patchPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "同上" },
   "lib/report-tft.ts:weekdayPlacement:inline:<15": { tool: "（云顶 HTML 报告）", kind: "显示阈值", why: "同上" },
-  "lib/report.ts:collect:inline:>=3": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "收集阶段的过滤，不直接对应某句话" },
-  "lib/report.ts:weekdayChart:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "图表里样本不足的柱子不标数字" },
+  "lib/report.ts:collect:inline:>=3": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）收集阶段的过滤，不直接对应某句话" },
+  "lib/report.ts:weekdayChart:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）图表里样本不足的柱子不标数字" },
   "lib/report.ts:damageRankBars:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
   "lib/report.ts:patchChart:inline:<15": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
   "lib/report.ts:weeklyChart:inline:<5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "同上" },
@@ -404,7 +404,7 @@ const INLINE_REGISTRY = {
     why: "撑着「建议」那一段（「用得比旁人好」）。同样是挑差值最大：实测候选 14 个，已补上候选数 / 噪声尺度",
   },
   "lib/report.ts:advice:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "统计门槛", why: "同上" },
-  "lib/report.ts:render:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "渲染阶段过滤" },
+  "lib/report.ts:render:inline:>=5": { tool: "（海斗 HTML 报告）", kind: "显示阈值", why: "（统计上无关）渲染阶段过滤" },
   "lib/tools.ts:championGuideAsync:inline:<30": {
     tool: "get_champion_guide",
     kind: "统计门槛",
@@ -685,10 +685,23 @@ function reasonStats() {
   //   实测   —— 带数字（每条真正量过的都会引数字：门槛 5→20 / 12.6pp / 0.7 倍）
   //   无交代 —— 以「未说明」开头**且**没有数字（真的是一个字都没查过）
   //   有说明 —— 没数字但也没说「未说明」（理由是非实测性质的：图表用途、分类说明、有意独立）
-  const measured = whys.filter((w) => /\d/.test(w)).length;
+  // 四个状态。第四类（标了「（统计上无关）」的）是这轮从「说明了用途」里分出来的 ——
+  // 仔细看内容之后发现，我原先设想的分类是**错的**：
+  // 本以为那批里混着「有意独立、但没说明为什么」的，实际**一条都没有** ——
+  // patches 的「刻意比列明细高」给了理由、counters 的「二维交叉单元最多」给了理由、
+  // tools 的「有意独立于符文层」也给了理由。真正该分的是**统计上相不相关**：
+  //   · 统计上无关 —— 图表里标不标数字、列不列进明细，本来就不需要统计依据
+  //   · 有实测 / 说明了用途 —— 涉及统计判断，理由给了但没量
+  const neutral = whys.filter((w) => w.startsWith("（统计上无关）")).length;
+  const measured = whys.filter((w) => !w.startsWith("（统计上无关）") && /\d/.test(w)).length;
   const unexplained = whys.filter((w) => !/\d/.test(w) && w.startsWith("未说明")).length;
-  const byDesign = whys.filter((w) => !/\d/.test(w) && !w.startsWith("未说明")).length;
-  return `${measured} 条有实测 · ${byDesign} 条说明了用途/性质（非实测） · ${unexplained} 条一个字都没查过`;
+  const byDesign = whys.filter(
+    (w) => !w.startsWith("（统计上无关）") && !/\d/.test(w) && !w.startsWith("未说明")
+  ).length;
+  return (
+    `${measured} 条有实测 · ${byDesign} 条说明了理由但未量 · ` +
+    `${neutral} 条统计上无关（图表/列举用途） · ${unexplained} 条一个字都没查过`
+  );
 }
 console.log(
   problems.length
