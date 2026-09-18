@@ -112,7 +112,16 @@ export function validateArgs(
   args: Record<string, unknown>
 ): string[] {
   const problems: string[] = [];
-  const props = schema?.properties ?? {};
+
+  // 拿不到声明就**不校验**，一条问题都不报。
+  //
+  // 这里原本是继续往下走的，于是 `props` 成了空对象、任何实参都被当成「未知参数」，
+  // 一次合法的调用会被拒得干干净净。是 tools/args-vectors.ts 的自测抓到的
+  // （行为测试走不到这条路径 —— 生产代码在 schema 缺失时会跳过校验，所以线上没暴露）。
+  // 原则：宁可不校验，也不要因为拿不到依据就误拒。
+  if (!schema) return problems;
+
+  const props = schema.properties ?? {};
 
   // 参数本身必须是个对象。MCP 协议下一般不会出错，但 `arguments: null` 是可能的
   if (args === null || typeof args !== "object" || Array.isArray(args)) {

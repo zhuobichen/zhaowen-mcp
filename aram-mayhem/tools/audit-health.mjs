@@ -23,6 +23,8 @@ const flag = (f) => {
 const AUDITS = [
   { key: "protocol_self", title: "协议判据自测", cmd: ["tools/audit-protocol.mjs", "--selftest"], what: "描述符判据本身会不会报警" },
   { key: "protocol", title: "协议层", cmd: ["tools/audit-protocol.mjs"], what: "服务起得来吗、握手、实际服务出去的工具描述符、错误路径、连调后还活着吗" },
+  // 这条要跑 .ts，所以走 tsx 的 CLI 入口（本文件的 runner 是 `node <cmd[0]> <cmd[1..]>`）
+  { key: "args_vectors", title: "参数判据自测", cmd: ["node_modules/tsx/dist/cli.mjs", "tools/args-vectors.ts"], what: "校验判据本身对不对（合成用例：必填缺失、NaN、边界值、arguments 不是对象…）" },
   { key: "args", title: "参数校验", cmd: ["tools/audit-args.mjs"], what: "模型传错类型/枚举/参数名时拦得住吗，且不会误伤合法调用" },
   { key: "enums", title: "词表声明", cmd: ["tools/audit-enums.mjs"], what: "封闭词表参数的 enum 声明完整吗、值跟数据源对得上吗" },
   { key: "fields", title: "字段审计", cmd: ["tools/audit-fields.mjs"], what: "归档采集的字段有没有「采了但从没被读」的" },

@@ -145,6 +145,7 @@ npx tsx smoke.ts     # 冒烟测试：直接调用各工具，检查输出
 npm run smoke        # 端到端冒烟：起真服务、走一遍 MCP stdio 握手、列出工具、调几个只读工具（人工确认用）
 npm run audit:protocol # 协议层：服务起得来吗、握手、**实际服务出去**的工具描述符、未知工具的错误路径、连调一圈后还活着吗
 npm run audit:args     # 参数校验：类型/枚举/参数名/范围写错时拦得住吗，且不误伤合法调用（如 rarity=金色、tier=s+）
+npm run audit:args:vectors # 上面的判据自测（合成用例，走 tsx）：必填缺失 / NaN / 边界值 / arguments 不是对象…
 npm run audit:enums    # 词表声明：封闭词表参数的 enum 完整吗、值跟 RARITY_CN 和数据对得上吗
 npm run audit:fields # 字段审计：归档采集的统计字段有没有「采了但从没被分析」的
 npm run audit:analysis # 分析审计：字段是「被读过」还是「真被分析过」（只在 CSV 里露过面不算）
