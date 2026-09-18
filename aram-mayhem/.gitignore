@@ -6,3 +6,6 @@ data/profile.json
 # 本地对局归档（含账号与对局数据），不进仓库
 data/archive/
 reports/
+# 掌盟登录态（含账号凭据），绝不入库
+data/mlol-cookie.txt
+data/mlol-samples/

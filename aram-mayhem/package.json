@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "report:html": "tsx lib/report.ts",
     "report:tft": "tsx lib/report-tft.ts",
-    "archive:sync": "tsx lib/archive-sync.ts"
+    "archive:sync": "tsx lib/archive-sync.ts",
+    "mlol:probe": "tsx lib/mlol-probe.ts",
+    "mlol:capture": "mitmdump -s tools/mlol-capture.py --listen-port 8080 --set console_eventlog_verbosity=warn"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

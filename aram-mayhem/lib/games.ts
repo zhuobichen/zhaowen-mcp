@@ -126,6 +126,7 @@ export async function archiveInfo(): Promise<string> {
     st.accounts.length
       ? `  账号：${st.accounts.slice(0, 6).map((a) => `${a.name ?? a.puuid.slice(0, 8)}（${a.games} 局）`).join("、")}`
       : "",
+    st.total ? `  来源：${Object.entries(st.bySource ?? {}).map(([k, v]) => `${k} ${v}`).join(" · ")}` : "",
   ].filter(Boolean);
   return [
     "=== 本地对局归档 ===",

@@ -105,6 +105,8 @@ npx tsx lcuprobe.ts  # 客户端探测：连接状态、最近对局里实际有
 npm run report:html  # 生成个人战绩报告（单文件 HTML，输出到 reports/）
 npm run report:tft   # 生成云顶战绩报告
 npm run archive:sync # 把当前账号（--friends 连好友）的对局并进本地归档
+npm run mlol:capture # 抓掌盟登录态（mitmproxy，自动存 cookie 与请求样本）
+npm run mlol:probe   # 验证掌盟接口可行性（闸口在哪一步）
 ```
 
 每次 `npm run refresh` 会按补丁号在 `data/patch-snapshots/<补丁>.json` 存一份快照，攒够两个版本后 `compare_patches` 就能做版本对比。
@@ -148,6 +150,41 @@ data/profile.json     绑定的账号（运行时生成，含召唤师名/puuid�
 data/friends-*.json   好友相关数据不落盘，全部按需从客户端读取
 reports/              生成的个人战绩报告（含账号名，已在 .gitignore 中排除）
 ```
+
+## 掌盟（更长的历史）—— 已搭好抓包与探针，待取登录态
+
+本地客户端给的历史有硬上限（海斗 200 局、云顶 20 局，且没有可用翻页参数）。想拿更长的历史，
+国服唯一官方入口是**掌上英雄联盟（掌盟）**，它的战绩接口实测存在：
+
+```
+POST https://mlol.qt.qq.com/go/battle_info/get_battle_list
+POST https://mlol.qt.qq.com/go/battle_info/get_battle_detail
+→ 未登录：{"err_msg":"cookie userid empty","msg":"登录态失效，请重新登录","result":1001}
+```
+
+**目前唯一未知**：过了 cookie 闸口之后是否还要签名（sig/nonce/timestamp）—— 这决定成本，
+所以先做可行性验证。
+
+```sh
+npm run mlol:capture     # 电脑上启动 mitmproxy（8080），插件会自动存 cookie 与请求样本
+npm run mlol:probe       # 拿到 cookie 后跑这个，看闸口在哪一步
+```
+
+抓 cookie 的步骤（在你自己手机上，5 分钟）：
+
+1. 手机与电脑连同一个 Wi-Fi；手机 Wi-Fi 高级设置里把代理设为**手动**，主机填电脑内网 IP、端口 8080；
+2. 手机浏览器打开 `http://mitm.it` 装证书并信任（iOS：设置→通用→VPN与设备管理里信任；Android：安装用户证书）；
+3. 打开掌盟 App → 进「战绩」页翻一次；
+4. 插件会把 Cookie 存到 `data/mlol-cookie.txt`、请求样本存到 `data/mlol-samples/`；
+5. 电脑上跑 `npm run mlol:probe`：返回 `result=0` 就是通了；若提示「要求签名」则此路成本上升；提示「参数不对」说明 cookie 已通过。
+
+⚠️ 边界与风险（务必知情）：
+
+- **抓包代理会看到手机上的全部 HTTPS 流量**：只在自己手机上做，抓完立刻 Ctrl+C 停掉；
+- **Android 7+ 默认不信任用户安装的证书**，掌盟（WebView）若开启证书校验会抓不到 —— 备选是安卓模拟器（可装系统级证书）或 iOS 设备；
+- 腾讯《游戏许可及服务协议》6.4(4)/(6) 禁止「非腾讯授权的第三方工具/服务接入」，**复用掌盟登录态比本地 LCU 只读的暴露面更大**，是否值得由你判断；
+- 掌盟同样**没有「生涯总场次」**，只有约最近 200~500 场的滑动窗口；
+- 本仓库不保存任何登录态到版本库：`data/mlol-cookie.txt` 与 `data/mlol-samples/` 都在 `.gitignore` 里。
 
 ## 本地归档（离线也能分析，且越攒越多）
 

@@ -31,6 +31,8 @@ export interface ArchivedGame {
   puuid?: string | null;
   /** 查询目标当时的显示名（离线时用来认人） */
   puuidName?: string | null;
+  /** 这局是从哪来的：lcu=本地客户端；mlol=掌盟（后续接入）；其它来源按名字标 */
+  source?: string;
   participants: Array<{
     participantId: number;
     puuid?: string | null;
@@ -88,7 +90,8 @@ export function slimGame(
   raw: any,
   kind: ArchiveKind,
   puuid?: string | null,
-  puuidName?: string | null
+  puuidName?: string | null,
+  source: string = "lcu"
 ): ArchivedGame {
   const isTarget = (p: any) => !!puuid && p?.puuid === puuid;
   const participants = (raw?.participants ?? []).map((p: any) => {
@@ -136,6 +139,7 @@ export function slimGame(
     queueId: Number(raw?.queueId ?? 0),
     puuid: puuid ?? null,
     puuidName: puuidName ?? null,
+    source,
     participants,
   };
 }
@@ -191,7 +195,8 @@ export async function mergeIntoArchive(
   kind: ArchiveKind,
   games: any[],
   puuid?: string | null,
-  puuidName?: string | null
+  puuidName?: string | null,
+  source: string = "lcu"
 ): Promise<MergeResult> {
   const cur = await readArchive(kind);
   let added = 0;
@@ -203,7 +208,7 @@ export async function mergeIntoArchive(
       known++;
       continue;
     }
-    cur.games[key] = slimGame(g, kind, puuid, puuidName);
+    cur.games[key] = slimGame(g, kind, puuid, puuidName, source);
     added++;
   }
   const entries = Object.entries(cur.games);
@@ -236,6 +241,8 @@ export interface ArchiveStats {
   byQueue: Record<string, number>;
   /** 归档里出现过的账号（puuid → 名字与局数），离线时用来认人 */
   accounts: Array<{ puuid: string; name: string | null; games: number }>;
+  /** 按来源统计（lcu / mlol / …） */
+  bySource: Record<string, number>;
 }
 
 export async function archiveStats(kind: ArchiveKind, puuid?: string | null): Promise<ArchiveStats> {
@@ -245,7 +252,10 @@ export async function archiveStats(kind: ArchiveKind, puuid?: string | null): Pr
   const byMode: Record<string, number> = {};
   const byQueue: Record<string, number> = {};
   const acc = new Map<string, { puuid: string; name: string | null; games: number }>();
+  const bySource: Record<string, number> = {};
   for (const g of games) {
+    const src = g.source ?? "lcu";
+    bySource[src] = (bySource[src] ?? 0) + 1;
     byMode[g.gameMode || "?"] = (byMode[g.gameMode || "?"] ?? 0) + 1;
     const q = String(g.queueId ?? "?");
     byQueue[q] = (byQueue[q] ?? 0) + 1;
@@ -265,5 +275,6 @@ export async function archiveStats(kind: ArchiveKind, puuid?: string | null): Pr
     byMode,
     byQueue,
     accounts: [...acc.values()].sort((a, b) => b.games - a.games),
+    bySource,
   };
 }
