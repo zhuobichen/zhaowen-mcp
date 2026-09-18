@@ -94,7 +94,7 @@ await send("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }) + "\n");
 
 // 先调几个会报「我的总局数 / 胜率」的工具 —— 顺带把它们看到的新对局并进归档
-const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats", "get_tft_detail", "export_games_csv", "export_report_markdown", "analyze_my_augments", "get_champ_select_teammates"];
+const PROBES = ["get_my_checkup", "get_my_matchups", "get_my_teammates", "get_my_builds", "get_my_trend", "get_my_patches", "get_combat_profile", "get_my_contribution", "get_augment_pairs", "get_enemy_comps", "get_queue_stats", "get_friend_leaderboard", "compare_accounts", "get_tft_stats", "get_tft_detail", "export_games_csv", "export_report_markdown", "analyze_my_augments", "get_champ_select_teammates", "get_my_recent_games"];
 const reported = {};
 // compare_accounts 需要必填参数 b —— 不给的话它只回一句「请提供第二个账号 b」，
 // 那种输出拿去对账会变成假失败（第一版就是这样）
@@ -1307,6 +1307,56 @@ if (process.argv.includes("--with-html")) {
     `· 选人侦察：${noSession ? "当前没有选人会话，离线无法对账（这一项只能人工在有会话时验证）" : "有会话，但本审计不检查它（内容依赖实时状态）"}`
   );
 }
+
+// ㉘ get_my_recent_games：最近对局列表的第一条
+//    规格：loadLolGames（归档 ∪ 实时）→ 只留海斗 → 时间倒序 → 取前 N。
+//    对的是列表第一条：它应该是归档里**最新的那把海斗**，英雄与胜负都要对得上。
+{
+  const rg = reported["get_my_recent_games"] ?? "";
+  // 归档里最新的海斗局
+  const newest = mayhemGames
+    .filter((g) => {
+      const me = (g.participants ?? []).find((p) => p.puuid === ME);
+      return me?.stats && me.stats.win !== undefined;
+    })
+    .sort((a, b) => Number(b.gameCreation ?? 0) - Number(a.gameCreation ?? 0))[0];
+  if (newest) {
+    const me = (newest.participants ?? []).find((p) => p.puuid === ME);
+    const cid = cidMap[String(me.championId)];
+    const champ = cid ? (champsJson.find((c) => c.id === cid.id)?.name ?? cid.name) : null;
+    const win = me.stats.win === true;
+    // 列表第一条形如：`2026/9/17 20:19  霞  胜  12/4/21  13 分`
+    // 注意别用「4 段斜杠数字」去匹配 —— 日期是 3 段、KDA 也是 3 段，两边都不中
+    // （我第一版就这么写的，报出「第一条是空」的假失败）。
+    const first = rg.split("\n").find((l) => /^\s*\d{4}\/\d{1,2}\/\d{1,2}\s/.test(l)) ?? "";
+    const ok = !!champ && first.includes(champ) && first.includes(win ? "胜" : "负");
+    if (!ok) bad++;
+    console.log(
+      `${ok ? "✓" : "✗"} 最近对局：工具第一条「${first.trim().slice(0, 46)}」` +
+        `　独立重算最新那把是 ${champ ?? "?"} · ${win ? "胜" : "负"}`
+    );
+  }
+}
+
+// ---------------------------------------------------------------- 覆盖边界自述
+// 让审计**自己声明**能对到什么程度 —— 免得「某项没出现在输出里」被误读成「已经覆盖了」。
+// 下面这些工具依赖**实时状态**（LCU 的当前会话/在线信息），归档里没有对应真值，
+// 离线对不了账；它们的正确性由 coldstart 审计（离线时的降级行为）覆盖。
+const UNRECONCILABLE = [
+  ["get_my_account_status", "读的是客户端当前登录态，归档里没有真值"],
+  ["get_my_ranked", "段位只能从客户端实时读，归档不存段位"],
+  ["list_my_friends", "好友列表是客户端会话数据"],
+  ["get_friend_stats", "读客户端缓存的对局窗口，与归档口径不同"],
+  ["get_champ_select_teammates", "需要选人会话正在进行"],
+  ["send_champ_select_message", "写操作，本来就该人工确认"],
+  ["refresh_data", "联网刷新，不可重复对账"],
+  ["get_help", "纯静态文案，没有数字可对"],
+  ["search_augments / get_augment / list_champions / list_synergy_sets / analyze_synergy / compare_patches / get_data_info", "读的是打包自带的图鉴快照，不是我的数据"],
+];
+console.log("");
+console.log("覆盖边界（这些**故意不在**对账范围内，原因如下）：");
+for (const [name, why] of UNRECONCILABLE) console.log(`  ✗ ${name} —— ${why}`);
+console.log(`  本次可对账的项：33 项（上面带 ✓ 的），覆盖 ${new Set(PROBES).size} 个工具 + 3 个换参数的调用`);
 
 console.log("");
 console.log(bad ? `✗ ${bad} 处与原始数据对不上` : "✓ 所有抽查项都与原始数据一致");
