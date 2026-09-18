@@ -11,3 +11,6 @@ data/mlol-cookie.txt
 data/mlol-samples/
 data/pc-samples/
 data/wegame-cookie.txt
+
+# 健康报告产物（可随时用 npm run audit:health:md 重新生成）
+HEALTH.md

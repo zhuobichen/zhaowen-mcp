@@ -148,5 +148,12 @@ for (const dir of ["lib", "tools"]) {
 if (loose.length) bad(`有脚本但没接进 npm scripts（只能靠手打路径跑）：\n      ${loose.join("\n      ")}`);
 else ok("所有 probe / CLI 都有配套 npm script");
 
-console.log(`\n${problems === 0 ? "全部通过。" : `发现 ${problems} 个问题。`}`);
+// 收尾结论行：健康报告按这一行的前缀分档（✓ 通过 / ⚠ 注意 / ✗ 失败）。
+// 原先只写「全部通过。」—— 绿是绿的，但没说什么通过了，聚合到一张表上等于没信息。
+console.log("");
+console.log(
+  problems === 0
+    ? `✓ 工具、文档、scripts 三方对得上（${tools.length} 个工具 / ${Object.keys(pkg.scripts ?? {}).length} 个 script）`
+    : `✗ 接线有 ${problems} 处对不上`
+);
 process.exit(problems === 0 ? 0 : 1);

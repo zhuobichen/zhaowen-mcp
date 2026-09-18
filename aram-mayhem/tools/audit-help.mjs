@@ -37,4 +37,42 @@ if (missing.length) {
   console.log("✓ 所有工具都能从场景引导里被找到");
 }
 
-process.exit(missing.length || ghosts.length ? 1 : 0);
+// 第二查：README 上那张「按处境查」的表，跟 lib/help.ts 还是同一份内容吗？
+// 原先那是**手抄的第二份副本**，早就停在十几个工具的版本 —— 一个只在 GitHub 上读
+// README、调不了 get_help 的人，看到的是过期的功能清单。现在改成生成 + 这里查漂移。
+let drifted = 0;
+try {
+  const { parseScenarios, renderTable, currentBlock } = await import("./gen-help-table.mjs");
+  const want = renderTable(parseScenarios());
+  const cur = currentBlock(read("README.md"));
+  if (cur === null) {
+    console.log("\n✗ README 里没有 help-table 标记（没法确认那张表是不是最新的）");
+    drifted = 1;
+  } else if (cur !== want) {
+    console.log("\n✗ README 的处境表与 lib/help.ts 不一致（跑 npm run help:readme 重生成）");
+    drifted = 1;
+  } else {
+    console.log("✓ README 的处境表与 lib/help.ts 一致");
+  }
+} catch (e) {
+  console.log(`\n✗ 没法核对 README 的处境表：${e.message}`);
+  drifted = 1;
+}
+
+// 收尾结论行：健康报告按这一行的前缀分档（✓ 通过 / ⚠ 注意 / ✗ 失败）。
+// 这一查其实是两件事（工具有没有进引导、README 有没有漂移），只留最后一行的输出
+// 会让「引导覆盖」那一格显示成漂移检查的结果 —— 所以合并成一句。
+console.log("");
+const bad = missing.length || ghosts.length || drifted;
+console.log(
+  bad
+    ? `✗ 引导有问题：${[
+        ghosts.length ? `${ghosts.length} 个不存在的工具` : "",
+        missing.length ? `${missing.length} 个工具没进任何场景` : "",
+        drifted ? "README 那张表跟 help.ts 不一致" : "",
+      ]
+        .filter(Boolean)
+        .join("、")}`
+    : `✓ ${tools.length} 个工具都能从场景引导里被找到，README 那张表也与 help.ts 一致`
+);
+process.exit(bad ? 1 : 0);

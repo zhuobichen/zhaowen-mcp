@@ -56,3 +56,12 @@ if (notAnalyzed.length) {
 } else {
   console.log("所有采集字段都至少有一个模块在做判断，不只是搬运。");
 }
+
+// 收尾结论行：健康报告按这一行的前缀分档（✓ 通过 / ⚠ 注意 / ✗ 失败）。
+// 这里用 ⚠ 而不是 ✗ —— 按本文件自己的说法，未分析不等于缺口，得人看一眼再判。
+console.log("");
+console.log(
+  notAnalyzed.length
+    ? `⚠ ${keys.length} 个字段中 ${notAnalyzed.length} 个只被搬运、没被判断（需人确认是否本来就该如此）`
+    : `✓ ${keys.length} 个采集字段全部有模块在做判断`
+);

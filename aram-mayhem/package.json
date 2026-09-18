@@ -44,7 +44,7 @@
     "combat": "tsx lib/combat-probe.ts",
     "audit:fields": "node tools/audit-fields.mjs",
     "audit:wiring": "node tools/audit-wiring.mjs",
-    "audit": "node tools/audit-fields.mjs && node tools/audit-analysis.mjs && node tools/audit-wiring.mjs && node tools/audit-surfaced.mjs && node tools/audit-help.mjs && node tools/audit-length.mjs && node tools/audit-coldstart.mjs && node tools/audit-coldstart.mjs --healthy && node tools/audit-consistency.mjs && node tools/audit-verdict.mjs && node tools/audit-verdict-direction.mjs --selftest && node tools/audit-verdict-direction.mjs && node tools/audit-confidence.mjs --selftest && node tools/audit-confidence.mjs && node tools/audit-recompute.mjs",
+    "audit": "node tools/audit-health.mjs --selftest && node tools/audit-fields.mjs && node tools/audit-analysis.mjs && node tools/audit-wiring.mjs && node tools/audit-surfaced.mjs && node tools/audit-help.mjs && node tools/audit-length.mjs && node tools/audit-coldstart.mjs && node tools/audit-coldstart.mjs --healthy && node tools/audit-consistency.mjs && node tools/audit-verdict.mjs && node tools/audit-verdict-direction.mjs --selftest && node tools/audit-verdict-direction.mjs && node tools/audit-confidence.mjs --selftest && node tools/audit-confidence.mjs && node tools/audit-recompute.mjs",
     "audit:analysis": "node tools/audit-analysis.mjs",
     "audit:surfaced": "node tools/audit-surfaced.mjs",
     "report:compare": "tsx lib/report-compare-probe.ts",
@@ -57,7 +57,12 @@
     "audit:direction": "node tools/audit-verdict-direction.mjs",
     "audit:confidence": "node tools/audit-confidence.mjs",
     "audit:recompute": "node tools/audit-recompute.mjs",
-    "audit:recompute:html": "node tools/audit-recompute.mjs --with-html"
+    "audit:recompute:html": "node tools/audit-recompute.mjs --with-html",
+    "audit:health": "node tools/audit-health.mjs",
+    "audit:health:md": "node tools/audit-health.mjs --md HEALTH.md",
+    "audit:health:selftest": "node tools/audit-health.mjs --selftest",
+    "help:readme": "node tools/gen-help-table.mjs --write",
+    "help:readme:check": "node tools/gen-help-table.mjs --check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

@@ -98,3 +98,11 @@ if (missing.length) {
 } else {
   console.log("所有分析都在报告里有体现。");
 }
+
+// 收尾结论行：健康报告按这一行的前缀分档（✓ 通过 / ⚠ 注意 / ✗ 失败）。
+console.log("");
+console.log(
+  missing.length
+    ? `⚠ ${ANALYSIS.length} 个分析中 ${missing.length} 个没进报告（不是 bug，但默认看不到）`
+    : `✓ ${ANALYSIS.length} 个分析全部在报告里有体现`
+);

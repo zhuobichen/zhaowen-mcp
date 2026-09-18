@@ -57,18 +57,24 @@
 
 不用记工具名 —— 说人话就行。这张表是 `get_help` 的内容，工具多了之后它比罗列名字有用：
 
-| 你的处境 | 你可能会说 | 主要工具 |
-|---|---|---|
-| 正在选人 | 「这把队友什么水平」 | `get_champ_select_teammates` |
-| 刚打完一局 | 「刚才那把怎么样」「复盘」 | `get_game_detail` |
-| 想知道最近状态 | 「我最近打得怎么样」「体检」 | `get_my_checkup` · `get_my_trend` · `export_self_compare_report` |
-| 想找自己的毛病 | 「为什么老输」「该练什么」 | `get_my_matchups` · `get_my_builds` · `get_my_contribution` · `get_my_tilt` · `get_combat_profile` |
-| 查符文英雄（对局外） | 「这个符文什么效果」「亚索该拿什么」 | `search_augments` · `get_augment` · `get_champion_guide` · `analyze_synergy` |
-| 想和别人比 / 分享 | 「我和他谁强」「生成报告」 | `export_compare_report` · `compare_accounts` |
-| 想自己算 | 「导出数据」「给我 CSV」 | `export_games_csv` |
-| 维护数据 | 「更新数据」「数据太旧了」 | `refresh_data` · `get_archive_info` |
+<!-- BEGIN:help-table（由 tools/gen-help-table.mjs 生成，勿手改） -->
 
-`npm run audit:help` 会检查**每个工具是否都能从这张引导表里被找到** —— 新建了工具却忘了加进来，等于那个工具从入口上消失了。
+| 你的处境 | 你可能会说 | 该用哪些 |
+|---|---|---|
+| 正在选人 / 刚排进去，想先看看队友 | 「选人阶段看看队友」 · 「这把队友什么水平」 · 「帮我看下队友最近打得怎么样」 … | `get_champ_select_teammates` · `get_friend_stats` · `send_champ_select_message` |
+| 刚打完一局，想复盘那一把 | 「刚才那把怎么样」 · 「看看我最后那把」 · 「9 月 17 号那把亚索」 … | `get_game_detail` · `get_my_recent_games` |
+| 想知道自己最近的状态 | 「我最近打得怎么样」 · 「最近胜率」 · 「我是不是变菜了」 … | `get_my_checkup` · `get_my_trend` · `export_self_compare_report` · `analyze_my_playstyle` |
+| 想找出自己的毛病 / 该改什么 | 「我哪里有问题」 · 「该练什么」 · 「为什么老输」 … | `get_my_matchups` · `get_my_builds` · `get_my_contribution` · `get_my_tilt` · `get_combat_profile` · `get_enemy_comps` · `get_empirical_augments` · `analyze_my_augments` · `get_counter_items` |
+| 想查符文 / 英雄（对局外，纯资料） | 「这个符文什么效果」 · 「什么符文强」 · 「亚索该拿什么」 … | `search_augments` · `get_augment` · `get_champion_guide` · `list_champions` · `list_synergy_sets` · `analyze_synergy` · `get_data_info` · `compare_patches` |
+| 想和别人比 / 想分享出去 | 「我和他谁强」 · 「对比一下」 · 「我们俩谁打得好」 … | `compare_accounts` · `export_compare_report` · `get_friend_leaderboard` · `export_report_markdown` |
+| 想自己算 / 想要原始数据 | 「导出数据」 · 「给我 CSV」 · 「我要自己做分析」 … | `export_games_csv` · `get_my_teammates` · `get_queue_stats` · `get_my_patches` · `get_augment_pairs` · `check_synergy_sets` |
+| 维护数据 / 其它 | 「更新数据」 · 「数据太旧了」 · 「归档里有多少」 … | `get_help` · `refresh_data` · `get_archive_info` · `get_my_account_status` · `get_my_ranked` · `list_my_friends` · `get_tft_stats` · `get_tft_detail` |
+
+<!-- END:help-table -->
+
+这张表**不是手写的**，是从 `lib/help.ts` 生成的（`npm run help:readme`）；`--check` 会在两边不一致时报错。原先它是手抄的第二份副本，跟 `help.ts` 各自演化，很快就停在只有十几个工具的版本 —— 一个只在 GitHub 上读 README、调不了 `get_help` 的人，看到的是过期的功能清单。手抄必然会再烂，所以改成生成。
+
+`npm run audit:help` 会检查**每个工具是否都能从这张引导表里被找到**，外加**README 这张表有没有跟 `help.ts` 漂移** —— 新建了工具却忘了加进来，等于那个工具从入口上消失了。
 
 ## 数据来源与口径
 
@@ -140,7 +146,8 @@ npm run smoke        # 端到端：起真服务、走一遍 MCP stdio 握手、�
 npm run audit:fields # 字段审计：归档采集的统计字段有没有「采了但从没被分析」的
 npm run audit:analysis # 分析审计：字段是「被读过」还是「真被分析过」（只在 CSV 里露过面不算）
 npm run audit:surfaced # 可见性审计：分析的结果有没有进报告（只在工具输出里 = 不问就看不到）
-npm run audit:help     # 引导覆盖：每个工具是否都能从 lib/help.ts 的场景表里被找到
+npm run audit:help     # 引导覆盖：每个工具是否都能从 lib/help.ts 的场景表里被找到 + README 那张表有没有漂移
+npm run help:readme    # 按 lib/help.ts 重新生成 README 的「按处境查」表（--check 只检查）
 npm run audit:length   # 输出长度：真的把每个工具调一遍量行数，超过 120 行就报
 npm run audit:consistency # 跨工具一致性：同一个数（我的总局数/胜率）在各工具里是否一致
 npm run audit:verdict  # 结论自洽：结论里引用的数字，能不能在它自己的明细里找到
@@ -149,7 +156,10 @@ npm run audit:confidence # 置信措辞：说「可以当真」时，点名的�
 npm run audit:recompute # 与原始数据对账：工具报的数，跟直接读归档独立算出来的对得上吗
 npm run audit:coldstart # 冷启动：归档为空 + 客户端离线时，工具会不会只回一个空壳（跑两遍：冷启动该提示、健康模式不该提示）
 npm run audit:wiring # 接线审计：有没有游离文件/死代码、工具与文档是否对得上、scripts 指向的文件在不在
-npm run audit        # 上面两个一起跑
+npm run audit           # 上面 13 个依次跑一遍（约 3 分钟，任一失败即中断）
+npm run audit:health    # 健康报告：把上面 13 个各跑一遍，只留每份的结论行汇成一张表（约 165 秒）
+npm run audit:health:md # 同上，并写一份 HEALTH.md 存下来对照历史
+npm run audit:health:selftest # 健康报告自己的判据自测（合成输出验 ✓/⚠/✗ 三档分得对不对）
 npx tsx lcuprobe.ts  # 客户端探测：连接状态、最近对局里实际有哪些字段
 npm run report:html  # 生成个人战绩报告（单文件 HTML，输出到 reports/）
 npm run report:tft   # 生成云顶战绩报告
