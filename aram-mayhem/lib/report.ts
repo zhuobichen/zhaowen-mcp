@@ -201,6 +201,21 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
       pairMap.set(key, c);
     }
   }
+  // 队友（同队 ≥3 局）
+  let teammates: Array<{ name: string; games: number; winRate: number; lastSeen: number }> = [];
+  try {
+    const { analyzeSocial } = await import("./social.js");
+    const soc = await analyzeSocial({ games: 2000 });
+    teammates = soc.teammates.filter((m) => m.games >= 3).map((m) => ({
+      name: m.name,
+      games: m.games,
+      winRate: m.winRate,
+      lastSeen: m.lastSeen,
+    }));
+  } catch {
+    /* 拿不到就略过这一节 */
+  }
+
   const pairs = [...pairMap.values()]
     .filter((p) => p.g >= 4)
     .map((p) => ({ ...p, winRate: pctNum(p.w, p.g) }))
@@ -217,6 +232,7 @@ async function collect(gamesLimit: number, who?: { puuid: string; name: string }
     months,
     streaks,
     pairs,
+    teammates,
     overview: {
       games: n,
       wins,
@@ -381,6 +397,12 @@ function demoData() {
     augments,
     months,
     streaks,
+    // 演示队友（真实数据来自 social.js）
+    teammates: [
+      { name: "示例队友A", games: 42, winRate: 62, lastSeen: rows[rows.length - 1].t },
+      { name: "示例队友B", games: 27, winRate: 55, lastSeen: rows[rows.length - 2].t },
+      { name: "示例队友C", games: 15, winRate: 40, lastSeen: rows[rows.length - 3].t },
+    ],
     pairs: [...pairMap.values()].filter((p) => p.g >= 4).map((p) => ({ ...p, winRate: pctNum(p.w, p.g) })).sort((a, b) => b.g - a.g),
     overview: {
       games: n,
@@ -782,6 +804,39 @@ function augmentScatter(
 </figure>`;
 }
 
+
+/** 常一起打的人：条形=同队局数（相对最长者），颜色=共同胜率是否过半 */
+function teammateBars(mates: Array<{ name: string; games: number; winRate: number; lastSeen: number }>): string {
+  const top = mates.slice(0, 12);
+  const rowH = 26,
+    labelW = 168,
+    valueW = 150;
+  const barW = W - labelW - valueW;
+  const H = top.length * rowH + 22;
+  const maxGames = Math.max(1, ...top.map((m) => m.games));
+  const body = top
+    .map((m, i) => {
+      const y = 16 + i * rowH;
+      const w = Math.max(2, (barW * m.games) / maxGames);
+      const color = m.winRate >= 50 ? "var(--pos)" : "var(--neg)";
+      const last = new Date(m.lastSeen).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+      return (
+        `<text class="row-label" x="0" y="${y + 12}">${esc(m.name)}</text>` +
+        `<rect class="bar" x="${labelW}" y="${y + 3}" width="${w.toFixed(1)}" height="13" rx="4" fill="${color}"` +
+        ` data-tip="${esc(m.name)}|同队 ${m.games} 局 · 共同胜率 ${m.winRate.toFixed(0)}% · 最近 ${last}"/>` +
+        `<text class="row-value" x="${W - 4}" y="${y + 13}" text-anchor="end">${m.games} 局 · ${m.winRate.toFixed(0)}%</text>`
+      );
+    })
+    .join("");
+  return `
+<figure class="chart">
+  <figcaption>常一起打的人（条形=同队局数；颜色=共同胜率是否过半，蓝≥50%、红&lt;50%）</figcaption>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="同队玩家共同胜率图">
+    ${body}
+  </svg>
+</figure>`;
+}
+
 // ---------------------------------------------------------------- 文案
 
 function findings(data: Awaited<ReturnType<typeof collect>>): string[] {
@@ -960,6 +1015,15 @@ function render(data: Awaited<ReturnType<typeof collect>>): string {
       </table>
     </details>
   </section>
+
+  ${
+    data.teammates.length
+      ? `<section>
+    <h2>常一起打的人</h2>
+    ${teammateBars(data.teammates)}
+  </section>`
+      : ""
+  }
 
   <section>
     <h2>英雄 × 符文：哪些搭配真的赢</h2>

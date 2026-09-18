@@ -20,6 +20,7 @@ import { friendStats, listMyFriends } from "./lib/friends.js";
 import { tftStats } from "./lib/tft.js";
 import { archiveInfo } from "./lib/games.js";
 import { analyzeMyPlaystyle } from "./lib/playstyle.js";
+import { socialText } from "./lib/social.js";
 import { myRanked } from "./lib/ranked.js";
 import { scoutTeammates, sendChampSelectMessage } from "./lib/teammates.js";
 import { resolveMe } from "./lib/identity.js";
@@ -228,6 +229,18 @@ async function main() {
         },
       },
       {
+        name: "get_my_teammates",
+        description:
+          "队友/对手分析：谁和你一起打得最多、共同胜率多少、和谁打最稳；以及遇到过哪些对手、你对他们的胜率。数据来自对局里完整的 10 人名单（SGP）。默认查自己，可传 who 查好友。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            who: { type: "string", description: "可选：查哪个账号（好友名，部分匹配）。不传就是自己" },
+            min_games: { type: "number", description: "只列同队/相遇至少 N 次的（默认 3）" },
+          },
+        },
+      },
+      {
         name: "get_champ_select_teammates",
         description:
           "选人阶段侦察队友（只读）：读当前选人会话里的队友，逐个拉他们最近的海斗战绩，整理成一份给你自己看的报告。不会往任何聊天频道发言。",
@@ -363,6 +376,14 @@ async function main() {
 
         case "get_my_ranked":
           return text(await myRanked({ friend: args.friend ? String(args.friend) : undefined }));
+
+        case "get_my_teammates":
+          return text(
+            await socialText({
+              who: args.who ? String(args.who) : undefined,
+              minGames: args.min_games ? Number(args.min_games) : undefined,
+            })
+          );
 
         case "get_champ_select_teammates": {
           const me = await resolveMe();

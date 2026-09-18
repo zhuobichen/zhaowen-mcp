@@ -14,6 +14,7 @@
  * 风险与边界（如实写在这里）：这是只读、低频、只查自己账号的查询；但仍然属于
  * 「第三方工具访问腾讯服务」，条款面见 README「掌盟」一节的风险说明。
  */
+import { LOL_STAT_KEYS } from "./archive.js";
 import { lcuGet } from "./lcu.js";
 
 /** 国服 SGP 战绩服务地址（只列可用的大区；PBE/PREPBE 是测试服，也对齐了官方配置） */
@@ -169,25 +170,8 @@ export async function fetchSgpHistory(
  * 这里包一层 `stats`，让上层分析代码（读 p.stats.*）不用区分来源。
  * 另外 SGP 给的是**全部 10 个参与者**（LCU 只给自己的那一行），所以队友/对手分析要靠它。
  */
-const SGP_STAT_KEYS = [
-  "win",
-  "kills",
-  "deaths",
-  "assists",
-  "goldEarned",
-  "totalDamageDealtToChampions",
-  "totalDamageTaken",
-  "totalHeal",
-  "visionScore",
-  "champLevel",
-  "playerAugment1",
-  "playerAugment2",
-  "playerAugment3",
-  "playerAugment4",
-  "playerAugment5",
-  "playerAugment6",
-  "playerSubteamId",
-];
+// 字段清单与归档共用（避免两处不一致导致字段丢失）
+const SGP_STAT_KEYS = LOL_STAT_KEYS;
 
 export function sgpToGame(item: SgpSummary, puuid: string): any {
   const j = unwrapSgp(item) ?? {};

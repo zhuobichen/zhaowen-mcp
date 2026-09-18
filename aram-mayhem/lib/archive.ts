@@ -36,6 +36,8 @@ export interface ArchivedGame {
   participants: Array<{
     participantId: number;
     puuid?: string | null;
+    /** 参与者显示名（SGP 带 riotIdGameName；LCU 常见 summonerName） */
+    name?: string | null;
     championId?: number;
     teamId?: number;
     /** 英雄联盟：分析用得到的统计字段子集 */
@@ -65,7 +67,8 @@ function fileOf(kind: ArchiveKind): string {
   return path.join(archiveDir(), kind === "lol" ? "lol-matches.json" : "tft-matches.json");
 }
 
-const LOL_STAT_KEYS = [
+/** 英雄联盟：需要保留的统计字段（SGP 与 LCU 共用同一份，避免两边不一致） */
+export const LOL_STAT_KEYS = [
   "win",
   "kills",
   "deaths",
@@ -83,6 +86,24 @@ const LOL_STAT_KEYS = [
   "playerAugment5",
   "playerAugment6",
   "playerSubteamId",
+  // 出装与对局细节（SGP 提供，用于扩展分析）
+  "item0",
+  "item1",
+  "item2",
+  "item3",
+  "item4",
+  "item5",
+  "item6",
+  "doubleKills",
+  "tripleKills",
+  "quadraKills",
+  "pentaKills",
+  "firstBloodKill",
+  "totalMinionsKilled",
+  "damageDealtToObjectives",
+  "timeCCingOthers",
+  "timeSpentDead",
+  "longestTimeSpentLiving",
 ];
 
 /** 客户端返回的一局 → 归档形态（kind 决定裁哪些字段） */
@@ -98,6 +119,7 @@ export function slimGame(
     const base: ArchivedGame["participants"][number] = {
       participantId: p?.participantId ?? 0,
       puuid: p?.puuid ?? null,
+      name: p?.summonerName ?? p?.riotIdGameName ?? null,
     };
     if (kind === "lol") {
       base.championId = p?.championId;
@@ -157,6 +179,7 @@ export function expandGame(g: ArchivedGame): any {
       championId: p.championId ?? 0,
       teamId: p.teamId ?? 0,
       puuid: p.puuid,
+      summonerName: p.name ?? null,
       stats: p.stats ?? {},
       placement: p.placement,
       level: p.level,
@@ -169,7 +192,7 @@ export function expandGame(g: ArchivedGame): any {
     })),
     participantIdentities: g.participants.map((p) => ({
       participantId: p.participantId,
-      player: { puuid: p.puuid ?? undefined },
+      player: { puuid: p.puuid ?? undefined, summonerName: p.name ?? undefined },
     })),
   };
 }
@@ -226,6 +249,8 @@ export async function mergeIntoArchive(
       const score = (x: ArchivedGame, who: string | null | undefined) =>
         (x.participants?.length ?? 0) +
         (x.participants?.some((pp) => pp.stats && pp.stats.playerAugment1) ? 2 : 0) +
+        (x.participants?.some((pp) => pp.stats && pp.stats.item0 !== undefined) ? 2 : 0) +
+        (x.participants?.some((pp) => pp.name) ? 1 : 0) +
         (who && x.participants?.some((pp) => pp.puuid === who) ? 3 : 0);
       if (score(incoming, puuid) > score(existing, puuid)) {
         cur.games[key] = incoming;
