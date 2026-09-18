@@ -78,10 +78,6 @@ export function friendLine(f: Friend): string {
 }
 
 /** 好友的对局记录（走 puuid 路径，最多最近 200 场） */
-export async function getFriendGames(puuid: string, limit = 200): Promise<{ games: LcuGameSummary[]; total: number }> {
-  return await getMatchHistory(limit, puuid);
-}
-
 // ---------------------------------------------------------------- 工具实现
 
 export async function listMyFriends(): Promise<string> {

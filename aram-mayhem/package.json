@@ -42,7 +42,9 @@
     "game": "tsx lib/game-detail-probe.ts",
     "report:md": "tsx lib/report-md-probe.ts",
     "combat": "tsx lib/combat-probe.ts",
-    "audit:fields": "node tools/audit-fields.mjs"
+    "audit:fields": "node tools/audit-fields.mjs",
+    "audit:wiring": "node tools/audit-wiring.mjs",
+    "audit": "node tools/audit-fields.mjs && node tools/audit-wiring.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

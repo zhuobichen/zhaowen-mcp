@@ -97,24 +97,6 @@ export function isRankedQueue(id: number | undefined | null, name?: string): boo
  */
 export const MAYHEM_QUEUE_IDS = [2400, 2410, 2450, 3270];
 
-export function isMayhemQueue(queueId: number | null | undefined): boolean {
-  return queueId != null && MAYHEM_QUEUE_IDS.includes(queueId);
-}
-
-
-/**
- * 自检：数据里出现过、但我们**连名字都不知道**的队列（不在 QUEUE_FALLBACK 里）。
- * 用途：万一官方以后新增海斗队列（比如又一个"XX 版"），识别会静默漏判 ——
- * 这个方法把"未知队列"揪出来，让漏判变成可见提示，而不是悄悄少算几局。
- */
-export function unknownQueues(queueIds: Iterable<number>): number[] {
-  const out: number[] = [];
-  for (const id of new Set(queueIds)) {
-    if (id && !(id in QUEUE_FALLBACK)) out.push(id);
-  }
-  return out.sort((a, b) => a - b);
-}
-
 /**
  * 同上的异步版：**先问客户端的队列表**，它才是权威来源。
  * 同步版只查内置兜底表，客户端明明有名字的队列（例如人机 870/880/890）会被误报成「未登记」，

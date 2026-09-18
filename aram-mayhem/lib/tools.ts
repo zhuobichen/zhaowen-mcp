@@ -450,10 +450,6 @@ export function comparePatches(args: { base?: string; target?: string } = {}): s
 
 // ---------------------------------------------------------------- 输出给 index.ts 的汇总
 
-export function rarityOptions(): string {
-  return Object.values(RARITY_CN).join(" / ");
-}
-
 export type { Champion };
 
 /**

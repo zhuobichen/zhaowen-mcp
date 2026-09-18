@@ -158,26 +158,4 @@ export async function analyzeMyAugments(args: { limit?: number } = {}): Promise<
 }
 
 /** 供 get_champion_guide 打辅助：把「我的常玩英雄」映射成本地英雄记录 id（在线离线都能用） */
-export async function myChampionIds(limit = 200): Promise<string[]> {
-  const me = await resolveMe();
-  if (!me) return [];
-  const res = await loadLolGames(me.puuid, limit, me.name);
-  const games = res.games.filter(isMayhemGame);
-  const count = new Map<number, number>();
-  for (const g of games) {
-    const pid = myParticipantId(g, { puuid: me.puuid, name: me.name.split("#")[0] });
-    const p = (g.participants ?? []).find((x: { participantId: number }) => x.participantId === pid);
-    if (p) count.set(p.championId, (count.get(p.championId) ?? 0) + 1);
-  }
-  const d = loadData();
-  return [...count.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([cid]) => {
-      const name = championNameById(cid);
-      const c = d.champions.find((x) => normalize(x.name) === normalize(name) || normalize(x.epithet) === normalize(name));
-      return c?.id ?? "";
-    })
-    .filter(Boolean);
-}
-
 export { cleanDesc };

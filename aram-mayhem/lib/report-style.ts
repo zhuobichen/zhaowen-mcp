@@ -130,10 +130,6 @@ export const REPORT_CSS = `
 `;
 
 /** 期刊式图注：图 N. 说明 */
-export function figCaption(n: number, text: string): string {
-  return `<figcaption><span class="fignum">图 ${n}.</span>${text}</figcaption>`;
-}
-
 /**
  * 把「题注在上」的图重排成期刊式「图在上、题注在下」，并统一编号（图 1、图 2 …）。
  * 图表函数本身不用改：只要它们按 `<figure class="chart">…<figcaption>说明</figcaption>…<svg>…</svg></figure>` 输出。

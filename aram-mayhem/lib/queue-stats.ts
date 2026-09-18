@@ -203,9 +203,3 @@ export async function queueStatsText(opts: { who?: string; kind?: "lol" | "tft";
 }
 
 /** 只把队列分布压成一行（给报告页脚之类用） */
-export function queueSummaryLine(buckets: QueueBucket[]): string {
-  return buckets
-    .filter((b) => b.games >= 2)
-    .map((b) => `${b.name} ${b.games} 局`)
-    .join(" · ");
-}
