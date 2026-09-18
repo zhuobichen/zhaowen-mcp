@@ -1,10 +1,13 @@
 /**
- * SGP 探针：实测**你的账号**能翻到多少历史（这是这条路上唯一只能靠实机验证的未知数）。
+ * SGP 探针：实测**能翻到多少历史**（这条路上唯一只能靠实机验证的未知数）。
  *
- * 用法：npm run sgp:probe            # 默认每页 20，最多翻 300 条（够看出深浅）
- *      npm run sgp:probe -- 100 1000  # 自定义：页大小 100、上限 1000
+ * 用法：
+ *   npm run sgp:probe                      # 自己：每页 20、上限 300（够看出深浅）
+ *   npm run sgp:probe -- 100 1000          # 自己：页大小 100、上限 1000
+ *   npm run sgp:probe -- --friend 丁ding    # 好友（用你的登录态查 TA 的 puuid）
  *
- * 只读、低频、只查自己账号；不写任何文件（除 stdout）。
+ * 说明：SGP 的查询是按 puuid 的，所以**好友的历史一样能翻**（只要你在线、且知道 TA 的 puuid）；
+ * 探针只读、低频；不写任何文件（除 stdout）。
  */
 import { clientStatus, isMayhemGame } from "./lcu.js";
 import { fetchSgpHistory, getSgpContext, type SgpSummary } from "./sgp.js";
@@ -30,14 +33,39 @@ async function main() {
     return;
   }
 
-  const pageSize = Number(process.argv[2] ?? 20) || 20;
-  const maxGames = Number(process.argv[3] ?? 300) || 300;
+  // 支持 --friend <名字>：用本机登录态查好友的 puuid
+  const fi = process.argv.indexOf("--friend");
+  let targetPuuid = ctx.puuid;
+  let targetName = ctx.summonerName ?? "(未命名)";
+  if (fi >= 0) {
+    const who = process.argv[fi + 1];
+    if (!who) {
+      console.log("--friend 后面要跟好友名字（部分匹配即可）");
+      return;
+    }
+    const { resolveAccountByName } = await import("./identity.js");
+    const r = await resolveAccountByName(who);
+    if (!r.matches.length) {
+      console.log(`没找到好友「${who}」——${r.note}`);
+      return;
+    }
+    if (r.matches.length > 1) {
+      console.log(`「${who}」匹配到多个：${r.matches.map((m) => m.name).join("、")}`);
+      return;
+    }
+    targetPuuid = r.matches[0].puuid;
+    targetName = `好友 ${r.matches[0].name}`;
+  }
+  const nums = process.argv.slice(2).filter((a) => /^\d+$/.test(a));
+  const pageSize = Number(nums[0] ?? 20) || 20;
+  const maxGames = Number(nums[1] ?? 300) || 300;
+  console.log(`查询对象：${targetName}`);
   console.log(`\n开始翻页：每页 ${pageSize}，上限 ${maxGames}\n`);
 
   const all: SgpSummary[] = [];
   let emptyAt: number | null = null;
   try {
-    await fetchSgpHistory(ctx, ctx.puuid, {
+    await fetchSgpHistory(ctx, targetPuuid!, {
       pageSize,
       maxGames,
       onPage: (p) => {
@@ -52,7 +80,7 @@ async function main() {
   }
 
   // 重新拉一遍完整数据用于统计（探针里简单起见再跑一次，页数不大）
-  const games = await fetchSgpHistory(ctx, ctx.puuid, { pageSize, maxGames });
+  const games = await fetchSgpHistory(ctx, targetPuuid!, { pageSize, maxGames });
   all.push(...games);
 
   if (!games.length) {

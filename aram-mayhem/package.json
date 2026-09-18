@@ -22,7 +22,8 @@
     "pc:proxy-status": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/pc-proxy.ps1 status",
     "pc:analyze": "node tools/analyze-pc-samples.mjs",
     "sgp:probe": "tsx lib/sgp-probe.ts",
-    "wegame:probe": "tsx lib/wegame-probe.ts"
+    "wegame:probe": "tsx lib/wegame-probe.ts",
+    "wegame:enum": "tsx lib/wegame-enum-cli.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
