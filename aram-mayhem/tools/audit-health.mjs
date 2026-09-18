@@ -23,6 +23,8 @@ const flag = (f) => {
 const AUDITS = [
   { key: "protocol_self", title: "协议判据自测", cmd: ["tools/audit-protocol.mjs", "--selftest"], what: "描述符判据本身会不会报警" },
   { key: "protocol", title: "协议层", cmd: ["tools/audit-protocol.mjs"], what: "服务起得来吗、握手、实际服务出去的工具描述符、错误路径、连调后还活着吗" },
+  { key: "args", title: "参数校验", cmd: ["tools/audit-args.mjs"], what: "模型传错类型/枚举/参数名时拦得住吗，且不会误伤合法调用" },
+  { key: "enums", title: "词表声明", cmd: ["tools/audit-enums.mjs"], what: "封闭词表参数的 enum 声明完整吗、值跟数据源对得上吗" },
   { key: "fields", title: "字段审计", cmd: ["tools/audit-fields.mjs"], what: "归档采集的字段有没有「采了但从没被读」的" },
   { key: "analysis", title: "分析审计", cmd: ["tools/audit-analysis.mjs"], what: "字段是「被读过」还是「真被分析过」" },
   { key: "wiring", title: "接线审计", cmd: ["tools/audit-wiring.mjs"], what: "游离文件/死代码、工具↔文档↔scripts 是否对得上、每个 script 有没有交代、审计进程有没有设写盘闸" },

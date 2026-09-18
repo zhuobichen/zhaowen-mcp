@@ -15,6 +15,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { refreshData } from "./lib/refresh.js";
+import { argsErrorText, validateArgs, type ToolSchema } from "./lib/args.js";
 import { analyzeMyAugments, myAccountStatus, myRecentGames } from "./lib/my.js";
 import { friendStats, listMyFriends } from "./lib/friends.js";
 import { tftStats } from "./lib/tft.js";
@@ -59,14 +60,22 @@ import {
 
 const SCOPES = ["live", "unknown", "retired", "all"];
 
+/**
+ * 工具名 → inputSchema。在 tools/list 时填一次，CallTool 用同一份做参数校验。
+ * 空 Map 意味着「还没人列过工具」—— 那种情况下不校验（宁可不校验，也不要因为拿不到声明就误拒）。
+ */
+let TOOL_SCHEMAS = new Map<string, ToolSchema>();
+
 async function main() {
   const server = new Server(
     { name: "aram-mayhem", version: "1.0.0" },
     { capabilities: { tools: {} } }
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
+  // 声明表格做成一个具名函数而不是直接塞进 setRequestHandler ——
+  // CallTool 在第一次调用时要能**主动**拿一次（见下面 ensureSchemas）。
+  const listTools = async () => {
+    const tools = [
       {
         name: "get_help",
         description:
@@ -92,14 +101,23 @@ async function main() {
           type: "object",
           properties: {
             query: { type: "string", description: "关键词：符文名或说明里的字词（如 坦克引擎 / tank engine / 暴击）" },
-            rarity: { type: "string", description: "品质过滤：silver(银) / gold(金) / prismatic(棱彩)" },
+            rarity: {
+              type: "string",
+              // 词表照 lib/tools.ts 的**实际接受范围**写，不是照我以为的写：
+              // 那边用 RARITY_CN 把中文名归一成英文键，找不到就原样拿去比 ——
+              // 所以「银色」和「silver」都能用，只声明英文会把中文写法误判成非法。
+              //（第一版就只写了 silver/gold/prismatic 三个英文，是错的。）
+              // 值取自 data/augments.json 里真实出现过的品质。
+              enum: ["silver", "gold", "prismatic", "unknown", "银色", "金色", "棱彩", "未知品质"],
+              description: "品质过滤：silver/银色、gold/金色、prismatic/棱彩、unknown/未知品质。不传 = 全部品质",
+            },
             mode: { type: "string", description: "模式过滤，如 海克斯大乱斗 / 斗魂竞技场" },
             scope: {
               type: "string",
               enum: SCOPES,
               description: "在池范围：live=当前在池（默认，无 query 时）/ unknown=状态未知 / retired=已下架 / all=全部",
             },
-            limit: { type: "number", description: "最多返回多少条（默认 20，上限 100）" },
+            limit: { type: "number", minimum: 1, maximum: 100, description: "最多返回多少条（默认 20，上限 100）" },
             sort: { type: "string", enum: ["rank", "name"], description: "排序：rank=强度榜名次（默认）/ name=按名字" },
           },
         },
@@ -148,9 +166,16 @@ async function main() {
         inputSchema: {
           type: "object",
           properties: {
-            tier: { type: "string", description: "只看某一档：S+ / S / A / B / C" },
+            tier: {
+              type: "string",
+              enum: ["S+", "S", "A", "B", "C"],
+              // handler 是两边 toUpperCase 后比的（lib/tools.ts:289），所以 "s+" / "a" 本来就认。
+              // 不声明忽略大小写的话，加了参数校验反而会把以前能用的写法拒掉。
+              enumIgnoreCase: true,
+              description: "只看某一档：S+ / S / A / B / C（大小写不敏感）。不传 = 全部档位",
+            },
             sort: { type: "string", enum: ["winRate", "tier"], description: "排序方式，默认 winRate" },
-            limit: { type: "number", description: "最多返回多少个（默认 25）" },
+            limit: { type: "number", minimum: 1, maximum: 200, description: "最多返回多少个（默认 25，上限 200）" },
           },
         },
       },
@@ -162,7 +187,7 @@ async function main() {
           type: "object",
           properties: {
             champion: { type: "string", description: "英雄：亚索 / 火男 / 疾风剑豪 / Yasuo 都可以" },
-            limit: { type: "number", description: "最多返回多少条搭配（默认 8）" },
+            limit: { type: "number", minimum: 1, maximum: 50, description: "最多返回多少条搭配（默认 8，上限 50）" },
           },
           required: ["champion"],
         },
@@ -197,7 +222,7 @@ async function main() {
         inputSchema: {
           type: "object",
           properties: {
-            limit: { type: "number", description: "看最近多少把（默认 15，上限 50）" },
+            limit: { type: "number", minimum: 1, maximum: 50, description: "看最近多少把（默认 15，上限 50）" },
             only_mayhem: { type: "boolean", description: "只列海斗对局（默认 true；false 则列所有模式）" },
           },
         },
@@ -209,7 +234,7 @@ async function main() {
         inputSchema: {
           type: "object",
           properties: {
-            limit: { type: "number", description: "统计最近多少把海斗（默认 20，上限 50）" },
+            limit: { type: "number", minimum: 1, maximum: 50, description: "统计最近多少把海斗（默认 20，上限 50）" },
           },
         },
       },
@@ -227,7 +252,7 @@ async function main() {
           type: "object",
           properties: {
             friend: { type: "string", description: "好友名字或名字的一部分（如 丁ding / 自己的丁ding#66595）" },
-            limit: { type: "number", description: "最多读取多少把对局（默认 200，即客户端缓存的全部）" },
+            limit: { type: "number", minimum: 1, maximum: 2000, description: "最多读取多少把对局（默认 200，即客户端缓存的全部）" },
           },
           required: ["friend"],
         },
@@ -240,7 +265,7 @@ async function main() {
           type: "object",
           properties: {
             friend: { type: "string", description: "可选：好友名字（部分匹配），不传就是查自己" },
-            limit: { type: "number", description: "明细列最近多少局（默认 10）" },
+            limit: { type: "number", minimum: 1, maximum: 100, description: "明细列最近多少局（默认 10，上限 100）" },
           },
         },
       },
@@ -586,13 +611,45 @@ async function main() {
           },
         },
       },
-    ],
-  }));
+    ];
+    // CallTool 那边要拿**同一份** inputSchema 做参数校验 —— 在这里记下来，
+    // 校验规则就不会跟声明各写一份、然后漂掉。
+    TOOL_SCHEMAS = new Map(tools.map((t) => [t.name, t.inputSchema as ToolSchema]));
+    return { tools };
+  };
+  server.setRequestHandler(ListToolsRequestSchema, listTools);
+
+  /**
+   * 保证校验用的 schema 已经就位。
+   *
+   * 第一版是「只在 tools/list 里填」—— 结果一个只调 tools/call、不先列工具的客户端
+   * 会完全绕过校验（探针就是这么调，改完跑一遍发现**一条都没生效**）。
+   * 真实 MCP 客户端一般会先列工具，但「靠调用顺序才对」是脆的：
+   * 校验要么总在，要么就别装作有。
+   */
+  const ensureSchemas = async () => {
+    if (!TOOL_SCHEMAS.size) await listTools();
+  };
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args = {} } = request.params;
     hintThisRequest = await shouldAddNoDataHint(name);
     try {
+      // 参数校验在分发**之前**：类型/枚举/未知参数不对就直接回一段说明，不进 handler。
+      // 不校验的后果实测过 —— `search_augments({rarity:"传说"})` 会回「共 0 条」，
+      // 模型会把它当成事实；`get_game_detail({index:"第三把"})` 会把 NaN 打进正文。
+      // 未知工具没有 schema，自然跳过，交给下面 switch 的 default 分支走原来的回复。
+      {
+        await ensureSchemas();
+        const schema = TOOL_SCHEMAS.get(name);
+        if (schema) {
+          const problems = validateArgs(name, schema, args as Record<string, unknown>);
+          if (problems.length) {
+            hintThisRequest = false; // 参数都没对，不要再叠「你还没有数据」的提示
+            return { content: [{ type: "text" as const, text: argsErrorText(name, schema, problems) }] };
+          }
+        }
+      }
       switch (name) {
         case "get_help":
           return text(helpText(args.query ? String(args.query) : undefined));
