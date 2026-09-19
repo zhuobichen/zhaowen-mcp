@@ -72,7 +72,9 @@
         "audit:thresholds:selftest": "node tools/audit-thresholds.mjs --selftest",
         "thresholds:doc": "node tools/audit-thresholds.mjs --write",
         "thresholds:sweep": "tsx tools/thresholds-sweep.ts",
-        "audit:thresholds:list": "node tools/audit-thresholds.mjs --list"
+        "audit:thresholds:list": "node tools/audit-thresholds.mjs --list",
+        "champ:watch": "tsx tools/champ-select-watch.ts",
+        "scout:last": "tsx lib/scout-lastgame-probe.ts"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0"

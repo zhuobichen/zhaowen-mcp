@@ -180,6 +180,8 @@ npm run pc:capture   # 纯 PC 抓包：找 WeGame 战绩接口（配合 pc:trust
 npm run pc:analyze   # 分析抓到的样本，排序指出最像对局记录的接口
 npm run sgp:probe    # 实测 SGP 能翻到多少历史（需要客户端在线）
 npm run team:scout   # 选人阶段侦察队友（只读）
+npm run scout:last   # 查最近一局里每个人的战绩（队友/对手都要，按 puuid 走 SGP）
+npm run champ:watch  # 盯梢选人：轮询阶段，一进选人就自动抓会话、拉队友战绩（Ctrl+C 退出）
 npm run team:say     # 往选人频道发一条（需 --yes）
 ```
 
