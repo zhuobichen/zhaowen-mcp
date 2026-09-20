@@ -16,6 +16,7 @@ import {
   gitStatus,
 } from "./git.js";
 import { scanPath } from "./sensitive.js";
+import { validateMcp } from "./validate-mcp.js";
 
 /** zhaowen-mcp 集合 README 格式：`| 目录 | 服务 | 功能 |`，目录单元格形如 [`name/`](./name) */
 const COLLECTION_HEADER_RE = /^\|\s*目录\s*\|\s*服务\s*\|\s*功能\s*\|$/;
@@ -111,6 +112,18 @@ export async function publishMcp(
   } catch (e: any) {
     return { ok: false, message: `源目录不可用：${e.message}` };
   }
+
+  const validation = await validateMcp(src);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      message: `MCP 结构校验失败，未复制、提交或推送：\n${validation.errors
+        .map((item) => `- ${item}`)
+        .join("\n")}`,
+      warnings: validation.warnings,
+    };
+  }
+  warnings.push(...validation.warnings);
 
   const name = slug(opts.targetName || path.basename(src));
   const repoDir = config.mcpRepoDir;

@@ -28,16 +28,60 @@ export function parseFrontmatter(content: string): {
   name?: string;
   description?: string;
 } {
-  if (!content.startsWith("---")) return {};
-  const end = content.indexOf("\n---", 4);
+  const normalized = content.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  if (lines[0]?.trim() !== "---") return {};
+
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
   if (end < 0) return {};
-  const fm = content.slice(4, end);
-  const nameMatch = fm.match(/^name:\s*["']?([^"'\n]+)["']?/m);
-  const descMatch = fm.match(/^description:\s*["']?([^\n]+?)["']?$/m);
-  return {
-    name: nameMatch ? nameMatch[1].trim() : undefined,
-    description: descMatch ? descMatch[1].trim() : undefined,
+
+  const unquote = (value: string): string => {
+    const trimmed = value.trim();
+    if (trimmed.length >= 2) {
+      const first = trimmed[0];
+      const last = trimmed[trimmed.length - 1];
+      if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+        return trimmed.slice(1, -1).replace(/\\([\\"'])/g, "$1");
+      }
+    }
+    return trimmed;
   };
+
+  let name: string | undefined;
+  let description: string | undefined;
+
+  for (let index = 1; index < end; index += 1) {
+    const line = lines[index];
+    const nameMatch = /^name:\s*(.*)$/.exec(line);
+    if (nameMatch) {
+      name = unquote(nameMatch[1]);
+      continue;
+    }
+
+    const descriptionMatch = /^description:\s*(.*)$/.exec(line);
+    if (!descriptionMatch) continue;
+
+    const marker = descriptionMatch[1].trim();
+    const blockMarker = /^[|>][-+]?$/u.test(marker) ? marker[0] : "";
+    if (!blockMarker && marker !== "") {
+      description = unquote(marker);
+      continue;
+    }
+
+    const parts: string[] = [];
+    for (let next = index + 1; next < end; next += 1) {
+      const nextLine = lines[next];
+      // A non-indented YAML key starts the next frontmatter field.
+      if (/^\S[^:]*:\s*/.test(nextLine)) break;
+      parts.push(nextLine.replace(/^\s+/, "").trimEnd());
+      index = next;
+    }
+    description = (blockMarker === "|" ? parts.join("\n") : parts.join(" "))
+      .replace(/[ \t]+/g, " ")
+      .trim();
+  }
+
+  return { name: name || undefined, description: description || undefined };
 }
 
 async function readFrontmatter(skillMdPath: string): Promise<{ name?: string; description?: string }> {

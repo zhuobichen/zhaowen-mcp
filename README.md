@@ -9,7 +9,7 @@
 | [`memory-push/`](./memory-push) | 零散文档 → MEMORY 知识库 | `list_docs` 列出仓库结构 · `publish_doc` 推送本地文档/目录到 MEMORY(支持 dry_run) |
 | [`image-vision/`](./image-vision) | 识图 + 生图 | `describe_image` 识图 · `generate_image` 生图 · `check_vision_status` |
 | [`minimax-video-mcp/`](./minimax-video-mcp) | 生视频 | `submit_video` 提交 · `query_video` 查询 · `download_video` 下载 |
-| [`skill-manager/`](./skill-manager) | skill/MCP 盘点 + 一键发布 GitHub | `list_skills` 盘点 · `check_sensitive` 敏感检测 · `publish_skill` 发布 skill · `publish_mcp` 发布 MCP · `sync_self` 同步自身 · `get_config` |
+| [`skill-manager/`](./skill-manager) | skill/MCP 盘点 + 校验 + 一键发布 GitHub | `list_skills` 盘点 · `validate_skill` Skill 校验 · `validate_mcp` MCP 校验 · `check_sensitive` 敏感检测 · `publish_skill` 发布 Skill · `publish_mcp` 发布 MCP · `sync_self` 同步自身 · `get_config` |
 | [`code-review/`](./code-review) | 代码审阅 | `review_file` 审阅文件 · `review_diff` 审阅 diff · `check_review_status` |
 | [`file-manager/`](./file-manager) | 本地 + SSH 文件管理 | `exec` 执行 · `upload/download` 传输 · `bind` 绑服务器 · 共享/审计等 25 工具 |
 | [`onehub-monitor/`](./onehub-monitor) | one-hub 用量监测 | `check_usage` 用量 · `daily_snapshot` 每日记账 · `usage_history` 历史 |
@@ -23,6 +23,8 @@
 - 本仓库**不包含任何 API Key、密钥或个人中转站地址**。
 - 所有服务均通过**环境变量**配置，使用前请自行填写各自的 API 凭据。
 - 各服务的配置方式见各自目录下的 `README.md`。
+
+机器可读服务清单见 [`mcp-catalog.json`](./mcp-catalog.json)。发布或新增服务前，可用 `skill-manager` 的 `validate_mcp` 做只读结构检查，再进行敏感扫描和 dry-run。
 
 ## 快速开始
 
@@ -51,3 +53,15 @@ cd onehub-monitor && npm install
 ## License
 
 MIT
+
+## 维护与校验
+
+`skill-manager` 提供 Skill 目录校验和发布前检查。修改后可运行：
+
+```bash
+cd skill-manager
+npm install
+npm run typecheck
+npm test
+npm audit
+```

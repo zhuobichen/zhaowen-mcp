@@ -18,6 +18,7 @@ import {
   gitStatus,
 } from "./git.js";
 import { parseFrontmatter } from "./skills.js";
+import { validateSkill } from "./validate.js";
 
 export interface PublishArgs {
   skill_dir: string;
@@ -124,6 +125,17 @@ export async function publishSkill(
   } catch {
     return { ok: false, message: `skill 目录不存在或缺少 SKILL.md: ${skillDir}` };
   }
+
+  const validation = await validateSkill(skillDir);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      message: `Skill 结构校验失败：\n${validation.errors.map((item) => `- ${item}`).join("\n")}`,
+      skillDir,
+      warnings: validation.warnings,
+    };
+  }
+  warnings.push(...validation.warnings);
   const rawName = path.basename(skillDir);
 
   // 2. 命名规范化

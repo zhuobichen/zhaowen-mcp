@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "repository": "zhaowen-mcp",
+  "purpose": "Machine-readable inventory for MCP discovery, release checks, and tool ownership.",
+  "tool_inventory": "representative; run skill-manager.validate_mcp for a current static inventory",
+  "validation": {
+    "command": "cd skill-manager && npm run typecheck && npm test",
+    "runtime_checker": "skill-manager.validate_mcp"
+  },
+  "services": [
+    {
+      "name": "agent-sessions",
+      "path": "agent-sessions/",
+      "package": "agent-sessions-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "list_agent_sessions",
+        "read_agent_session",
+        "search_agent_sessions",
+        "agent_token_usage",
+        "session_insights"
+      ]
+    },
+    {
+      "name": "aram-mayhem",
+      "path": "aram-mayhem/",
+      "package": "aram-mayhem-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "search_augments",
+        "get_augment",
+        "list_synergy_sets",
+        "analyze_synergy",
+        "get_champion_guide",
+        "compare_patches",
+        "refresh_data"
+      ]
+    },
+    {
+      "name": "code-review",
+      "path": "code-review/",
+      "package": "code-review-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "review_file",
+        "review_diff",
+        "check_review_status"
+      ]
+    },
+    {
+      "name": "easy-log",
+      "path": "easy-log/",
+      "package": null,
+      "version": null,
+      "entrypoint": null,
+      "status": "documentation-only",
+      "tools": []
+    },
+    {
+      "name": "file-manager",
+      "path": "file-manager/",
+      "package": "file-manager-skill",
+      "version": "2.4.0",
+      "entrypoint": "scripts/ssh-ops.js",
+      "status": "active",
+      "tools": [
+        "exec",
+        "upload",
+        "download",
+        "bind",
+        "share",
+        "audit"
+      ]
+    },
+    {
+      "name": "image-vision",
+      "path": "image-vision/",
+      "package": "image-vision-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "describe_image",
+        "generate_image",
+        "check_vision_status"
+      ]
+    },
+    {
+      "name": "minimax-video-mcp",
+      "path": "minimax-video-mcp/",
+      "package": "minimax-video-mcp",
+      "version": "0.1.0",
+      "entrypoint": "src/index.ts",
+      "status": "active",
+      "tools": [
+        "submit_video",
+        "query_video",
+        "download_video"
+      ]
+    },
+    {
+      "name": "onehub-monitor",
+      "path": "onehub-monitor/",
+      "package": "onehub-monitor-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "check_usage",
+        "daily_snapshot",
+        "usage_history"
+      ]
+    },
+    {
+      "name": "other-projects",
+      "path": "other-projects/",
+      "package": "other-projects-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "list_projects",
+        "publish_project"
+      ]
+    },
+    {
+      "name": "skill-manager",
+      "path": "skill-manager/",
+      "package": "skill-manager-mcp",
+      "version": "1.1.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "list_skills",
+        "validate_skill",
+        "validate_mcp",
+        "check_sensitive",
+        "publish_skill",
+        "publish_mcp",
+        "sync_self",
+        "get_config"
+      ]
+    }
+  ]
+}
