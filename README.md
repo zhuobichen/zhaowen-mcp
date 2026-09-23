@@ -6,6 +6,7 @@
 
 | 目录 | 服务 | 功能 |
 |------|------|------|
+| [`codex-models/`](./codex-models) | Codex 模型配置管理 | `list_models` 列出 · `list_available` 查未配置 · `add_model` 新增(自动模板+备份) · `set_model` 切换 · `remove_model` 删除 |
 | [`memory-push/`](./memory-push) | 零散文档 → MEMORY 知识库 | `list_docs` 列出仓库结构 · `publish_doc` 推送本地文档/目录到 MEMORY(支持 dry_run) |
 | [`image-vision/`](./image-vision) | 识图 + 生图 | `describe_image` 识图 · `generate_image` 生图 · `check_vision_status` |
 | [`minimax-video-mcp/`](./minimax-video-mcp) | 生视频 | `submit_video` 提交 · `query_video` 查询 · `download_video` 下载 |
