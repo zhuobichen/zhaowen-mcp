@@ -52,12 +52,12 @@ const calls = [];
 // ══════════════════════════════════════════════════════════
 // 假引擎：工具名与真实引擎一致，把收到的每次调用记下来
 // ══════════════════════════════════════════════════════════
-async function startMockEngine() {
+async function startMockEngine(tools = ENGINE_TOOLS) {
   const server = new Server({ name: "mock-xhs", version: "0.0.0" },
     { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: ENGINE_TOOLS.map((name) => ({
+    tools: tools.map((name) => ({
       name, description: `mock ${name}`,
       inputSchema: { type: "object", properties: {} },
     })),
@@ -326,6 +326,47 @@ console.log("\n【10】引擎连不上时给人话（换个死端口）");
     assert.match(textOf(r), /连不上小红书引擎/);
   });
   await dead.close();
+}
+
+console.log("\n【11】换一家工具集不同的引擎（xpzouying 版没有 save_draft/get_my_feeds/delete_feed）");
+{
+  // 这份工具集是照 xpzouying 的 mcp_server.go（main 分支）抄的，不是想象出来的
+  const XP_TOOLS = ["check_login_status", "get_login_qrcode", "publish_content",
+    "publish_with_video", "list_feeds", "search_feeds", "get_feed_detail",
+    "user_profile", "get_my_profile", "like_feed", "favorite_feed",
+    "post_comment_to_feed", "reply_comment_in_feed", "delete_cookies",
+    "like_notification", "list_notifications", "reply_notification",
+    "get_unread_count"];
+  const xp = await startMockEngine(XP_TOOLS);
+  const c2 = await connect(xp.url);
+
+  const t = textOf(await c2.callTool({ name: "xhs_status", arguments: {} }));
+  check("status 逐个报本服务工具的可用性", () => {
+    assert.match(t, /✓ xhs_publish_note/);
+    assert.match(t, /✗ xhs_save_draft/);
+    assert.match(t, /✗ xhs_my_feeds/);
+    assert.match(t, /✗ xhs_delete_note/);
+  });
+  check("并点名哪些用不了", () => assert.match(t, /在这个引擎上用不了/));
+
+  const r = await c2.callTool({ name: "xhs_delete_note",
+    arguments: { feed_id: "x", confirm: true } });
+  check("缺工具时报错说得清（不是上游的 unknown tool）", () => {
+    assert.equal(r.isError, true);
+    assert.match(textOf(r), /这个引擎没有提供 delete_feed/);
+    assert.match(textOf(r), /xpzouying 版没有 save_draft/);
+  });
+  const r2 = await c2.callTool({ name: "xhs_save_draft",
+    arguments: { title: "标题", content: "正文", images: [] } });
+  check("存草稿同理", () => assert.match(textOf(r2), /没有提供 save_draft/));
+  const r3 = await c2.callTool({ name: "xhs_raw",
+    arguments: { tool: "list_feeds", args: {} } });
+  check("xhs_raw 仍能调它确实提供的工具", () => {
+    assert.ok(!r3.isError, textOf(r3));
+    assert.match(textOf(r3), /list_feeds/);
+  });
+  await c2.close();
+  await xp.close();
 }
 
 await mock.close();

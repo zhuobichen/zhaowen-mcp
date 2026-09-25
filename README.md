@@ -6,7 +6,7 @@
 
 | 目录 | 服务 | 功能 |
 |------|------|------|
-| [`xiaohongshu/`](./xiaohongshu) | 小红书发布（代理本机引擎） | `xhs_status` 引擎/登录状态 · `xhs_login_qrcode` 扫码登录 · `xhs_publish_note` 发布图文（标题字数/`#话题`/图片路径/正文长度/markdown 残留把关，支持 dry_run） · `xhs_save_draft` 存草稿 · `xhs_search`/`xhs_my_feeds`/`xhs_get_note` 只读查询 · `xhs_delete_note` 删除（需 confirm） · `xhs_raw` 直通引擎 |
+| [`xiaohongshu/`](./xiaohongshu) | 小红书发布（代理本机引擎） | `xhs_status` 引擎/登录状态/工具可用性 · `xhs_login_qrcode` 扫码登录 · `xhs_publish_note` 发布图文（标题字数/`#话题`/图片路径/正文长度/markdown 残留把关，支持 dry_run） · `xhs_save_draft` 存草稿 · `xhs_search`/`xhs_my_feeds`/`xhs_get_note` 只读查询 · `xhs_delete_note` 删除（需 confirm） · `xhs_raw` 直通引擎 |
 | [`codex-models/`](./codex-models) | Codex 模型配置管理 | `list_models` 列出 · `list_available` 查未配置 · `add_model` 新增(自动模板+备份) · `set_model` 切换 · `remove_model` 删除 |
 | [`memory-push/`](./memory-push) | 零散文档 → MEMORY 知识库 | `list_docs` 列出仓库结构 · `publish_doc` 推送本地文档/目录到 MEMORY(支持 dry_run) |
 | [`image-vision/`](./image-vision) | 识图 + 生图 | `describe_image` 识图 · `generate_image` 生图 · `check_vision_status` |

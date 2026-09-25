@@ -8,11 +8,23 @@
 
 ## 前置：起一个引擎
 
-两个都行（工具名一致，本服务都能接）：
+两个都能接，但**工具集不一样**——下面是实测结果（照 xpzouying 的 `mcp_server.go`、main 分支核对过），
+不是"应该一样"的推测：
+
+| 本服务的工具 | 依赖的上游工具 | xpzouying 版 | vmxmy 版 |
+|---|---|---|---|
+| `xhs_status` / `xhs_login_qrcode` / `xhs_publish_note` / `xhs_search` / `xhs_get_note` | `check_login_status` / `get_login_qrcode` / `publish_content` / `search_feeds` / `get_feed_detail` | ✓ | ✓ |
+| `xhs_save_draft` | `save_draft` | **✗ 没有** | ✓ |
+| `xhs_my_feeds` | `get_my_feeds` | **✗ 没有** | ✓ |
+| `xhs_delete_note` | `delete_feed` | **✗ 没有** | ✓ |
+
+连上之后先跑 `xhs_status`，它会**按你实际连的那个引擎**把这张表打出来；缺工具的调用会明确
+告诉你"这个引擎没有提供 X"，并列出它有哪些，而不是把上游的 `unknown tool` 抛给你。
+两个引擎都装也行（端口冲突就改一个）。
 
 | 引擎 | 起法 | 地址 |
 |------|------|------|
-| [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp)（原始版，Go，31 位贡献者） | `docker compose up -d` 或下二进制直接跑 | `http://localhost:18060/mcp` |
+| [xpzouying/xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp)（原始版，Go，1.6 万 star，Apache-2.0） | `docker compose up -d` 或下二进制直接跑 | `http://localhost:18060/mcp` |
 | [vmxmy/xiaohongshu-mcp](https://github.com/vmxmy/xiaohongshu-mcp)（Go，带 REST + Swagger） | `docker compose up -d` | `http://localhost:18060/mcp` |
 
 起来之后第一次要登录：调 `xhs_login_qrcode` 拿二维码（会落成 PNG 并作为图片返回），用小红书 App 扫码。
@@ -82,6 +94,11 @@ dry_run 不发布、超长标题/缺图被拦住且没有发出任何发布请�
 `tags`、二维码 PNG 字节正确、确认闸门生效、引擎连不上时给人话。
 
 ## 已知局限
+
+- **`location` 只有部分引擎支持**：xpzouying 版的 `publish_content` 参数是
+  `title / content / images / tags / schedule_at / is_original / visibility / products`，
+  **没有 `location`**（vmxmy 版有）。不填就不会传，填了在 xpzouying 版上可能被忽略或报错。
+  同理，需要 `schedule_at`（定时发布）、`is_original`、`products` 这些参数时，用 `xhs_raw` 直接调。
 
 - **真实发布这一步没有自动化验证**：需要你的账号扫码登录，测试环境里验不了。
   上面验的是代理链路与参数把关，不是"发出去一定成功"。

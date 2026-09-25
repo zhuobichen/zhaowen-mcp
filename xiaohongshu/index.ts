@@ -32,8 +32,21 @@ import {
   engineToolNames,
   normaliseNote,
   renderPreview,
+  requireTool,
   type NoteInput,
 } from "./engine.js";
+
+/** 本服务的工具 → 它依赖的引擎工具。**两家引擎的工具集不一样**，所以要逐个核。 */
+const NEEDS: Array<[string, string, string]> = [
+  ["xhs_status", "check_login_status", "查登录状态"],
+  ["xhs_login_qrcode", "get_login_qrcode", "扫码登录"],
+  ["xhs_publish_note", "publish_content", "发布图文"],
+  ["xhs_save_draft", "save_draft", "存草稿"],
+  ["xhs_search", "search_feeds", "搜索笔记"],
+  ["xhs_my_feeds", "get_my_feeds", "我发布的笔记"],
+  ["xhs_get_note", "get_feed_detail", "笔记详情"],
+  ["xhs_delete_note", "delete_feed", "删除笔记"],
+];
 
 const QR_DIR = process.env.XHS_QR_DIR?.trim() || tmpdir();
 
@@ -221,17 +234,44 @@ async function main() {
     const name = req.params.name;
     const args = (req.params.arguments ?? {}) as Record<string, any>;
     try {
+      // 先确认这个引擎有没有对应的工具（两家引擎的工具集不一样）。
+      // `xhs_status` 自己排除在外——它要负责把"缺哪些工具"报出来，
+      // 不能因为缺一个工具就退化成报错。
+      const need = NEEDS.find(([mine]) => mine === name && mine !== "xhs_status");
+      if (need) await requireTool(need[1], need[2]);
+
       switch (name) {
         case "xhs_status": {
           const lines = [`引擎地址：${ENGINE_URL}`, `调用超时：${CALL_TIMEOUT_MS} ms`];
           try {
             const tools = await engineToolNames();
+            const has = new Set(tools);
             lines.push("引擎：**可达** ✓");
             lines.push(`引擎提供 ${tools.length} 个工具：${tools.join(", ")}`);
-            const st = await callEngine("check_login_status", {});
+            // **两家引擎的工具集不一样**（xpzouying 版没有 save_draft /
+            // get_my_feeds / delete_feed），所以逐个报本服务的工具能不能用——
+            // 免得用的时候才发现某个工具在这台引擎上压根不存在。
+            const missing = NEEDS.filter(([, t]) => !has.has(t));
             lines.push("");
-            lines.push("登录状态：");
-            lines.push(st.text.trim() || "(引擎未返回内容)");
+            lines.push("本服务的工具在这个引擎上的可用性：");
+            for (const [mine, theirs] of NEEDS) {
+              lines.push(`  ${has.has(theirs) ? "✓" : "✗"} ${mine}  ← ${theirs}`);
+            }
+            if (missing.length) {
+              lines.push("");
+              lines.push(
+                `注意：${missing.map(([m, t]) => `${m}（缺 ${t}）`).join("、")} 在这个引擎上用不了。` +
+                  "不同引擎的工具集不一样，可以换引擎或用 xhs_raw 调它能提供的工具。",
+              );
+            }
+            lines.push("");
+            if (has.has("check_login_status")) {
+              const st = await callEngine("check_login_status", {});
+              lines.push("登录状态：");
+              lines.push(st.text.trim() || "(引擎未返回内容)");
+            } else {
+              lines.push("登录状态：这个引擎没有 check_login_status，查不了。");
+            }
           } catch (e) {
             lines.push("引擎：**连不上** ✗");
             lines.push("");

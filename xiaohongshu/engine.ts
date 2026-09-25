@@ -77,6 +77,7 @@ export async function getClient(): Promise<Client> {
 export async function closeEngine(): Promise<void> {
   const c = client;
   client = null;
+  toolCache = null;          // 重连后可能换了引擎，工具集要重新问
   if (c) {
     try {
       await c.close();
@@ -161,6 +162,45 @@ export async function engineToolNames(): Promise<string[]> {
   const c = await getClient();
   const r = await c.listTools();
   return (r.tools ?? []).map((t: { name: string }) => t.name).sort();
+}
+
+let toolCache: { at: number; names: Set<string> } | null = null;
+
+/** 带缓存的引擎工具集（30 秒），避免每次调用都多一个往返。 */
+export async function engineTools(): Promise<Set<string>> {
+  if (toolCache && Date.now() - toolCache.at < 30_000) return toolCache.names;
+  const names = new Set(await engineToolNames());
+  toolCache = { at: Date.now(), names };
+  return names;
+}
+
+/**
+ * **两个引擎的工具集不一样**，调用前必须先确认。
+ *
+ * 实测（xpzouying 的 `mcp_server.go`，main 分支）：它有
+ * `check_login_status / get_login_qrcode / publish_content / publish_with_video /
+ * list_feeds / search_feeds / get_feed_detail / user_profile / get_my_profile /
+ * likes / comments / notifications`，
+ * **但没有 `save_draft`、`get_my_feeds`、`delete_feed`**——这三个是 vmxmy 那版才有的。
+ *
+ * 所以不能假设"工具名通用"：引擎没有就当场说清楚它有什么、能拿什么替代，
+ * 而不是把上游的 "unknown tool" 原样抛给用户。
+ */
+export async function requireTool(tool: string, purpose: string): Promise<void> {
+  const names = await engineTools();
+  if (names.has(tool)) return;
+  const all = [...names].sort();
+  const stem = tool.split("_")[0];
+  const near = all.filter((n) => n.includes(stem));
+  throw new Error(
+    [
+      `这个引擎没有提供 ${tool}（${purpose}），本工具用不了。`,
+      `它提供的工具是：${all.join(", ")}`,
+      near.length ? `名字相近的：${near.join(", ")}` : "",
+      "不同引擎的工具集不一样：xpzouying 版没有 save_draft / get_my_feeds / delete_feed，vmxmy 版有。",
+      "可以换引擎，或用 xhs_raw 直接调它能提供的工具。",
+    ].filter(Boolean).join("\n"),
+  );
 }
 
 // ══════════════════════════════════════════════════════════
