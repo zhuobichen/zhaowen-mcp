@@ -146,6 +146,25 @@
         "sync_self",
         "get_config"
       ]
+    },
+    {
+      "name": "xiaohongshu",
+      "path": "xiaohongshu/",
+      "package": "xiaohongshu-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "xhs_status",
+        "xhs_login_qrcode",
+        "xhs_publish_note",
+        "xhs_save_draft",
+        "xhs_search",
+        "xhs_my_feeds",
+        "xhs_get_note",
+        "xhs_delete_note",
+        "xhs_raw"
+      ]
     }
   ]
 }
