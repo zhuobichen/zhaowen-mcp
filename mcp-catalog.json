@@ -107,6 +107,18 @@
       ]
     },
     {
+      "name": "memory-push",
+      "path": "memory-push/",
+      "package": "memory-push-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "list_docs",
+        "publish_doc"
+      ]
+    },
+    {
       "name": "minimax-video-mcp",
       "path": "minimax-video-mcp/",
       "package": "minimax-video-mcp",
