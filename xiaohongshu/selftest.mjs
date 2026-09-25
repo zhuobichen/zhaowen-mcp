@@ -230,6 +230,23 @@ console.log("\n【6】正文里的 #话题 被搬到 tags（本服务存在的�
   check("引擎返回的发布结果被转达", () => assert.match(t, /发布成功 note_id=abc123/));
 }
 
+console.log("\n【6b】正文过长 / markdown 残留：提醒但放行");
+{
+  const before = publishes().length;
+  const long = "啊".repeat(1200) + "\n**加粗**\n## 标题";
+  const r = await cli.callTool({
+    name: "xhs_publish_note",
+    arguments: { title: "标题", content: long, images: ["https://example.com/a.png"] },
+  });
+  const t = textOf(r);
+  check("超长正文被提醒", () =>
+    assert.ok(t.includes("超过约 1000 字的常见上限"), t.slice(0, 200)));
+  check("markdown 残留被点名", () =>
+    assert.ok(t.includes("markdown 写法（**加粗**、## 标题）"), t.slice(0, 300)));
+  check("仍然放行（只提醒不硬拦）", () =>
+    assert.equal(publishes().length, before + 1));
+}
+
 console.log("\n【7】二维码落成 PNG 并作为图片返回");
 {
   const r = await cli.callTool({ name: "xhs_login_qrcode", arguments: {} });

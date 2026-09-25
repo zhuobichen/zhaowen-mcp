@@ -169,6 +169,23 @@ export async function engineToolNames(): Promise<string[]> {
 
 export const TITLE_MAX_CHARS = 20;
 export const IMAGE_MAX = 18;
+/**
+ * 正文长度提醒线。**只提醒不硬拦**：小红书各端历史上限不一（约 1000～2000 字，
+ * 且变过），硬拦会把本来能发的内容挡在外面；但超了大概率发不出，得让人知道。
+ */
+export const CONTENT_WARN_CHARS = 1000;
+
+/** 小红书正文**不渲染 markdown**，写进去会原样显示。 */
+export function findMarkdownLeftovers(content: string): string[] {
+  const hits: string[] = [];
+  if (/\*\*[^*]+\*\*/.test(content)) hits.push("**加粗**");
+  if (/^#{1,6}\s/m.test(content)) hits.push("## 标题");
+  if (/`[^`]+`/.test(content)) hits.push("`代码`");
+  if (/~~[^~]+~~/.test(content)) hits.push("~~删除线~~");
+  if (/\[[^\]]+\]\([^)]+\)/.test(content)) hits.push("[文字](链接)");
+  if (/^\s*[-*+]\s/m.test(content)) hits.push("- 列表");
+  return hits;
+}
 const IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".heic"]);
 
 export interface NoteInput {
@@ -283,6 +300,25 @@ export function normaliseNote(input: NoteInput): Normalised {
   if (images.length === 0) {
     warnings.push(
       "没有传图片。上游的 publish_content 一般要求至少 1 张图，纯文字笔记请先确认引擎版本支持，否则很可能失败。",
+    );
+  }
+
+  // 正文太长：只提醒。实测自己写的一篇 1522 字的稿子就被这条拦下过。
+  const nChars = charLen(content);
+  if (nChars > CONTENT_WARN_CHARS) {
+    warnings.push(
+      `正文 ${nChars} 字，超过约 ${CONTENT_WARN_CHARS} 字的常见上限：可能发不出去，` +
+        `建议压缩（小红书正文不是长文场景）。`,
+    );
+  }
+
+  // markdown 残留：小红书正文不渲染 markdown，`**加粗**` 会原样显示成星号。
+  // 这类"换个平台就不渲染"的写法，在论文、图注、帖子里已经咬过好几次了。
+  const md = findMarkdownLeftovers(content);
+  if (md.length) {
+    warnings.push(
+      `正文里有 markdown 写法（${md.join("、")}）——小红书**不渲染** markdown，` +
+        `会原样显示成符号。建议换成【】或 emoji 分段。`,
     );
   }
 
