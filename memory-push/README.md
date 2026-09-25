@@ -56,9 +56,9 @@ publish_doc src="..." subdir="..." dry_run=true
 "memory-push": {
   "type": "stdio",
   "command": "cmd",
-  "args": ["/c", "node", "E:/CodeProject/node_modules/tsx/dist/cli.mjs", "E:/CodeProject/mcp-server/memory-push/index.ts"],
+  "args": ["/c", "node", "D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/memory-push/node_modules/tsx/dist/cli.mjs", "D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/memory-push/index.ts"],
   "cwd": "E:\\CodeProject"
 }
 ```
 
-依赖 tsx 与 @modelcontextprotocol/sdk（已装在 `E:/CodeProject/node_modules`），无需单独 install。
+依赖 tsx 与 @modelcontextprotocol/sdk，在**本目录** `npm install` 一次即可（各服务各自一份 `node_modules`，不共用）。

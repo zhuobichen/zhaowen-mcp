@@ -75,19 +75,19 @@ agent-sessions/
   "agent-sessions": {
     "type": "stdio",
     "command": "cmd",
-    "args": ["/c", "node", "E:/CodeProject/node_modules/tsx/dist/cli.mjs", "E:/CodeProject/mcp-server/agent-sessions/index.ts"],
+    "args": ["/c", "node", "D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs", "D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/index.ts"],
     "cwd": "E:\\CodeProject"
   }
 }
 ```
 
-依赖 tsx 与 @modelcontextprotocol/sdk（已装在 `E:/CodeProject/node_modules`），无需单独 npm install。
+依赖 tsx 与 @modelcontextprotocol/sdk，在**本目录** `npm install` 一次即可（各服务各自一份 `node_modules`，不共用）。
 
 ## 本地调试
 
 ```bash
-cd E:/CodeProject/mcp-server/agent-sessions
-node E:/CodeProject/node_modules/tsx/dist/cli.mjs index.ts   # 起 stdio server
+cd D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions
+node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs index.ts   # 起 stdio server
 ```
 
 ## 生成 /insights 同款的 Codex 复盘报告
@@ -96,18 +96,18 @@ node E:/CodeProject/node_modules/tsx/dist/cli.mjs index.ts   # 起 stdio server
 
 ```bash
 # 1. 逐会话语义标注（调 one-hub deepseek-v4-flash，输出 reports/facets/*.json，已存在则跳过=可缓存）
-node E:/CodeProject/node_modules/tsx/dist/cli.mjs annotate.ts
+node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs annotate.ts
 
 # 2. 生成报告（复用官方 /insights 浅色版式；数据 + facets 自动聚合，非手写文案）
-node E:/CodeProject/node_modules/tsx/dist/cli.mjs gen_report.ts
+node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs gen_report.ts
 #    → 输出 reports/codex_report.html
 
 # 导出 Markdown（同数据，便于粘贴/存档）
-node E:/CodeProject/node_modules/tsx/dist/cli.mjs gen_report.ts --md
+node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs gen_report.ts --md
 #    → 输出 reports/codex_report.md
 
 # 也可指定输出路径
-node E:/CodeProject/node_modules/tsx/dist/cli.mjs gen_report.ts reports/my_report.md --md
+node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs gen_report.ts reports/my_report.md --md
 ```
 
 - `annotate.ts` 标注约 20+ 个主要 Codex 会话：目标/会话类型/满意度/摩擦点/总结，key 从 `~/.claude.json` 的 code-review env 自动读取（或环境变量 `REVIEW_API_KEY`）。成本 ≈ 几分钱级（flash 档）。

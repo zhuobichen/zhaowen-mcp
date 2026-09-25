@@ -26,8 +26,7 @@
 "code-review": {
   "type": "stdio",
   "command": "cmd",
-  "args": ["/c", "node", "E:/CodeProject/node_modules/tsx/dist/cli.mjs", "E:/CodeProject/mcp-server/code-review/index.ts"],
-  "cwd": "E:\\CodeProject",
+  "args": ["/c", "node", "D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/code-review/node_modules/tsx/dist/cli.mjs", "D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/code-review/index.ts"],
   "env": {
     "REVIEW_API_KEY": "<你的Key>",
     "REVIEW_API_URL": "https://one-hub.hycx-gd.cn/v1",

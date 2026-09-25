@@ -54,6 +54,21 @@
       ]
     },
     {
+      "name": "codex-models",
+      "path": "codex-models/",
+      "package": "codex-models-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "list_models",
+        "list_available",
+        "add_model",
+        "set_model",
+        "remove_model"
+      ]
+    },
+    {
       "name": "easy-log",
       "path": "easy-log/",
       "package": null,

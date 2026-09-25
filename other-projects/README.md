@@ -13,7 +13,7 @@
 ## 用法
 
 ```
-publish_project src_dir="E:/CodeProject/其余工程/APR-D-26-00796_审稿意见"
+publish_project src_dir="<你的任务目录绝对路径>"
 publish_project src_dir="..." name="自定义目录名" message="feat: xxx"
 publish_project src_dir="..." dry_run=true          # 只预览，不推送
 ```
@@ -39,9 +39,9 @@ publish_project src_dir="..." dry_run=true          # 只预览，不推送
 "other-projects": {
   "type": "stdio",
   "command": "cmd",
-  "args": ["/c", "node", "E:/CodeProject/node_modules/tsx/dist/cli.mjs", "E:/CodeProject/mcp-server/other-projects/index.ts"],
+  "args": ["/c", "node", "D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/other-projects/node_modules/tsx/dist/cli.mjs", "D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/other-projects/index.ts"],
   "cwd": "E:\\CodeProject"
 }
 ```
 
-依赖 tsx 与 @modelcontextprotocol/sdk（已装在 `E:/CodeProject/node_modules`），无需单独 install。
+依赖 tsx 与 @modelcontextprotocol/sdk，在**本目录** `npm install` 一次即可（各服务各自一份 `node_modules`，不共用）。
