@@ -95,6 +95,12 @@ dry_run 不发布、超长标题/缺图被拦住且没有发出任何发布请�
 
 ## 已知局限
 
+- **发布超时不要盲目重试**：`publish_content` 在引擎侧要跑几十秒（上传图片、填表、点发布）。
+  客户端等超时的时候，**引擎那边很可能已经把笔记发出去了**——这时重试会产生**重复笔记**。
+  本服务遇到超时会直接说明这一点、并且**不再自动重试**（有专门的测试守着这条）。
+  真踩过：一次 60 秒超时的重试，发出了两条一模一样的笔记。引擎那版没有删除工具，
+  重复的只能去 App 的「创作中心 → 笔记管理」手动删。
+
 - **`location` 只有部分引擎支持**：xpzouying 版的 `publish_content` 参数是
   `title / content / images / tags / schedule_at / is_original / visibility / products`，
   **没有 `location`**（vmxmy 版有）。不填就不会传，填了在 xpzouying 版上可能被忽略或报错。

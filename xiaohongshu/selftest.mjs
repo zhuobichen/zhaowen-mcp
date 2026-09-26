@@ -73,6 +73,11 @@ async function startMockEngine(tools = ENGINE_TOOLS) {
       return { content: [{ type: "image", data: PNG_B64, mimeType: "image/png" }] };
     }
     if (name === "publish_content") {
+      // 标题以 HANG 开头时假装"发得很慢"——用来验超时**不重试**这条行为
+      if (String(args.title ?? "").startsWith("HANG")) {
+        await new Promise((r) => setTimeout(r, 20000));
+        return { content: [{ type: "text", text: "（其实发出去了）" }] };
+      }
       return { content: [{ type: "text", text: "发布成功 note_id=abc123" }] };
     }
     if (name === "delete_feed") {
@@ -109,13 +114,13 @@ async function startMockEngine(tools = ENGINE_TOOLS) {
 // ══════════════════════════════════════════════════════════
 // 把我的服务当成一个 stdio MCP 客户端接上去
 // ══════════════════════════════════════════════════════════
-async function connect(engineUrl) {
+async function connect(engineUrl, extraEnv = {}) {
   const client = new Client({ name: "selftest", version: "0" }, { capabilities: {} });
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["--import", "tsx", "index.ts"],
     cwd: HERE,
-    env: { ...process.env, XHS_ENGINE_URL: engineUrl, XHS_QR_DIR: QR_DIR },
+    env: { ...process.env, XHS_ENGINE_URL: engineUrl, XHS_QR_DIR: QR_DIR, ...extraEnv },
     stderr: "inherit",
   });
   await client.connect(transport);
@@ -369,7 +374,34 @@ console.log("\n【11】换一家工具集不同的引擎（xpzouying 版没有 s
   await xp.close();
 }
 
-await mock.close();
+console.log("\n【12】发布超时 → **不重试**，并提示先去确认（真踩过的坑）");
+{
+  // 实测踩过：发布要几十秒，客户端 60 秒超时后重试，结果发出 2 条一样的笔记。
+  // 这里用一个"卡住不返回"的假引擎，把超时压到 2 秒来验这条行为。
+  // **单起一个假引擎**：上面那个是单会话的，第二个客户端再 initialize 会被它拒。
+  const slowMock = await startMockEngine();
+  const slow = await connect(slowMock.url, { XHS_TIMEOUT_MS: "2000" });
+  const before = publishes().length;
+  const r = await slow.callTool({
+    name: "xhs_publish_note",
+    arguments: { title: "HANG 慢发布", content: "正文", images: [] },
+  });
+  check("返回 isError，且说明超时", () => {
+    assert.equal(r.isError, true);
+    assert.match(textOf(r), /等待引擎响应超时/);
+  });
+  check("明确提示先去笔记管理确认、别急着重试", () => {
+    assert.match(textOf(r), /笔记管理/);
+    assert.match(textOf(r), /超时\*\*不代表没执行\*\*|不代表没执行/);
+  });
+  check("**只调用了一次** publish_content（没有盲目重试）",
+    () => assert.equal(publishes().length - before, 1));
+  await slow.close();
+  await slowMock.close();
+}
+
+await mock.close();   // 假引擎用完再关（第 12 组还要用它）
+
 console.log(`\n${"─".repeat(60)}`);
 console.log(`通过 ${pass} 项，失败 ${failed} 项`);
 process.exit(failed === 0 ? 0 : 1);

@@ -126,11 +126,25 @@ function textOf(raw: unknown): string {
   return parts.join("\n\n");
 }
 
+/** 会改变线上状态的工具：这些**不能盲目重试**（没有幂等性）。 */
+const WRITES_STATE = /publish|delete|comment|follow|like|favorite|draft|schedule/i;
+
+/** 客户端等待超时（SDK 报 -32001 / timed out）。 */
+function isTimeout(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /-32001|timed out|timeout/i.test(m);
+}
+
 /**
  * 调用引擎的一个工具。
  *
  * 连接断了（引擎重启/会话过期）会**重连一次**再试——上游是 HTTP 会话制的，
  * 它重启之后旧会话就没了，不重连的话每次调用都要用户手动重开 MCP。
+ *
+ * **但超时不能重试**：发布这类操作在引擎侧要跑几十秒（传图、填表、点发布），
+ * 客户端等超时的时候，**引擎那边很可能已经把笔记发出去了**。这时重试就会发出
+ * 重复内容。实测踩过：一次「发布 60 秒超时」的重试直接产生了 2 条一样的笔记。
+ * 所以这里把超时报错换成一句人话：先去笔记管理确认，别急着重来。
  */
 export async function callEngine(
   tool: string,
@@ -148,6 +162,17 @@ export async function callEngine(
       isError: Boolean((raw as { isError?: boolean })?.isError),
     };
   } catch (e) {
+    if (isTimeout(e)) {
+      // **不再重试**：超时是"不知道成没成"，重试可能造成重复的对外动作。
+      const extra = WRITES_STATE.test(tool)
+        ? `\n\n「${tool}」是**会改变线上状态**的操作，超时**不代表没执行**——` +
+          `引擎多半已经在后台把它做完了。请先打开小红书 App 的「创作中心 → 笔记管理」` +
+          `确认一遍，**没有发出去再重试**，否则会出现重复内容。`
+        : "";
+      throw new Error(
+        `等待引擎响应超时（${CALL_TIMEOUT_MS} ms）。${extra}`,
+      );
+    }
     await closeEngine();
     if (retry) {
       log(`调用 ${tool} 失败，重连后重试一次：`, e instanceof Error ? e.message : e);
