@@ -192,6 +192,54 @@
         "xhs_delete_note",
         "xhs_raw"
       ]
+    },
+    {
+      "name": "hot-trending",
+      "path": "hot-trending/",
+      "package": "hot-trending-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "list_boards",
+        "get_hot"
+      ]
+    },
+    {
+      "name": "bilibili",
+      "path": "bilibili/",
+      "package": "bilibili-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "check_login",
+        "get_video",
+        "search_videos",
+        "list_popular",
+        "get_ranking",
+        "list_weekly",
+        "get_related",
+        "get_comments",
+        "get_subtitles",
+        "get_parts",
+        "get_user_videos",
+        "get_user_stat",
+        "like_video",
+        "follow_user",
+        "favorite_video",
+        "coin_video",
+        "post_comment",
+        "list_msg_replies",
+        "get_my_top_content",
+        "list_fav_folders",
+        "list_favorites",
+        "list_followings",
+        "list_fans",
+        "get_history",
+        "list_toview",
+        "get_watch_time"
+      ]
     }
   ]
 }
