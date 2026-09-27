@@ -65,6 +65,67 @@ async function getJson(url: string, referer: string, cookie?: string): Promise<a
 
 export class BoardError extends Error {}
 
+// --------------------------------------------------------------------------- //
+//  贴吧：登录后唯一多出来的能力
+// --------------------------------------------------------------------------- //
+
+export interface MyForum {
+  name: string;
+  level: number;
+  exp: number;
+  forumId: number;
+  signed: boolean;   // 今天签到没有
+}
+
+/**
+ * 我关注的贴吧列表。
+ *
+ * **这是贴吧唯一一个"带 cookie 才有、而且真的拿得到"的接口。**
+ * 其余全被「百度安全验证」拦掉（见 README 的贴吧那节）。
+ *
+ * 接口是移动端的 `mo/q/newmoindex` —— 注意它**忽略 kw 参数**，
+ * 永远是同一份 payload（uid / tbs / like_forum）。
+ *
+ * 需要 BDUSS cookie；没有就明确报错，不给空列表。
+ */
+export async function listMyForums(bduss: string): Promise<{ uid: number; forums: MyForum[] }> {
+  if (!bduss) {
+    throw new BoardError(
+      "需要贴吧 BDUSS cookie（浏览器登录贴吧后 F12 → Cookies → tieba.baidu.com → BDUSS）。" +
+        "注意：即便有 BDUSS，贴吧也只开放这一个接口 —— 读吧内容/帖子/发帖都会被「百度安全验证」拦下。"
+    );
+  }
+  const ua =
+    "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  try {
+    const r = await fetch("https://tieba.baidu.com/mo/q/newmoindex", {
+      headers: { "User-Agent": ua, Referer: "https://tieba.baidu.com/", Cookie: `BDUSS=${bduss}` },
+      signal: ctl.signal,
+    });
+    const d: any = await r.json();
+    if (d?.no !== 0 || d?.error !== "success") {
+      throw new BoardError(`贴吧返回异常: ${d?.error ?? JSON.stringify(d).slice(0, 80)}`);
+    }
+    const data = d.data ?? {};
+    if (!data.is_login && !data.uid) {
+      throw new BoardError("BDUSS 无效或已过期（贴吧判定未登录）");
+    }
+    const forums: MyForum[] = (data.like_forum ?? []).map((f: any) => ({
+      name: f.forum_name ?? "",
+      level: Number(f.user_level ?? 0),
+      exp: Number(f.user_exp ?? 0),
+      forumId: Number(f.forum_id ?? 0),
+      signed: f.is_sign === 1,
+    }));
+    return { uid: Number(data.uid ?? 0), forums };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function asStr(v: unknown): string | undefined {
   if (v === null || v === undefined || v === "") return undefined;
   return String(v);

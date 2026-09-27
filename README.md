@@ -19,8 +19,9 @@
 | [`agent-sessions/`](./agent-sessions) | 查看本机智能体会话(Claude Code + Codex) | `list_agent_sessions` 列出 · `read_agent_session` 查看(`detail=true` 含代码改动/命令摘要) · `search_agent_sessions` 搜索 · `agent_token_usage` token/费用统计 · `session_insights` 洞察 · `annotate` LLM 逐会话语义标注(facets) · `gen_report` 生成 /insights 同款 HTML |
 | [`other-projects/`](./other-projects) | 帮别人做的任务 → Other_Projects 仓库 | `list_projects` 列出现有项目 · `publish_project` 发布本地任务目录并 push（支持 dry_run） |
 | [`aram-mayhem/`](./aram-mayhem) | 英雄联盟「海克斯大乱斗」助手 | `search_augments` 符文搜索 · `get_augment` 符文详情（官方原文说明+国服/全球两套胜率） · `list_synergy_sets`/`analyze_synergy` 羁绊与推算 · `get_champion_guide` 英雄推荐（含陷阱符文） · `compare_patches` 版本对比 · `refresh_data` 刷新 · `get_my_account_status`/`get_my_recent_games`/`analyze_my_augments` 绑定国服账号看最近对局 |
-| [`hot-trending/`](./hot-trending) | 中文平台热榜聚合 | `list_boards` 列出平台（含各自是否需登录） · `get_hot` 取热榜：B站/微博/贴吧**免登录**，知乎需 `ZHIHU_COOKIE`（其热榜接口免登录恒 401，实测无解） |
+| [`hot-trending/`](./hot-trending) | 中文平台热榜聚合 | `list_boards` 列出平台（含各自是否需登录） · `get_hot` 取热榜：B站/微博/贴吧**免登录**，知乎需 `ZHIHU_COOKIE`（其热榜接口免登录恒 401，实测无解） · `list_my_forums` 我关注的贴吧列表（需 `TIEBA_BDUSS`；**贴吧只有这一个接口开放给自动化**，其余被「百度安全验证」拦，原因见 hot-trending/README.md） |
 | [`bilibili/`](./bilibili) | B站 数据（只读为主 + 写操作） | **读**：`get_video` 详情 · `get_subtitles` **字幕全文**（知识区视频可抽全文喂模型） · `get_parts` 分P · `get_related` 相关推荐 · `search_videos`/`list_popular`/`get_ranking`/`list_weekly`/`get_user_stat` 搜索与榜单 · `get_comments` 评论 · `check_login` 登录态 · `list_fav_folders`/`list_favorites` 收藏夹 · `list_followings`/`list_fans` 关注与粉丝 · `get_history`/`list_toview`/`get_watch_time` 观看记录与时长 · `list_msg_replies`/`get_my_top_content` 消息与被赞排行 · `get_user_videos` UP主投稿　**写**（需 cookie 含 `bili_jct`）：`like_video`/`follow_user`/`favorite_video`/`coin_video`/`post_comment` |
+| [`jd-price/`](./jd-price) | 京东商品价格读取 | `get_item` 单个商品的名称/店铺/品牌/当前价 · `compare_items` 多件比价。**价格需 `JD_COOKIE`，且实测只需其中 `flash` 一个 cookie**（京东对未登录用户把价格打码成 `1??9`；社区文档里的 `pt_key`/`pt_pin` 在本机登录态里不存在，别照抄）。输入是 SKU 或商品链接 —— 京东搜索全线不通（403 / app 签名），纯 HTTP 拿不到。**没有历史价格** |
 
 ## 隐私说明
 

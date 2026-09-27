@@ -202,7 +202,8 @@
       "status": "active",
       "tools": [
         "list_boards",
-        "get_hot"
+        "get_hot",
+        "list_my_forums"
       ]
     },
     {
@@ -239,6 +240,18 @@
         "get_history",
         "list_toview",
         "get_watch_time"
+      ]
+    },
+    {
+      "name": "jd-price",
+      "path": "jd-price/",
+      "package": "jd-price-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "get_item",
+        "compare_items"
       ]
     }
   ]

@@ -18,7 +18,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { BOARDS, fetchHot, BoardError, type HotItem } from "./sources.js";
+import { BOARDS, fetchHot, BoardError, listMyForums, type HotItem } from "./sources.js";
 
 function fmtHot(n?: string): string {
   if (!n) return "";
@@ -70,6 +70,20 @@ async function main() {
           required: ["board"],
         },
       },
+      {
+        name: "list_my_forums",
+        description:
+          "我关注的贴吧列表（含每个吧的等级与今日是否已签到）。需环境变量 TIEBA_BDUSS。" +
+          "**注意：这是贴吧唯一开放给自动化的登录接口** —— 读吧内容/帖子/发帖回帖都会被" +
+          "「百度安全验证」拦下，纯 HTTP 走不通（详见 README 的贴吧那节）。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            limit: { type: "number", description: "返回条数，默认 50" },
+            sort_by_level: { type: "boolean", description: "按等级降序，默认 false（按关注顺序）" },
+          },
+        },
+      },
     ],
   }));
 
@@ -108,6 +122,27 @@ async function main() {
               ].join("\n"),
             }],
           };
+        }
+
+        case "list_my_forums": {
+          const r = await listMyForums(process.env.TIEBA_BDUSS ?? "");
+          let fs = r.forums;
+          if (args.sort_by_level) fs = [...fs].sort((a, b) => b.level - a.level || b.exp - a.exp);
+          const limit = Math.max(1, Math.min(Number(args.limit) || 50, 500));
+          const shown = fs.slice(0, limit);
+          if (!shown.length) {
+            return { content: [{ type: "text", text: "没有关注任何贴吧" }] };
+          }
+          const lines = shown.map((f, i) =>
+            `  ${String(i + 1).padStart(3)}. ${f.name.padEnd(20)} Lv.${String(f.level).padStart(2)}  ` +
+            `经验 ${String(f.exp).padStart(6)}${f.signed ? "  ✓已签到" : ""}`);
+          const signed = r.forums.filter((f) => f.signed).length;
+          return { content: [{ type: "text", text: [
+            `=== 我关注的贴吧（uid ${r.uid}）===`,
+            `共 ${r.forums.length} 个，今日已签到 ${signed} 个；显示前 ${shown.length} 个`,
+            "",
+            ...lines,
+          ].join("\n") }] };
         }
 
         default:
