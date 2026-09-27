@@ -9,9 +9,30 @@
  *        GetGameCareer · GetBattleList · GetBattleReport · GetBattleDetail
  * 实测（无登录态）：端点在线，返回 `error_code: 8000102`（登录态错误）—— 所以**只缺一个 WeGame 登录 cookie**。
  *
+ * ── 2026-09 实测补全（有 cookie 后验证通过，参数如下）────────────────────────
+ * 取到 cookie 后**必须**用这套 body，字段名不对会返回 `8000101 ILLEGAL_REQ`：
+ *   SearchPlayer      {"nickname":"<游戏内昵称>"}          → players[].openid
+ *   GetBattleList     {"account_type":2,"area":1,"id":"<openid>","from_src":"lol_helper"[,"offset":N]}
+ *   GetBattleDetail   {"account_type":2,"area":1,"id":"<openid>","game_id":"<gid>","from_src":"lol_helper"}
+ * 要点：
+ *   · `id` 是 **openid**（base64，形如 `xsyJ7Yj7YTMxrc733LSRyw==`），**不是** QQ 号；
+ *     可从任意一局 GetBattleDetail 的 player_details[].openid 里拿到别人的。
+ *   · 是 `area`（不是 area_id）、必须带 `from_src`；body 为 `{}` 会报 8000119 illegal body format。
+ *   · 分页参数是 **offset**（每页固定 10 局），page / page_num / start 都无效。
+ *   · 无需别的 header，但带上 `trpc-caller: wegame.pallas.web.LolBattle` 更稳。
+ *
+ * 关键字段（player_details[] 里，共 115 个）：
+ *   · gameScore      官方评分原始分（10 万量级，均值约 9.4 万）—— 页面上的「评价 6.6」是前端换算的，接口里没有
+ *   · battleHonour.isMvp / isSvp   全场最佳 / 败方最佳（实测：MVP=胜方 gameScore 最高 500/500；SVP=败方最高 499/500）
+ *   · team_made_size 组队人数（GetBattleList 层），**含自己**：1 = 单排、2~5 = 开黑人数
+ *   · was_mvp / was_svp / win（"Win"/"Fail"/"LeaverFail"，注意 LeaverFail 是挂机判负，非布尔）
+ *
+ * 历史深度：**只有 500 局**（offset 到 520 返回空就到底），约最近 3.7 个月 —— 比 SGP 的 1000+ 局浅得多，
+ * 所以 WeGame 只能当**补充源**（换官方评分/MVP/SVP/组队人数），长期规律仍以 SGP 归档为准。
+ *
  * 与 SGP 路线对比：
- *   · 优点：不用开 LoL 客户端；理论上还能查别人的战绩
- *   · 缺点：**翻页能力与历史深度都没验证过**（大概率不如 SGP），而且需要你自己去浏览器里取一次 cookie
+ *   · 优点：不用开 LoL 客户端；能查别人的战绩；有官方 game_score / MVP / SVP / 组队人数
+ *   · 缺点：历史只有 500 局；需要你自己去浏览器里取一次 cookie
  *
  * Cookie 获取：浏览器登录 https://www.wegame.com.cn 后，F12 → Network → 任意请求 → 复制 Cookie 头；
  * 存到 data/wegame-cookie.txt（已 gitignore）或设成环境变量 MAYHEM_WEGAME_COOKIE。
