@@ -85,13 +85,108 @@ export async function wgPost(service: "LolBattle" | "TftBattle", method: string,
   return { httpStatus: res.status, json, raw: text.slice(0, 800) };
 }
 
+/* ── 正式能力（2026-09 实测通过后新增）──────────────────────────────
+ * 参数细节见文件头。这里只做「按正确字段名发请求 + 取有效载荷」，
+ * 解析（评分/名次/组队人数等语义）留给调用方，避免把口径写死。
+ */
+
+/** Pallas 的 `id` 参数要的是 openid；用游戏内昵称先查出来 */
+export async function wgFindPlayer(
+  nickname: string,
+  cookie?: string
+): Promise<{ openid: string; level?: number; tagNum?: number } | null> {
+  const ck = cookie ?? loadWegameCookie().cookie;
+  if (!ck) return null;
+  const r = await wgPost("LolBattle", "SearchPlayer", { nickname }, ck);
+  const p = r.json?.players?.[0];
+  if (!p?.openid) return null;
+  return { openid: p.openid, level: p.level, tagNum: p.tag_num };
+}
+
+/** 拉一页战绩列表（每页固定 10 局）。offset 从 0 递增；返回空数组表示到底 */
+export async function wgListBattles(openid: string, offset = 0, cookie?: string): Promise<any[]> {
+  const ck = cookie ?? loadWegameCookie().cookie;
+  if (!ck) return [];
+  const r = await wgPost(
+    "LolBattle",
+    "GetBattleList",
+    { account_type: 2, area: 1, id: openid, from_src: "lol_helper", offset },
+    ck
+  );
+  return r.json?.battles ?? [];
+}
+
+/** 拉单局详情：player_details 含 10 人 × 115 字段（gameScore / battleHonour / team_made_size 等） */
+export async function wgBattleDetail(
+  openid: string,
+  gameId: string | number,
+  cookie?: string
+): Promise<any | null> {
+  const ck = cookie ?? loadWegameCookie().cookie;
+  if (!ck) return null;
+  const r = await wgPost(
+    "LolBattle",
+    "GetBattleDetail",
+    { account_type: 2, area: 1, id: openid, game_id: String(gameId), from_src: "lol_helper" },
+    ck
+  );
+  return r.json?.battle_detail ?? null;
+}
+
+/**
+ * 自动翻页拉全量历史。
+ * WeGame 深度上限约 500 局 —— offset 到 520 附近会连续返回空，此时判定到底。
+ * 不传 maxPages 时用 60 页（600 局）兜底，防止接口行为变化导致死循环。
+ */
+export async function wgPullAll(
+  openid: string,
+  opts: { maxPages?: number; delayMs?: number; cookie?: string } = {}
+): Promise<{ battles: any[]; pages: number; stopped: string }> {
+  const ck = opts.cookie ?? loadWegameCookie().cookie;
+  if (!ck) throw new Error("没有 WeGame cookie：见 lib/wegame.ts 文件头的获取说明");
+  const maxPages = opts.maxPages ?? 60;
+  const delay = opts.delayMs ?? 220;
+
+  const seen = new Map<string, any>();
+  let emptyStreak = 0;
+  let pages = 0;
+  for (let p = 0; p < maxPages; p++) {
+    const battles = await wgListBattles(openid, p * 10, ck);
+    pages++;
+    if (!battles.length) {
+      if (++emptyStreak >= 3) return { battles: [...seen.values()], pages, stopped: "到底（连续 3 页为空）" };
+    } else {
+      emptyStreak = 0;
+      for (const b of battles) seen.set(String(b.game_id), b);
+    }
+    await new Promise((res) => setTimeout(res, delay));
+  }
+  return { battles: [...seen.values()], pages, stopped: "达到页数上限" };
+}
+
 /** 把响应翻成一句人话 */
 export function diagnoseWg(r: WgResponse): string {
   const code = r.json?.result?.error_code ?? r.json?.error_code ?? r.json?.code;
-  if (code === 8000102) return "❌ 需要 WeGame 登录态（cookie 无效或已过期）";
-  if (code === 0 || r.json?.result?.error_code === undefined && r.json?.result) return "✅ 通了";
+  // 8000102 = 没有/无效登录态；8025004 = cookie 曾经有效但已过期（实测遇到过）
+  if (code === 8000102) return "❌ 需要 WeGame 登录态（没找到 cookie 或无效）";
+  if (code === 8025004) return "❌ WeGame 登录态已过期 —— 重新登录后取一份新 cookie";
+  if (code === 8000101) return "❌ 请求参数不对（WG_COMM_ERR_ILLEGAL_REQ）—— 检查 area / id / from_src 字段名";
+  if (code === 8000119) return "❌ body 格式非法（不能是空对象）";
+  if (code === 0 || (r.json?.result?.error_code === undefined && r.json?.result)) return "✅ 通了";
   if (code) return `❓ 返回码 ${code}：${String(r.json?.result?.error_message ?? r.json?.msg ?? "").slice(0, 120)}`;
   return `❓ HTTP ${r.httpStatus}：${r.raw.slice(0, 160)}`;
+}
+
+/** cookie 是否还能用（跑一次 SearchPlayer 看返回码），用于给出明确报错 */
+export async function wgCheckCookie(cookie?: string): Promise<{ ok: boolean; detail: string }> {
+  const ck = cookie ?? loadWegameCookie().cookie;
+  if (!ck) return { ok: false, detail: "没有 cookie" };
+  const r = await wgPost("LolBattle", "SearchPlayer", { nickname: "__probe__" }, ck);
+  const d = diagnoseWg(r);
+  // 搜索不到人（8000004 Empty）说明鉴权是过的
+  const code = r.json?.result?.error_code;
+  if (code === 8000004 || code === 0) return { ok: true, detail: "cookie 可用" };
+  return { ok: false, detail: d };
 }
 
 /**

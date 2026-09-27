@@ -281,6 +281,30 @@ npm run sgp:probe -- 100 1000  # 页大小 100、上限 1000
 **边界**：SGP 也需要客户端正在运行并登录；能翻多深取决于腾讯后端保留策略，
 `npm run sgp:probe` 会实测出你的账号到底能拿多少（若深翻返回空数组即为到底）。
 
+## WeGame 官方数据（已打通，需一次登录 cookie）
+
+WeGame 的「我的战绩」是个内嵌网页，背后走 Pallas 网关，**不需要开 LoL 客户端**。
+2026-09 实测打通。它真正的价值是提供三个 **SGP 没有**的字段：
+
+- `game_score` —— 官方评分（页面上显示的「评价 6.6」是前端从它换算的，接口里只有原始分）
+- **MVP / SVP** —— 实测规则：MVP = 胜方 `gameScore` 最高、SVP = 败方最高（500/500 与 499/500 命中）
+- **`team_made_size`** —— 官方组队人数（**含自己**：1 = 单排，2~5 = 开黑人数）
+
+```sh
+npm run wegame:probe                                 # 探针：确认 cookie 是否可用
+npm run wegame:history -- 你的昵称                     # 拉战绩列表（自动翻页）
+npm run wegame:history -- 你的昵称 --detail --out data/wegame-dump.json  # 连每局详情
+npm run wegame:history -- 你的昵称 --max-pages 3        # 只拉前 3 页，快速试
+```
+
+- **需要 cookie**：浏览器登录 https://www.wegame.com.cn → F12 → Network → 复制 Cookie 整行 →
+  存 `data/wegame-cookie.txt`（已 gitignore）或设环境变量 `MAYHEM_WEGAME_COOKIE`。
+- **会过期**（实测约一天）：过期后返回 `8025004 登录信息过期`，重新取一份即可，脚本会明确提示。
+- **历史深度只有约 500 局**（约 3.7 个月），比 SGP 的 1000+ 局浅 —— 所以它的定位是**补充源**：
+  要长历史用 SGP，要官方评分 / MVP / SVP / 组队人数用这条。
+- 请求参数（`area` 而非 `area_id`、`id` 用 openid、必带 `from_src`、分页用 `offset`）与字段细节，
+  见 `lib/wegame.ts` 文件头的实测记录。
+
 ## 纯 PC 抓包：找 WeGame「我的战绩」的接口（备选）
 
 目标：在**只用这台电脑**的前提下，拿到比本地客户端更长的历史。
