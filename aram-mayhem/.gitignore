@@ -5,7 +5,8 @@ dist/
 data/profile.json
 # 本地对局归档（含账号与对局数据），不进仓库
 data/archive/
-reports/
+# 报告产物目录（只忽略本目录下的 reports/，不要连带忽略 tools/reports/ 里的脚本）
+/reports/
 # 掌盟登录态（含账号凭据），绝不入库
 data/mlol-cookie.txt
 data/mlol-samples/
