@@ -28,21 +28,31 @@ function actualDirs() {
   });
 }
 
+// 外部服务（如高德官方 MCP）不是本仓库的代码，没有本地目录，
+// 用 `external: true` 标记。它们要出现在 catalog 和 README 里，
+// 但不能参与「实际目录」那一侧的比对 —— 否则永远报不一致。
 function fromCatalog() {
   const p = join(ROOT, "mcp-catalog.json");
   if (!existsSync(p)) return null;
   const d = JSON.parse(readFileSync(p, "utf8"));
-  return new Set((d.services ?? []).map((s) => s.name));
+  const svc = d.services ?? [];
+  return {
+    all: new Set(svc.map((s) => s.name)),
+    local: new Set(svc.filter((s) => !s.external).map((s) => s.name)),
+    external: new Set(svc.filter((s) => s.external).map((s) => s.name)),
+  };
 }
 
 function fromReadme() {
   const p = join(ROOT, "README.md");
   if (!existsSync(p)) return null;
   const text = readFileSync(p, "utf8");
-  // 只认服务表里的 [`xxx/`](./xxx) 形式，避免匹配到正文里别处的链接
+  // 只认服务表里的行，避免匹配到正文里别处的链接。两种写法都收：
+  //   | [`xxx/`](./xxx) | ...   本仓库服务，带目录链接
+  //   | `xxx` | ...             外部服务，没有本地目录可链
   const names = new Set();
-  for (const m of text.matchAll(/^\|\s*\[`([a-z0-9-]+)\/`\]\(\.\/\1\)/gim)) {
-    names.add(m[1]);
+  for (const m of text.matchAll(/^\|\s*(?:\[`([a-z0-9-]+)\/`\]\(\.\/\1\)|`([a-z0-9-]+)`)/gim)) {
+    names.add(m[1] ?? m[2]);
   }
   return names;
 }
@@ -53,7 +63,7 @@ const readme = fromReadme();
 
 console.log("服务清单一致性检查");
 console.log("  实际目录 : %d 个", dirs.size);
-console.log("  catalog  : %s", cat ? cat.size + " 个" : "(缺失)");
+console.log("  catalog  : %s", cat ? `${cat.all.size} 个（其中外部 ${cat.external.size}）` : "(缺失)");
 console.log("  README   : %s", readme ? readme.size + " 个" : "(缺失)");
 
 let bad = 0;
@@ -64,8 +74,8 @@ const diff = (label, a, b, an, bn) => {
   if (onlyB.length) { console.log(`\n  ✗ ${label}: 只在${bn}里有 → ${onlyB.join(", ")}`); bad++; }
 };
 
-if (cat) diff("目录 vs catalog", dirs, cat, "目录", "catalog");
-if (readme) diff("catalog vs README", cat ?? dirs, readme, "catalog", "README");
+if (cat) diff("目录 vs catalog(本地服务)", dirs, cat.local, "目录", "catalog");
+if (readme) diff("catalog vs README", cat ? cat.all : dirs, readme, "catalog", "README");
 
 // 入口文件是否存在。用 catalog 里的 entrypoint 字段判断，别硬编码 index.ts ——
 // 本仓库的入口并不统一：index.ts（多数）、dist/index.js（minimax-video-mcp，

@@ -23,6 +23,14 @@
 | [`bilibili/`](./bilibili) | B站 数据（只读为主 + 写操作） | **读**：`get_video` 详情 · `get_subtitles` **字幕全文**（知识区视频可抽全文喂模型） · `get_parts` 分P · `get_related` 相关推荐 · `search_videos`/`list_popular`/`get_ranking`/`list_weekly`/`get_user_stat` 搜索与榜单 · `get_comments` 评论 · `check_login` 登录态 · `list_fav_folders`/`list_favorites` 收藏夹 · `list_followings`/`list_fans` 关注与粉丝 · `get_history`/`list_toview`/`get_watch_time` 观看记录与时长 · `list_msg_replies`/`get_my_top_content` 消息与被赞排行 · `get_user_videos` UP主投稿　**写**（需 cookie 含 `bili_jct`）：`like_video`/`follow_user`/`favorite_video`/`coin_video`/`post_comment` |
 | [`jd-price/`](./jd-price) | 京东商品价格读取 | `get_item` 单个商品的名称/店铺/品牌/当前价 · `compare_items` 多件比价。**价格需 `JD_COOKIE`，且实测只需其中 `flash` 一个 cookie**（京东对未登录用户把价格打码成 `1??9`；社区文档里的 `pt_key`/`pt_pin` 在本机登录态里不存在，别照抄）。输入是 SKU 或商品链接 —— 京东搜索全线不通（403 / app 签名），纯 HTTP 拿不到。**没有历史价格** |
 
+### 外部服务（非本仓库代码）
+
+以下 MCP **来自第三方**，代码不在本仓库，通过 npm 包或远程 URL 接入。列在这里是为了让「我在用哪些 MCP」有一份完整记录 —— 一致性检查脚本会跳过它们的「本地目录」比对（catalog 里标了 `external: true`）。
+
+| 服务 | 来源 | 用途 |
+|------|------|------|
+| `amap-maps` | [npm `@amap/amap-maps-mcp-server`](https://www.npmjs.com/package/@amap/amap-maps-mcp-server)（高德官方） | 地理编码/逆地理 · 关键词与周边 POI 搜索 · 距离测量 · 步行/骑行/驾车/**公交**路径规划 · IP 定位 · 天气。需 `AMAP_MAPS_API_KEY`，**平台类型必须选「Web服务」**（Web端 JS API 的 key 用不了）。也可用 Streamable HTTP 接入：`https://mcp.amap.com/mcp?key=<key>`，无需本地安装 |
+
 ## 隐私说明
 
 - 本仓库**不包含任何 API Key、密钥或个人中转站地址**。

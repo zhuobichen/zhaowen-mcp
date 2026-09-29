@@ -253,6 +253,33 @@
         "get_item",
         "compare_items"
       ]
+    },
+    {
+      "name": "amap-maps",
+      "external": true,
+      "source": "npm:@amap/amap-maps-mcp-server",
+      "version": "0.0.8",
+      "status": "active",
+      "runtime": "stdio",
+      "launch": "cmd /c npx -y @amap/amap-maps-mcp-server",
+      "credentials": [
+        "AMAP_MAPS_API_KEY"
+      ],
+      "tools": [
+        "maps_geo",
+        "maps_regeocode",
+        "maps_ip_location",
+        "maps_text_search",
+        "maps_around_search",
+        "maps_search_detail",
+        "maps_distance",
+        "maps_direction_walking",
+        "maps_direction_bicycling",
+        "maps_direction_driving",
+        "maps_direction_transit_integrated",
+        "maps_weather"
+      ],
+      "notes": "第三方官方 MCP，非本仓库代码，因此没有本地目录与 entrypoint。建议用 Streamable HTTP 接入（https://mcp.amap.com/mcp?key=<key>）；本机走的是 Node stdio 包（Node >=22.14）。Key 要选「Web服务」平台类型，且只放 .claude.json，不要入库。"
     }
   ]
 }
