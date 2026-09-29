@@ -192,6 +192,94 @@
         "xhs_delete_note",
         "xhs_raw"
       ]
+    },
+    {
+      "name": "hot-trending",
+      "path": "hot-trending/",
+      "package": "hot-trending-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "list_boards",
+        "get_hot",
+        "list_my_forums"
+      ]
+    },
+    {
+      "name": "bilibili",
+      "path": "bilibili/",
+      "package": "bilibili-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "check_login",
+        "get_video",
+        "search_videos",
+        "list_popular",
+        "get_ranking",
+        "list_weekly",
+        "get_related",
+        "get_comments",
+        "get_subtitles",
+        "get_parts",
+        "get_user_videos",
+        "get_user_stat",
+        "like_video",
+        "follow_user",
+        "favorite_video",
+        "coin_video",
+        "post_comment",
+        "list_msg_replies",
+        "get_my_top_content",
+        "list_fav_folders",
+        "list_favorites",
+        "list_followings",
+        "list_fans",
+        "get_history",
+        "list_toview",
+        "get_watch_time"
+      ]
+    },
+    {
+      "name": "jd-price",
+      "path": "jd-price/",
+      "package": "jd-price-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "get_item",
+        "compare_items"
+      ]
+    },
+    {
+      "name": "amap-maps",
+      "external": true,
+      "source": "npm:@amap/amap-maps-mcp-server",
+      "version": "0.0.8",
+      "status": "active",
+      "runtime": "stdio",
+      "launch": "cmd /c npx -y @amap/amap-maps-mcp-server",
+      "credentials": [
+        "AMAP_MAPS_API_KEY"
+      ],
+      "tools": [
+        "maps_geo",
+        "maps_regeocode",
+        "maps_ip_location",
+        "maps_text_search",
+        "maps_around_search",
+        "maps_search_detail",
+        "maps_distance",
+        "maps_direction_walking",
+        "maps_direction_bicycling",
+        "maps_direction_driving",
+        "maps_direction_transit_integrated",
+        "maps_weather"
+      ],
+      "notes": "第三方官方 MCP，非本仓库代码，因此没有本地目录与 entrypoint。建议用 Streamable HTTP 接入（https://mcp.amap.com/mcp?key=<key>）；本机走的是 Node stdio 包（Node >=22.14）。Key 要选「Web服务」平台类型，且只放 .claude.json，不要入库。"
     }
   ]
 }
