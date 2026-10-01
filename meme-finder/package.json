@@ -1,0 +1,19 @@
+{
+  "name": "meme-finder-mcp",
+  "version": "1.0.0",
+  "description": "找表情包：按主题词搜 GitHub 上的表情包仓库与图集目录，返回可直连的图片地址，并把找到的合集登记到本地清单。",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node selftest.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.20.0"
+  }
+}
