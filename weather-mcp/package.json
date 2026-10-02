@@ -1,0 +1,19 @@
+{
+  "name": "weather-mcp",
+  "version": "1.0.0",
+  "description": "逐小时天气预报（Open-Meteo，免费无需 key）：查某地某天的降水/温度/风，找出无雨时间窗，供出行与骑行决策。",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node selftest.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.20.0"
+  }
+}
