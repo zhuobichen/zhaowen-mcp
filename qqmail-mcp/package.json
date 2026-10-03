@@ -1,0 +1,22 @@
+{
+  "name": "qqmail-mcp",
+  "version": "1.0.0",
+  "description": "只读查询 QQ 邮箱（mail.qq.com）：列文件夹、列最近邮件、按关键词搜索、读正文与附件清单。不发信、不删信、不改状态。",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node selftest.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "imapflow": "^1.0.164",
+    "mailparser": "^3.7.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.20.0",
+    "@types/mailparser": "^3.4.4"
+  }
+}
