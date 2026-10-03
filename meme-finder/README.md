@@ -40,6 +40,7 @@ GitHub 的仓库搜索对多个词是 **AND** 关系。实测「蓝色大肥鱼�
 | `MEME_FINDER_DOWNLOAD_DIR` | `<HOME>/downloads` | 默认下载目录 |
 | `MEME_FINDER_GH_TIMEOUT_MS` | `60000` | 单次 gh 调用超时 |
 | `MEME_FINDER_MAX_IMAGES` | `200` | 单次返回图片数上限 |
+| `MEME_FINDER_FETCH_TIMEOUT_MS` | `120000` | **下载单个文件的超时**。曾硬编码 30 秒，大 GIF（3 MB 级）走 jsdelivr 会被误杀；图片文件大小差异极大，别用偏紧的固定值 |
 
 登记簿落在 `<MEME_FINDER_HOME>/packs.json`。
 

@@ -234,7 +234,7 @@ async function toolFetchPack(args: any): Promise<string> {
     const url = toReachableUrl({ owner: parts.owner, repo: parts.repo, ref: info.defaultBranch, path: img.path });
     const name = img.path.split("/").pop() || "image";
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(cfg.fetchTimeoutMs) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       if (!buf.length) throw new Error("0 字节");
