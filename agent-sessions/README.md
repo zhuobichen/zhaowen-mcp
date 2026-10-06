@@ -12,6 +12,8 @@
 | `search_agent_sessions` | 按关键词/正则搜索会话标题与内容，返回命中片段，可 `agent` 限定 |
 | `agent_token_usage` | 各会话 token 用量（total/input/cache/output），可 `agent`/`limit`；`money=true` 时按 gpt-5.6-sol 估算 Codex 费用 |
 | `session_insights` | 会话洞察聚合（数据层）：指定范围（agent/project/days/limit）内每会话的结构化特征 + 聚合统计，供调用方模型归纳总结与建议（让 Codex 也有近似 /insights 的复盘能力） |
+| `annotate_sessions` | 对主要会话做 **LLM 语义标注**（facets）：逐会话判断目标/类型/满意度/摩擦点/成功点，落盘 `reports/facets/<agent>/<id>.json`。**增量**（已存在则跳过）；⚠ **会消耗 one-hub 额度** —— 先用 `dry_run=true` 看会标几个再用 `limit` 正式跑 |
+| `generate_session_report` | 生成 **会话洞察报告**（HTML/Markdown，复刻 `/insights` 版式）：硬统计图 + facets 聚合图 + 亮点/问题/可复制建议。**纯本地、不联网、不花钱**；依赖 `annotate_sessions` 的 facets（没有也能出，相关段落降级） |
 
 ### token 用量口径说明
 
@@ -21,7 +23,8 @@
 - 官方全量估算结论：46/60 会话有 token 记录，合计 ~44.6 亿 token，按官方公开价约 $1,178 / ¥8,600（主要成本在 gpt-5.6-terra；vision-exp 虽 token 最多但 96% 为缓存、成本低）。
 - 示例：`agent_token_usage agent=codex money=true limit=10`
 
-- **只读**：绝不修改任何会话文件。
+- **不修改会话文件**：任何工具都不会写 `~/.claude/projects` 或 `~/.codex/sessions` 里的会话记录。
+- **会写文件 / 会联网的两个工具**：`annotate_sessions` 会调 one-hub 的 `deepseek-v4-flash`（**花钱**）并写 `reports/facets/`；`generate_session_report` 只写 `reports/`（不联网）。其余 5 个工具只读。
 - **自动跳过系统注入**：Claude 的 system 上下文、Codex 的 `<environment_context>` / `<permissions>` / AGENTS.md 注入均不呈现，只保留真实 user ↔ assistant 对话。
 - 解析逻辑复用 `~/.claude/skills/agent-dialog_management/scripts/agent_dialog.py` 的成熟实现；列表标题采用**流式早停**，即使 70MB 大文件也秒回。
 
@@ -62,7 +65,7 @@ session_insights agent=codex project=DataFusion days=30 limit=20
 
 ```
 agent-sessions/
-├─ index.ts      MCP server 入口（3 个工具）
+├─ index.ts      MCP server 入口（7 个工具）
 ├─ sessions.ts   只读解析模块（claude + codex 双数据源）
 ├─ package.json
 └─ tsconfig.json
@@ -94,22 +97,22 @@ node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modu
 
 数据层 → LLM 标注 → HTML 报告两段式（源码 `insights.ts` / `annotate.ts` / `gen_report.ts`）：
 
+**推荐用 MCP 工具**（也就是 `annotate_sessions` 与 `generate_session_report`，参数与下面的 CLI 开关一一对应）；命令行则：
+
 ```bash
-# 1. 逐会话语义标注（调 one-hub deepseek-v4-flash，输出 reports/facets/*.json，已存在则跳过=可缓存）
-node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs annotate.ts
+TSX=node_modules/tsx/dist/cli.mjs
 
-# 2. 生成报告（复用官方 /insights 浅色版式；数据 + facets 自动聚合，非手写文案）
-node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs gen_report.ts
-#    → 输出 reports/codex_report.html
+# 1. 语义标注（调 one-hub deepseek-v4-flash → reports/facets/<agent>/<id>.json，已存在则跳过=增量）
+node $TSX annotate.ts --agent codex          # 或 --agent claude
+node $TSX annotate.ts --agent claude --dry-run   # 只盘点、不调模型、不花钱
 
-# 导出 Markdown（同数据，便于粘贴/存档）
-node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs gen_report.ts --md
-#    → 输出 reports/codex_report.md
-
-# 也可指定输出路径
-node D:/github_project/ZhaoWen_GitHub维护/zhaowen-mcp/agent-sessions/node_modules/tsx/dist/cli.mjs gen_report.ts reports/my_report.md --md
+# 2. 生成报告（复用官方 /insights 浅色版式；数据 + facets 自动聚合）
+node $TSX gen_report.ts --agent codex        # → reports/codex_report.html
+node $TSX gen_report.ts --agent claude --both # → reports/claude_report.html + .md
 ```
 
-- `annotate.ts` 标注约 20+ 个主要 Codex 会话：目标/会话类型/满意度/摩擦点/总结，key 从 `~/.claude.json` 的 code-review env 自动读取（或环境变量 `REVIEW_API_KEY`）。成本 ≈ 几分钱级（flash 档）。
-- `gen_report.ts` 含：硬统计图（token/语言/文件/命令失败/工具）+ facets 图（会话类型/Outcome/满意度/摩擦）+ 亮点/问题/可复制建议（friction 与 brief_summary 驱动）。`--md` 输出 Markdown 版（一图速览/工作分布表/亮点/问题/建议/分布统计）。
-- 生成物 `reports/` 不入 git。
+- `annotate.ts` 标注约 20+ 个主要会话：目标/会话类型/满意度/摩擦点/总结。key 从 `~/.claude.json` 的 code-review env 自动读取（或环境变量 `REVIEW_API_KEY`）。成本 ≈ 几分钱级（flash 档）。**facets 按 agent 分目录**（`reports/facets/codex/`、`reports/facets/claude/`），互不污染。
+- `gen_report.ts` 含：硬统计图（token/语言/文件/命令失败/工具）+ facets 图（会话类型/Outcome/满意度/摩擦）+ 亮点/问题/可复制建议（friction 与 brief_summary 驱动）。开关：`--agent` / `--md` / `--both` / `--out`。
+- **Claude 版的已知降级**（如实标注，不伪造）：`deep_insights.ts` 只认 Codex 的文件结构（`apply_patch` / `exec_command`），所以 **Claude 版不渲染「命令 / 文件增减 / 语言分布」**，改用 `insights.ts` 的工具计数；「使用方式」那段叙事原本是为 Codex 手写的，Claude 版改为中性措辞并**在页面上写明**。
+- 两段都只用 `import.meta.url` 钉输出目录（不随 cwd 变）；`reports/` 不入 git（见 `.gitignore`）。
+- `node mcp-smoke.mjs` 可跑协议层冒烟：起真进程 → 握手 → 7 个工具 → 生成两种报告 → annotate 只跑 dry_run。**它只走不花钱的路径。**

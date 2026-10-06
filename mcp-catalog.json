@@ -20,7 +20,9 @@
         "read_agent_session",
         "search_agent_sessions",
         "agent_token_usage",
-        "session_insights"
+        "session_insights",
+        "annotate_sessions",
+        "generate_session_report"
       ]
     },
     {

@@ -1,0 +1,6 @@
+# 生成物：报告与 facets 缓存（annotate_sessions / generate_session_report 的产物）
+reports/
+
+# 依赖与日志
+node_modules/
+*.log

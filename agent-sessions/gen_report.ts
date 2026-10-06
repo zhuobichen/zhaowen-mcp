@@ -1,18 +1,27 @@
 /**
- * 生成 Codex 会话洞察中文 HTML 报告 —— 版式复刻 Claude Code /insights 官方报告
+ * 生成会话洞察中文 HTML / Markdown 报告 —— 版式复刻 Claude Code /insights 官方报告
  *
- * 数据层 = insights.ts（真实 Codex 会话/token/工具统计）；叙事文案基于真实会话归纳。
- * 用法: node <tsx> gen_report.ts [输出路径]
+ * 数据层 = insights.ts（真实会话/token/工具统计）+ facets（LLM 逐会话标注，由 annotate 生成）。
+ * 叙事文案：Codex 版是按真实会话归纳**写死**的；Claude 版没有对应素材，改用中性措辞并明确标注。
+ * 深度统计（命令/文件/语言）来自 deep_insights.ts，它只认 Codex 的文件结构 →
+ * Claude 版这几块不渲染（改用 insights.ts 的工具计数），并在页面上写明原因。
+ *
+ * 两种用法：
+ *   - CLI  : node <tsx> gen_report.ts [--agent claude|codex] [--md|--both] [--out 路径]
+ *   - 模块 : import { generateReport, renderReportResult } from "./gen_report.js"
  */
+import { fileURLToPath } from "node:url";
 import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
-import { homedir } from "os";
 import { buildInsightReport } from "./insights.js";
 import { deepStats } from "./deep_insights.js";
 
-const _pathArg = process.argv.slice(2).find((a) => !a.startsWith("--"));
-const outPath = _pathArg || join(process.cwd(), "reports", "codex_report.html");
-const FACETS_DIR = join(process.cwd(), "reports", "facets");
+type Agent = "claude" | "codex";
+
+/** 输出根目录钉在模块所在目录（不随 cwd 变），与 annotate.ts 保持一致 */
+const ROOT = fileURLToPath(new URL(".", import.meta.url));
+const REPORTS_DIR = join(ROOT, "reports");
+const facetsDir = (agent: Agent) => join(REPORTS_DIR, "facets", agent);
 
 const esc = (s: string) =>
   String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\r/g, " ");
@@ -94,14 +103,14 @@ interface Facet {
   brief_summary: string;
 }
 
-/** 读取 reports/facets/*.json */
-function loadFacets(): Facet[] {
-  if (!existsSync(FACETS_DIR)) return [];
+/** 读取某个 agent 的 facets 目录下的 *.json */
+function loadFacets(dir: string): Facet[] {
+  if (!existsSync(dir)) return [];
   const out: Facet[] = [];
-  for (const f of readdirSync(FACETS_DIR)) {
+  for (const f of readdirSync(dir)) {
     if (!f.endsWith(".json")) continue;
     try {
-      out.push(JSON.parse(readFileSync(join(FACETS_DIR, f), "utf-8")));
+      out.push(JSON.parse(readFileSync(join(dir, f), "utf-8")));
     } catch {
       // skip
     }
@@ -189,9 +198,14 @@ interface R {
   }[];
 }
 
-function workLines(r: R) {
+/** 工作线归类：Codex 版按当年真实项目写死；Claude 版按项目路径最后一段分组（数据驱动） */
+function workLines(r: R, agent: Agent = "codex") {
   const label = (p: string) => {
     const pl = (p || "").toLowerCase();
+    if (agent === "claude") {
+      const seg = String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "(未知项目)";
+      return "📁 " + seg;
+    }
     if (pl.includes("datafusion")) return "📄 DataFusion 论文";
     if (pl.includes("frontendbackend") || pl.includes("abacas-cloud")) return "🖥 ABaCaS 平台(费效)";
     if (pl.includes("其余工程")) return "📝 期刊审稿回复";
@@ -210,10 +224,35 @@ function workLines(r: R) {
   return [...map.entries()].sort((a, b) => b[1].tok - a[1].tok);
 }
 
-async function main() {
-  const rr = await buildInsightReport({ agent: "codex", days: 9999, limit: 300 });
+export interface ReportOptions {
+  /** 缺省 codex（向后兼容） */
+  agent?: Agent;
+  /** 输出格式：html（默认）/ md / both */
+  format?: "html" | "md" | "both";
+  /** 自定义输出路径；缺省 reports/<agent>_report.<ext> */
+  out?: string;
+  onLog?: (line: string) => void;
+}
+
+export interface ReportResult {
+  agent: Agent;
+  sessions: number;
+  facets: number;
+  files: { format: "html" | "md"; path: string; bytes: number }[];
+}
+
+/** 生成报告。纯本地：不联网、不调模型（facets 由 annotate 预先生成）。 */
+export async function generateReport(opts: ReportOptions = {}): Promise<ReportResult> {
+  const agent: Agent = opts.agent === "claude" ? "claude" : "codex";
+  // 默认写 stderr：MCP 场景下 stdout 是 JSON-RPC 通道，绝不能写进去（CLI 会显式传 console.log）
+  const log = opts.onLog || ((l: string) => process.stderr.write(l + "\n"));
+  const FACETS_DIR = facetsDir(agent);
+  const srcName = agent === "claude" ? "Claude Code" : "Codex";
+  const isCodex = agent === "codex";
+  const outPath = opts.out || join(REPORTS_DIR, agent + "_report.html");
+  const rr = await buildInsightReport({ agent, days: 9999, limit: 300 });
   const r: R = rr as R;
-  const deep = await deepStats("codex");
+  const deep = await deepStats(agent);
   const deepBy = new Map(deep.map((d) => [d.id, d]));
   // 聚合语言分布
   const langAgg: Record<string, number> = {};
@@ -235,7 +274,7 @@ async function main() {
   const fmt = (n: number) => (n || 0).toLocaleString("en-US");
 
   // —— facets 语义层 ——
-  const facets = loadFacets();
+  const facets = loadFacets(FACETS_DIR);
   const fa = aggregateFacets(facets);
   const hasFacets = facets.length > 0;
 
@@ -316,14 +355,14 @@ async function main() {
   const topFrictionNum = fa.friction[0]?.[1] || 0;
   const dissatisfiedNum = (fa.satisfaction.find(([k]) => k === "dissatisfied") || [])[1] || 0;
   const glanceHtml = hasFacets
-    ? `<div class="glance-section"><strong>做得好：</strong>${esc(biggestWinGoal)} 这类目标被模型标为值得肯定；跨会话沉淀成可复用产物（MCP 工具、报告生成器）是你的强项。<a href="#section-wins" class="see-more">亮点工作 →</a></div>
+    ? `<div class="glance-section"><strong>做得好：</strong>${esc(biggestWinGoal)} ${isCodex ? "这类目标被模型标为值得肯定；跨会话沉淀成可复用产物（MCP 工具、报告生成器）是你的强项。" : "这类目标被模型标为值得肯定（依据 facets 语义标注）。"}<a href="#section-wins" class="see-more">亮点工作 →</a></div>
        <div class="glance-section"><strong>阻碍点：</strong>${topFrictionLabel ? `最高频摩擦是「${esc(topFrictionLabel)}」（${topFrictionNum} 会话）` : "摩擦总体较少"}${dissatisfiedNum ? `；${dissatisfiedNum} 个会话被标为不满意。` : "。"}超长续写使单会话 token 以亿计，算力大量耗于重读历史。<a href="#section-friction" class="see-more">问题分析 →</a></div>
        <div class="glance-section"><strong>可尝试：</strong>给长会话设明确「完成即止」边界；把反复出现的 Codex 排查经验沉淀成文档/Skill，而非每次重查。<a href="#section-horizon" class="see-more">可试建议 →</a></div>`
-    : `<div class="glance-section"><strong>做得好：</strong>你的 Codex 工作集中在少数深水区并投入了超长会话。<a href="#section-wins" class="see-more">亮点工作 →</a></div>
-       <div class="glance-section"><strong>阻碍点：</strong>超长会话带来 token 黑洞与主题漂移。<a href="#section-friction" class="see-more">问题分析 →</a></div>
-       <div class="glance-section"><strong>可尝试：</strong>给长会话设边界并沉淀排查经验。<a href="#section-horizon" class="see-more">可试建议 →</a></div>`;
+    : `<div class="glance-section"><strong>做得好：</strong>${isCodex ? "你的 Codex 工作集中在少数深水区并投入了超长会话。" : "本次统计覆盖 " + r.count + " 个 Claude Code 会话。"}<a href="#section-wins" class="see-more">亮点工作 →</a></div>
+       <div class="glance-section"><strong>阻碍点：</strong>${isCodex ? "超长会话带来 token 黑洞与主题漂移。" : "尚无 facets 语义标注，问题分析暂缺。"}<a href="#section-friction" class="see-more">问题分析 →</a></div>
+       <div class="glance-section"><strong>可尝试：</strong>${isCodex ? "给长会话设边界并沉淀排查经验。" : "先跑 annotate_sessions 生成 facets，再回来看这一节。"}<a href="#section-horizon" class="see-more">可试建议 →</a></div>`;
 
-  const lines = workLines(r);
+  const lines = workLines(r, agent);
   const tokMax = Math.max(1, ...lines.map(([, e]) => e.tok));
   const msgMax = Math.max(1, ...lines.map(([, e]) => e.msg));
   const projMax = Math.max(1, ...Object.entries(r.projects).map(([, n]) => n));
@@ -338,8 +377,10 @@ async function main() {
   const areasHtml = lines
     .map(([name, e]) => {
       const desc =
-        areaDesc[name] ||
-        "零散任务与早期测试会话（含 echo hello / 1 等占位输入）。";
+        (isCodex ? areaDesc[name] : "") ||
+        (isCodex
+          ? "零散任务与早期测试会话（含 echo hello / 1 等占位输入）。"
+          : "按项目目录分组（Claude 版为数据驱动，未写作死的项目描述）。");
       return `<div class="project-area">
         <div class="area-header"><div class="area-name">${esc(name)}</div><div class="area-count">${e.n} 会话 · ${fmt(e.tok)} tok</div></div>
         <div class="area-desc">${esc(desc)}</div>
@@ -362,7 +403,7 @@ async function main() {
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>Codex 会话洞察报告</title>
+<title>${srcName} 会话洞察报告</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>${CSS}</style>
 </head>
@@ -387,12 +428,15 @@ async function main() {
     <div class="stat"><div class="stat-value">${r.count}</div><div class="stat-label">Sessions</div></div>
     <div class="stat"><div class="stat-value">${fmt(r.msgTotal)}</div><div class="stat-label">Messages</div></div>
     <div class="stat"><div class="stat-value">${Math.round(r.tokenTotal / 1e8) / 10}亿</div><div class="stat-label">Tokens</div></div>
-    <div class="stat"><div class="stat-value">${fmt(deepAgg.commands)}</div><div class="stat-label">Commands</div></div>
-    <div class="stat"><div class="stat-value">${fmt(deepAgg.files)}</div><div class="stat-label">Files Changed</div></div>
+    ${isCodex
+      ? `<div class="stat"><div class="stat-value">${fmt(deepAgg.commands)}</div><div class="stat-label">Commands</div></div>
+    <div class="stat"><div class="stat-value">${fmt(deepAgg.files)}</div><div class="stat-label">Files Changed</div></div>`
+      : `<div class="stat"><div class="stat-value">${fmt(r.toolTotals.read + r.toolTotals.edit + r.toolTotals.write + r.toolTotals.bash + r.toolTotals.other)}</div><div class="stat-label">Tool Calls</div></div>`}
     <div class="stat"><div class="stat-value">${esc(r.dateStart.slice(5))}</div><div class="stat-label">→ ${esc(r.dateEnd.slice(5))}</div></div>
   </div>
 
-  <div class="charts-row">
+  ${isCodex
+    ? `<div class="charts-row">
     <div class="chart-card"><div class="chart-title">Languages · 改动语言分布</div>
       ${langTop.length ? bars(langTop, "#10b981") : '<div class="empty">（老会话无 apply_patch 记录）</div>'}
     </div>
@@ -400,7 +444,15 @@ async function main() {
       ${bars([["新增 Add", deepAgg.add], ["修改 Update", deepAgg.upd], ["删除 Delete", deepAgg.del]] as [string, number][], "#4da3ff")}
       ${`<div style="font-size:12px;color:#64748b;margin-top:8px;">命令失败 ${deepAgg.fails}/${deepAgg.commands} 次（${(deepAgg.commands ? ((deepAgg.fails / deepAgg.commands) * 100).toFixed(1) : 0)}%）</div>`}
     </div>
-  </div>
+  </div>`
+    : `<div class="charts-row">
+    <div class="chart-card"><div class="chart-title">工具使用 · Tool Calls</div>
+      ${bars([["读取 Read", r.toolTotals.read], ["编辑 Edit", r.toolTotals.edit], ["写入 Write", r.toolTotals.write], ["Bash", r.toolTotals.bash], ["其它", r.toolTotals.other]] as [string, number][], "#10b981")}
+    </div>
+    <div class="chart-card"><div class="chart-title">统计口径说明</div>
+      <div class="empty" style="text-align:left;line-height:1.7;">命令 / 文件增减 / 语言分布来自 deep_insights，它只认 Codex 的文件结构（apply_patch、exec_command）。Claude 会话没有这些记录，因此本版不渲染那几块，改用左侧的工具计数。</div>
+    </div>
+  </div>`}
 
   <h2 id="section-work">What You Work On · 工作分布</h2>
   <div class="project-areas">${areasHtml}</div>
@@ -410,11 +462,14 @@ async function main() {
     <div class="chart-card"><div class="chart-title">工具使用</div>${bars(toolData, "#0891b2")}</div>
   </div>
 
-  <h2 id="section-usage">How You Use Codex · 使用方式</h2>
+  <h2 id="section-usage">How You Use ${srcName} · 使用方式</h2>
   <div class="narrative">
-    <p>你把 Codex 当作<b>长会话批处理引擎</b>：论文与平台两大主线各由少数跨周/跨月的超长会话承担（DataFusion 20 会话 40.7 亿 token），期间反复「继续」续写、经多次上下文压缩(compact)仍在推进。你习惯把文件/截图/表格直接丢给它（Files mentioned 高频出现），让 Codex 自己读文件定位。</p>
-    <p>你<b>看重可复用产物</b>：不只问一句答一句，而是产出能长期用的工具——包括本报告依赖的 agent-sessions MCP 与 token 统计。你也用它做环境与配置排查（hooks 冲突、MCP 启动失败、模型路由），以及审稿回复这类文档工作。</p>
-    <div class="key-insight"><strong>核心模式：</strong>少数大主题 · 超长续写 · 高 token · 倾向沉淀工具与文档而非一次性解决。</div>
+    ${isCodex
+      ? `<p>你把 Codex 当作<b>长会话批处理引擎</b>：论文与平台两大主线各由少数跨周/跨月的超长会话承担（DataFusion 20 会话 40.7 亿 token），期间反复「继续」续写、经多次上下文压缩(compact)仍在推进。你习惯把文件/截图/表格直接丢给它（Files mentioned 高频出现），让 Codex 自己读文件定位。</p>
+    <p>你<b>看重可复用产物</b>：不只问一句答一句，而是产出能长期用的工具——包括本报告依赖的 agent-sessions MCP 与 token 统计。你也用它做环境与配置排查（hooks 冲突、MCP 启动失败、模型路由），以及审稿回复这类文档工作。</p>`
+      : `<p>本版为<b>数据驱动</b>：会话数、token、工具使用、facets 分布全部取自真实记录，未做演绎。</p>
+    <p style="color:#b45309;">⚠ 这段「使用方式」的叙事文案原本是为 Codex 版手写的，Claude 版没有对应素材，因此<b>不作推断</b>——请结合上方各表的实测数字，以及 annotate_sessions 产出的 facets 自行阅读。</p>`}
+    <div class="key-insight"><strong>核心模式：</strong>${isCodex ? "少数大主题 · 超长续写 · 高 token · 倾向沉淀工具与文档而非一次性解决。" : "见下方工作分布与工具使用（本版不作推断）。"}</div>
   </div>
 
   <h2 id="section-wins">Impressive Things · 亮点工作</h2>
@@ -433,16 +488,17 @@ async function main() {
 
   ${funHtml}
 
-  <p class="footer-note">数据来源 ~/.codex 会话记录 · token 为官方统计 · 语义标注由 one-hub deepseek-v4-flash 生成 · agent-sessions session_insights</p>
+  <p class="footer-note">数据来源 ${isCodex ? "~/.codex 会话记录" : "~/.claude/projects 会话记录"} · token 为统计值 · 语义标注由 one-hub deepseek-v4-flash 生成 · agent-sessions</p>
 </div></body></html>`;
 
   // —— Markdown 版(与 HTML 同数据;--md 时输出) ——
   const md: string[] = [];
-  const srcName = "Codex";
   md.push(`# ${srcName} 会话洞察报告`, "");
   md.push(`> ${fmt(r.msgTotal)} 条消息 · ${r.count} 个会话 · ${r.dateStart} ~ ${r.dateEnd}`, "");
   md.push(`- token 合计：**${(r.tokenTotal / 1e8).toFixed(1)} 亿**`);
-  md.push(`- 命令 ${fmt(deepAgg.commands)} 次（失败 ${fmt(deepAgg.fails)}，${deepAgg.commands ? ((deepAgg.fails / deepAgg.commands) * 100).toFixed(1) : 0}%）· 文件改动 ${fmt(deepAgg.files)} 次`);
+  md.push(isCodex
+    ? `- 命令 ${fmt(deepAgg.commands)} 次（失败 ${fmt(deepAgg.fails)}，${deepAgg.commands ? ((deepAgg.fails / deepAgg.commands) * 100).toFixed(1) : 0}%）· 文件改动 ${fmt(deepAgg.files)} 次`
+    : `- 工具调用：读取 ${fmt(r.toolTotals.read)} · 编辑 ${fmt(r.toolTotals.edit)} · 写入 ${fmt(r.toolTotals.write)} · Bash ${fmt(r.toolTotals.bash)}（Claude 版无命令/文件增量统计）`);
   md.push(`- 分析会话（facets）：${facets.length} 个`, "");
 
   md.push("## 一图速览", "");
@@ -457,7 +513,7 @@ async function main() {
     md.push(`| ${name} | ${e.n} | ${fmt(e.tok)} | ${e.t0.slice(0, 10)} ~ ${e.t1.slice(0, 10)} |`);
   }
   md.push("");
-  if (langTop.length) {
+  if (isCodex && langTop.length) {
     md.push("**改动语言分布**：" + langTop.map(([k, v]) => `${k}(${v})`).join(" · "), "");
   }
 
@@ -495,23 +551,63 @@ async function main() {
   if (funFacet) {
     md.push("---", "", `> **${funFacet.underlying_goal || ""}**`, `> ${funFacet.brief_summary || ""}`, "");
   }
-  md.push("---", `*数据来源 ~/.codex 会话记录 · 语义标注 deepseek-v4-flash · agent-sessions*`);
+  md.push("---", `*数据来源 ${isCodex ? "~/.codex 会话记录" : "~/.claude/projects 会话记录"} · 语义标注 deepseek-v4-flash · agent-sessions*`);
 
   const mdText = md.join("\n");
 
   mkdirSync(join(outPath, ".."), { recursive: true });
-  const wantMd = process.argv.includes("--md");
-  if (wantMd) {
-    const mdPath = outPath.endsWith(".md") ? outPath : outPath.replace(/\.html?$/i, "") + ".md";
-    writeFileSync(mdPath, mdText, "utf-8");
-    console.log("已生成 Markdown:", mdPath, `(${(mdText.length / 1024).toFixed(0)} KB)`);
-  } else {
-    writeFileSync(outPath, html, "utf-8");
-    console.log("已生成:", outPath, `(${(html.length / 1024).toFixed(0)} KB)`);
+  const format = opts.format || (process.argv.includes("--md") ? "md" : "html");
+  const base = outPath.replace(/\.html?$/i, "").replace(/\.md$/i, "");
+  const files: ReportResult["files"] = [];
+  if (format === "html" || format === "both") {
+    const fpath = outPath.endsWith(".html") ? outPath : base + ".html";
+    writeFileSync(fpath, html, "utf-8");
+    files.push({ format: "html", path: fpath, bytes: html.length });
+    log(`已生成 HTML: ${fpath} (${(html.length / 1024).toFixed(0)} KB)`);
   }
+  if (format === "md" || format === "both") {
+    const fpath = format === "md" && outPath.endsWith(".md") ? outPath : base + ".md";
+    writeFileSync(fpath, mdText, "utf-8");
+    files.push({ format: "md", path: fpath, bytes: mdText.length });
+    log(`已生成 Markdown: ${fpath} (${(mdText.length / 1024).toFixed(0)} KB)`);
+  }
+  return { agent, sessions: r.count, facets: facets.length, files };
 }
 
-main().catch((e) => {
-  console.error("ERR", e.message);
-  process.exit(1);
-});
+/** 渲染成给模型/人看的中文摘要（MCP 工具返回用） */
+export function renderReportResult(res: ReportResult): string {
+  const head = `${res.agent === "claude" ? "Claude Code" : "Codex"} 会话洞察报告（纯本地生成，未联网）`;
+  const body = res.files.map((f) => `  · ${f.format.toUpperCase()}: ${f.path} (${(f.bytes / 1024).toFixed(0)} KB)`).join("\n");
+  const note =
+    res.agent === "claude"
+      ? "\n注意：Claude 版不含「命令/文件/语言」统计（deep_insights 只认 Codex 的文件结构），叙事文案为中性措辞。"
+      : "";
+  return `${head}\n覆盖 ${res.sessions} 个会话 ｜ 语义标注(facets) ${res.facets} 个\n${body}${note}`;
+}
+
+// CLI 入口：只有「直接运行本文件」时才执行（被 import 时不执行）
+const invokedDirectly =
+  process.argv[1] && /gen_report\.(ts|js|mjs)$/.test(process.argv[1].replace(/\\/g, "/"));
+
+if (invokedDirectly) {
+  const argv = process.argv.slice(2);
+  const has = (f: string) => argv.includes(f);
+  const val = (f: string) => {
+    const i = argv.indexOf(f);
+    return i >= 0 ? argv[i + 1] : undefined;
+  };
+  // 位置参数（输出路径）：必须排除「跟在选项后面的取值」，否则 `--agent claude` 里的 claude 会被当成路径
+  const VALUE_OPTS = ["--agent", "--out", "--format", "--limit"];
+  const posArg = argv.find((a, i) => !a.startsWith("--") && !VALUE_OPTS.includes(argv[i - 1] || ""));
+  generateReport({
+    agent: val("--agent") === "claude" ? "claude" : "codex",
+    format: has("--both") ? "both" : has("--md") ? "md" : "html",
+    out: val("--out") || posArg,
+    onLog: (l) => console.log(l),
+  })
+    .then((r) => console.log(renderReportResult(r)))
+    .catch((e) => {
+      console.error("ERR", e.message);
+      process.exit(1);
+    });
+}

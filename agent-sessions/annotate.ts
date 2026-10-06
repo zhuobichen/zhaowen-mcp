@@ -1,31 +1,37 @@
 /**
- * Codex 会话语义标注（仿 /insights 的 facets 层）
+ * 会话语义标注（仿 /insights 的 facets 层）
  *
- * 对每个主要 Codex 会话,调用 one-hub deepseek-v4-flash 判断:做了什么/目标类别/
- * 会话类型/满意度/摩擦点/成功点,产出去 reports/facets/<id>.json(落盘缓存)。
+ * 对每个主要会话,调用 one-hub deepseek-v4-flash 判断:做了什么/目标类别/
+ * 会话类型/满意度/摩擦点/成功点,落盘 reports/facets/<agent>/<id>.json(缓存)。
  * 数据源复用 insights.ts(硬统计+消息)。
  *
- * 用法: node <tsx> annotate.ts
+ * 两种用法：
+ *   - CLI   : node <tsx> annotate.ts [--agent claude|codex] [--limit N] [--force] [--dry-run]
+ *   - 模块  : import { annotate, renderAnnotateResult } from "./annotate.js"（MCP 工具用）
+ *
+ * 注意：agent 维度已贯穿；facets 按 agent 分目录（reports/facets/<agent>/），
+ * 两个 agent 的标注不会互相污染。
  */
+import { fileURLToPath } from "node:url";
 import { homedir } from "os";
 import { join } from "path";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { buildInsightReport, InsightReport } from "./insights.js";
 import { readMessages, listSessions, findSession } from "./sessions.js";
 
+export type AgentKind = "claude" | "codex";
+
 const MODEL = "deepseek-v4-flash";
 const CONCURRENCY = 4;
-const REPORTS_DIR = join(process.cwd(), "reports");
+const MAX_ANNOTATE = 22;
 
-/** 从 argv 解析 --agent claude|codex,缺省 codex(向后兼容) */
-function parseAgentArg(): "claude" | "codex" {
-  const i = process.argv.indexOf("--agent");
-  const v = i >= 0 ? process.argv[i + 1] : "codex";
-  return v === "claude" ? "claude" : "codex";
-}
-function facetsDir(_agent: "claude" | "codex"): string {
-  // 统一目录 reports/facets（与 gen_report.ts 的 FACETS_DIR 一致）
-  return join(REPORTS_DIR, "facets");
+/** 输出根目录钉在模块所在目录（不随 cwd 变），与 aram-mayhem 的 lib/report-md.ts 同款做法 */
+const ROOT = fileURLToPath(new URL(".", import.meta.url));
+const REPORTS_DIR = join(ROOT, "reports");
+
+/** facets 目录按 agent 分：reports/facets/<agent>/ */
+function facetsDir(agent: AgentKind): string {
+  return join(REPORTS_DIR, "facets", agent);
 }
 
 interface ApiConfig {
@@ -79,10 +85,6 @@ interface FacetInput {
   filesChanged: number;
 }
 
-function esc(s: string): string {
-  return String(s ?? "").slice(0, 600);
-}
-
 function buildUserPrompt(f: FacetInput): string {
   const head = [
     `会话ID: ${f.session_id}`,
@@ -99,17 +101,15 @@ function buildUserPrompt(f: FacetInput): string {
 
 /** 尝试解析模型 JSON,容忍被截断:截到最后一个完整 } */
 function safeParse(raw: string): Record<string, any> {
-  let cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
   try {
     return JSON.parse(cleaned);
   } catch {
-    // 截到最后一个 '}' 再试
     const last = cleaned.lastIndexOf("}");
     if (last > 0) {
       try {
         return JSON.parse(cleaned.slice(0, last + 1));
       } catch {
-        // 再试:括号配平法——取 {..} 完整块
         const start = cleaned.indexOf("{");
         if (start >= 0) {
           const sub = cleaned.slice(start);
@@ -170,15 +170,20 @@ async function callAnnotate(f: FacetInput, cfg: ApiConfig): Promise<Record<strin
   throw lastErr || new Error("标注失败");
 }
 
-/** 挑出值得标注的主要会话（剔除纯测试/超短），按 token 降序取前 MAX 个 */
-const MAX_ANNOTATE = 22;
-
+/**
+ * 挑出值得标注的主要会话（剔除纯测试/超短），按 token 降序取前 MAX 个。
+ *
+ * ⚠ 这套启发式是按 Codex 的口味调的；对 Claude 会话「仍可用但会漏」：
+ *   - testTitles 是 Codex 场景观察来的，Claude 的测试会话可能叫别的问候语；
+ *   - `msgCount<3 且 token<30万` 里那个 30 万是 Codex 的量级，Claude 常含大量缓存 token，
+ *     所以可能少剔掉几个占位会话（代价是多标注几个，几分钱）。
+ * 有意保持现状：为这点精度加复杂度不划算。
+ */
 function pickSessions(r: InsightReport) {
   const testTitles = new Set(["1", "echo hello", "你是？", "你好", "", "(无标题)"]);
   const isTest = (s: any) => {
     const t = String(s.title || "").trim();
     if (testTitles.has(t)) return true;
-    // 超短且无 token 的占位会话
     if ((s.msgCount || 0) < 3 && (s.totalTokens || 0) < 300000) return true;
     return false;
   };
@@ -186,16 +191,47 @@ function pickSessions(r: InsightReport) {
   return keep.sort((a: any, b: any) => (b.totalTokens || 0) - (a.totalTokens || 0)).slice(0, MAX_ANNOTATE);
 }
 
-async function run() {
+export interface AnnotateOptions {
+  /** 缺省 codex（向后兼容） */
+  agent?: AgentKind;
+  /** 本次最多标注几个会话，缺省 22 */
+  limit?: number;
+  /** true = 忽略缓存重新标注（默认增量跳过已有 facets） */
+  force?: boolean;
+  /** true = 只盘点不调 LLM，不花钱 */
+  dryRun?: boolean;
+  concurrency?: number;
+  /** 日志去向；缺省写 stderr（MCP 场景下 stdout 是 JSON-RPC，绝不能写） */
+  onLog?: (line: string) => void;
+}
+
+export interface AnnotateResult {
+  agent: AgentKind;
+  picked: number;
+  pending: number;
+  annotated: number;
+  failed: number;
+  cached: number;
+  dryRun: boolean;
+  facetsDir: string;
+  errors: { id: string; message: string }[];
+}
+
+/** 给主要会话做 LLM 语义标注。增量：已存在的 facets 默认跳过。 */
+export async function annotate(opts: AnnotateOptions = {}): Promise<AnnotateResult> {
+  const agent: AgentKind = opts.agent === "claude" ? "claude" : "codex";
+  const limit = opts.limit && opts.limit > 0 ? Math.floor(opts.limit) : MAX_ANNOTATE;
+  const concurrency = opts.concurrency && opts.concurrency > 0 ? Math.floor(opts.concurrency) : CONCURRENCY;
+  const log = opts.onLog || ((line: string) => process.stderr.write(line + "\n"));
+  const dir = facetsDir(agent);
+
   const cfg = getApiConfig();
-  if (!cfg.apiKey) throw new Error("未找到 one-hub key(需 code-review env 的 REVIEW_API_KEY 或环境变量)");
-  mkdirSync(facetsDir("codex"), { recursive: true });
+  if (!cfg.apiKey) throw new Error("未找到 one-hub key（需 code-review env 的 REVIEW_API_KEY 或环境变量）");
 
-  const r = await buildInsightReport({ agent: "codex", days: 9999, limit: 400 });
-  const all = await listSessions("codex");
-  const picked = pickSessions(r);
+  const r = await buildInsightReport({ agent, days: 9999, limit: 400 });
+  const all = await listSessions(agent);
+  const picked = pickSessions(r).slice(0, limit);
 
-  // 读每会话的首/尾用户消息（供标注 prompt）
   const withMsgs: FacetInput[] = [];
   for (const s of picked) {
     const f: FacetInput = {
@@ -210,7 +246,7 @@ async function run() {
       commandFails: 0,
       filesChanged: 0,
     };
-    const rec = findSession(all, s.id, "codex");
+    const rec = findSession(all, s.id, agent);
     if (rec) {
       try {
         const msgs = await readMessages(rec, 60);
@@ -227,25 +263,37 @@ async function run() {
     withMsgs.push(f);
   }
 
-  console.log(`待标注会话: ${withMsgs.length} 个`);
-  // 并发
-  const todo = withMsgs.filter((f) => !existsSync(join(facetsDir("codex"), f.session_id + ".json")));
-  console.log(`需新标注(未缓存): ${todo.length} 个`);
-  let done = 0;
-  let fail = 0;
+  const isCached = (f: FacetInput) => !opts.force && existsSync(join(dir, f.session_id + ".json"));
+  const todo = withMsgs.filter((f) => !isCached(f));
+  const cached = withMsgs.length - todo.length;
+  log(`[${agent}] 待标注会话: ${withMsgs.length} 个，需新标注: ${todo.length} 个（缓存 ${cached}）`);
+
+  const result: AnnotateResult = {
+    agent,
+    picked: withMsgs.length,
+    pending: todo.length,
+    annotated: 0,
+    failed: 0,
+    cached,
+    dryRun: !!opts.dryRun,
+    facetsDir: dir,
+    errors: [],
+  };
+  if (opts.dryRun) return result;
+
+  mkdirSync(dir, { recursive: true });
   const runOne = async (f: FacetInput) => {
-    const outPath = join(facetsDir("codex"), f.session_id + ".json");
     try {
       const facet = await callAnnotate(f, cfg);
       facet.session_id = f.session_id;
-      writeFileSync(outPath, JSON.stringify(facet, null, 2), "utf-8");
-      done += 1;
+      writeFileSync(join(dir, f.session_id + ".json"), JSON.stringify(facet, null, 2), "utf-8");
+      result.annotated += 1;
     } catch (e: any) {
-      fail += 1;
-      console.error(`✗ ${f.session_id.slice(0, 8)} 标注失败: ${e.message}`);
+      result.failed += 1;
+      result.errors.push({ id: f.session_id, message: e.message });
+      log(`✗ ${f.session_id.slice(0, 8)} 标注失败: ${e.message}`);
     }
   };
-  // 简单并发池
   const queue = [...todo];
   async function worker() {
     while (queue.length) {
@@ -253,12 +301,50 @@ async function run() {
       await runOne(f);
     }
   }
-  const workers = Array.from({ length: Math.min(CONCURRENCY, Math.max(1, queue.length)) }, () => worker());
+  const workers = Array.from({ length: Math.min(concurrency, Math.max(1, queue.length)) }, () => worker());
   await Promise.all(workers);
-  console.log(`标注完成: 成功 ${done}, 失败 ${fail}, 缓存 ${withMsgs.length - todo.length}`);
+  log(`[${agent}] 标注完成: 成功 ${result.annotated}, 失败 ${result.failed}, 缓存 ${cached}`);
+  return result;
 }
 
-run().catch((e) => {
-  console.error("ERR", e.message);
-  process.exit(1);
-});
+/** 把结果渲染成给模型/人看的中文摘要（MCP 工具返回用） */
+export function renderAnnotateResult(r: AnnotateResult): string {
+  const head = `会话语义标注（agent=${r.agent}）`;
+  const line = `候选 ${r.picked} 个 ｜ 本次标注 ${r.annotated} ｜ 失败 ${r.failed} ｜ 命中缓存 ${r.cached}`;
+  const dir = `facets 目录: ${r.facetsDir}`;
+  if (r.dryRun) {
+    return `${head}\n${line}\n${dir}\n（dry_run=true：只盘点，未调用任何模型，未花钱）`;
+  }
+  const errs = r.errors.length
+    ? "\n失败明细:\n" + r.errors.slice(0, 10).map((e) => `  · ${e.id.slice(0, 8)}: ${e.message}`).join("\n")
+    : "";
+  return `${head}\n${line}\n${dir}\n（增量：已标注过的会话自动跳过。要重新标注用 force=true）${errs}`;
+}
+
+// ---------------------------------------------------------------------------
+// CLI 入口：只有「直接运行本文件」时才执行（被 import 时不执行）
+// ---------------------------------------------------------------------------
+const invokedDirectly =
+  process.argv[1] && /annotate\.(ts|js|mjs)$/.test(process.argv[1].replace(/\\/g, "/"));
+
+if (invokedDirectly) {
+  const has = (f: string) => process.argv.includes(f);
+  const val = (f: string) => {
+    const i = process.argv.indexOf(f);
+    return i >= 0 ? process.argv[i + 1] : undefined;
+  };
+  const agentArg = val("--agent") === "claude" ? "claude" : "codex";
+  const limitArg = val("--limit") ? Number(val("--limit")) : undefined;
+  annotate({
+    agent: agentArg,
+    limit: limitArg,
+    force: has("--force"),
+    dryRun: has("--dry-run"),
+    onLog: (l) => console.log(l),
+  })
+    .then((r) => console.log(renderAnnotateResult(r)))
+    .catch((e) => {
+      console.error("ERR", e.message);
+      process.exit(1);
+    });
+}

@@ -32,6 +32,8 @@ import {
   AgentKind,
 } from "./sessions.js";
 import { buildInsightReport, renderInsightReport } from "./insights.js";
+import { annotate, renderAnnotateResult } from "./annotate.js";
+import { generateReport, renderReportResult } from "./gen_report.js";
 
 const DEFAULT_MAX_MSGS = 500;
 const DEFAULT_MAX_MSG_LEN = 8000;
@@ -230,6 +232,39 @@ async function insightsTool(args: Record<string, any>) {
   }
 }
 
+/** 这两个工具只接受单个 agent（不接受 all） */
+function parseSingleAgent(v: any): "claude" | "codex" {
+  return String(v || "").toLowerCase().trim() === "claude" ? "claude" : "codex";
+}
+
+async function annotateTool(args: Record<string, any>) {
+  try {
+    const r = await annotate({
+      agent: parseSingleAgent(args.agent),
+      limit: args.limit ? Number(args.limit) : undefined,
+      force: args.force === true || args.force === "true" || args.force === 1,
+      dryRun: args.dry_run === true || args.dry_run === "true" || args.dry_run === 1,
+    });
+    return renderAnnotateResult(r);
+  } catch (e: any) {
+    return `错误: ${e.message}`;
+  }
+}
+
+async function reportTool(args: Record<string, any>) {
+  try {
+    const fmt = String(args.format || "html").toLowerCase();
+    const r = await generateReport({
+      agent: parseSingleAgent(args.agent),
+      format: fmt === "md" ? "md" : fmt === "both" ? "both" : "html",
+      out: args.out ? String(args.out) : undefined,
+    });
+    return renderReportResult(r);
+  } catch (e: any) {
+    return `错误: ${e.message}`;
+  }
+}
+
 async function searchTool(args: Record<string, any>) {
   const query = String(args.query || "").trim();
   if (!query) return "错误: 请提供 query 关键词";
@@ -389,6 +424,54 @@ async function main() {
           },
         },
       },
+      {
+        name: "annotate_sessions",
+        description:
+          "对主要会话做 LLM 语义标注（facets）：逐会话判断目标/类型/满意度/摩擦点/成功点，调 one-hub deepseek-v4-flash，落盘 reports/facets/<agent>/<id>.json（已存在则跳过 = 增量缓存）。⚠ 每标注一个新会话都会消耗 one-hub 额度（真金白银，会话级约几分钱）；先用 dry_run=true 看会标几个、确认无误再正式跑。可用 limit 限制本次标注数。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent: {
+              type: "string",
+              description: "可选：claude / codex（缺省 codex）",
+            },
+            limit: {
+              type: "integer",
+              description: "可选：本次最多标注几个会话（缺省 22）",
+            },
+            force: {
+              type: "boolean",
+              description: "可选：true 时忽略缓存重新标注（默认 false，增量跳过已有 facets）",
+            },
+            dry_run: {
+              type: "boolean",
+              description: "可选：true 时只返回「待标注 N 个」，不调 LLM、不花钱",
+            },
+          },
+        },
+      },
+      {
+        name: "generate_session_report",
+        description:
+          "生成本机会话洞察报告（HTML / Markdown），版式复刻 Claude Code /insights：硬统计图 + facets 聚合图（会话类型/结果/满意度/摩擦）+ 亮点 / 问题 / 可复制建议。纯本地、不联网、不花钱；依赖 annotate_sessions 产出的 facets（没有也能出报告，相关段落会降级）。注意：Claude 版不含「命令/文件/语言」统计（deep_insights 只认 Codex 的文件结构），叙事文案为中性措辞。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent: {
+              type: "string",
+              description: "可选：claude / codex（缺省 codex）",
+            },
+            format: {
+              type: "string",
+              description: "可选：html / md / both（缺省 html）",
+            },
+            out: {
+              type: "string",
+              description: "可选：自定义输出路径（缺省 reports/<agent>_report.<ext>）",
+            },
+          },
+        },
+      },
     ],
   }));
 
@@ -411,6 +494,12 @@ async function main() {
           break;
         case "session_insights":
           text = await insightsTool(args);
+          break;
+        case "annotate_sessions":
+          text = await annotateTool(args);
+          break;
+        case "generate_session_report":
+          text = await reportTool(args);
           break;
         default:
           text = `未知工具: ${name}`;
