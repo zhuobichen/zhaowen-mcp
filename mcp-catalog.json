@@ -26,6 +26,50 @@
       ]
     },
     {
+      "name": "qqmail-mcp",
+      "path": "qqmail-mcp/",
+      "package": "qqmail-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "check_status",
+        "list_folders",
+        "list_recent",
+        "search",
+        "read_message"
+      ]
+    },
+    {
+      "name": "weather-mcp",
+      "path": "weather-mcp/",
+      "package": "weather-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "hourly_forecast",
+        "dry_windows",
+        "resolve_place"
+      ]
+    },
+    {
+      "name": "meme-finder",
+      "path": "meme-finder/",
+      "package": "meme-finder-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "search_packs",
+        "list_pack",
+        "save_pack",
+        "list_saved",
+        "remove_saved",
+        "fetch_pack"
+      ]
+    },
+    {
       "name": "aram-mayhem",
       "path": "aram-mayhem/",
       "package": "aram-mayhem-mcp",
