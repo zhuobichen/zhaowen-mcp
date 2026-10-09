@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "tsx index.ts",
+    "test": "node selftest.mjs",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

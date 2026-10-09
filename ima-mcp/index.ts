@@ -247,7 +247,14 @@ function clampInt(v: unknown, min: number, max: number, dflt: number) {
   return Math.min(max, Math.max(min, Math.trunc(n)))
 }
 
-const ts = (ms: number) => (ms ? new Date(ms).toISOString() : '')
+// 接口返回的时间戳是字符串（如 "1773913900956"），必须先转数字，
+// 否则 new Date(string) 解析失败抛 RangeError: Invalid time value。
+const ts = (ms: unknown) => {
+  const n = Number(ms)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  const d = new Date(n)
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString()
+}
 
 function fmtNote(n: any) {
   return {
@@ -277,9 +284,15 @@ const handlers: Record<string, (a: any) => Promise<any>> = {
     })
     return out({
       results: (data.info_list || []).map((k: any) => ({
-        id: k.id,
-        name: k.name,
+        // 注意：该接口实际返回的是 kb_id / kb_name（与 get_addable_knowledge_base_list
+        // 的 id / name 不同），官方 api.md 里写的 id/name 与真实响应不一致。
+        id: k.kb_id ?? k.id,
+        name: k.kb_name ?? k.name,
         cover_url: k.cover_url,
+        content_count: k.content_count,
+        member_count: k.member_count,
+        base_type: k.base_type,
+        role_type: k.role_type,
       })),
       is_end: data.is_end,
       next_cursor: data.next_cursor || '',
@@ -359,8 +372,14 @@ const handlers: Record<string, (a: any) => Promise<any>> = {
   },
 
   async ima_check_repeated_names(a) {
-    const raw: any[] = Array.isArray(a.names) ? a.names : [{ name: a.name, media_type: a.media_type }]
+    // names 既接受 ['a.pdf'] 也接受 [{name:'a.pdf', media_type:1}]，两种都归一化。
+    const raw: any[] = Array.isArray(a.names)
+      ? a.names
+      : a.name
+        ? [{ name: a.name, media_type: a.media_type }]
+        : []
     const params = raw
+      .map((x: any) => (typeof x === 'string' ? { name: x, media_type: 1 } : x))
       .filter((x: any) => x?.name)
       .map((x: any) => ({ name: String(x.name), media_type: Number(x.media_type) || 1 }))
     if (!params.length) throw new Error('缺少必填参数: names（文件名列表）')
@@ -694,7 +713,7 @@ const TOOLS = [
         folder_id: { type: 'string', description: folderIdDesc },
         names: {
           type: 'array',
-          description: '待检查的文件 [{name, media_type}]，最多 2000 个',
+          description: '待检查的文件，最多 2000 个。元素可以是文件名字符串，或 {name, media_type} 对象',
           items: {
             type: 'object',
             properties: {
@@ -868,7 +887,13 @@ async function main() {
   server.setRequestHandler(CallToolRequestSchema, async request => {
     const { name, arguments: args = {} } = request.params
     const handler = handlers[name]
-    if (!handler) return out({ error: `未知工具: ${name}` })
+    // 未知工具必须标 isError，否则调用方会把失败当成成功结果消费掉
+    if (!handler) {
+      return {
+        content: [{ type: 'text', text: `错误: 未知工具: ${name}` }],
+        isError: true,
+      }
+    }
     try {
       return await handler(args)
     } catch (e: any) {

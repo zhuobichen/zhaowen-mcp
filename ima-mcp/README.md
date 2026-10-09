@@ -30,6 +30,12 @@ export IMA_API_KEY=xxx
 npx tsx ima-mcp/index.ts
 ```
 
+自检（验握手 + 工具清单 + 一次只读实调，不改动任何 ima 数据）：
+
+```bash
+npm test
+```
+
 ## 注册到 MCP 客户端
 
 ```json
