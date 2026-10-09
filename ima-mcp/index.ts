@@ -278,7 +278,9 @@ const handlers: Record<string, (a: any) => Promise<any>> = {
 
   async ima_search_knowledge_bases(a) {
     const data = await call(`${WIKI}/search_knowledge_base`, {
-      query: str(a.query, 'query'),
+      // query 可以为空：官方规范里「查看自己有哪些知识库」就是传空字符串，
+      // 所以这里不能走 str()（它在空值时直接抛错，会让「列出全部知识库」不可用）。
+      query: String(a.query ?? '').trim(),
       cursor: String(a.cursor ?? ''),
       limit: clampInt(a.limit, 1, 20, 20),
     })
