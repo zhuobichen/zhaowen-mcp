@@ -342,7 +342,12 @@ const handlers: Record<string, (a: any) => Promise<any>> = {
     if (a.folder_id) body.folder_id = String(a.folder_id)
     const data = await call(`${WIKI}/get_knowledge_list`, body)
     return out({
-      path: (data.current_path || []).map((f: any) => f.name),
+      // 同时给出 folder_id：import_urls 的 folder_id 必填，而它取自这里，
+      // 只返回名字的话调用方拿不到目标目录。
+      path: (data.current_path || []).map((f: any) => ({
+        folder_id: f.folder_id,
+        name: f.name,
+      })),
       knowledge_list: (data.knowledge_list || []).map((k: any) => ({
         media_id: k.media_id,
         title: k.title,
@@ -399,10 +404,26 @@ const handlers: Record<string, (a: any) => Promise<any>> = {
     if (!urls.length) throw new Error('缺少必填参数: urls')
     if (urls.length > 10) throw new Error('单次最多导入 10 个 URL')
     const kbId = str(a.knowledge_base_id, 'knowledge_base_id')
+    // folder_id 必填，但根目录的真实 folder_id 取自 get_knowledge_list 的
+    // current_path，并不等于 knowledge_base_id —— 传后者服务端会报
+    // code=222000「文件夹不存在」。所以这里显式解析一次根目录。
+    let folderId = String(a.folder_id ?? '').trim()
+    if (!folderId) {
+      const probe = await call(`${WIKI}/get_knowledge_list`, {
+        knowledge_base_id: kbId,
+        cursor: '',
+        limit: 1,
+      })
+      const trail = probe.current_path || []
+      folderId = String(trail[trail.length - 1]?.folder_id || '').trim()
+      if (!folderId) {
+        folderId =
+          String(probe.knowledge_list?.[0]?.parent_folder_id || '').trim() || kbId
+      }
+    }
     const data = await call(`${WIKI}/import_urls`, {
       knowledge_base_id: kbId,
-      // 根目录的 folder_id 等于 knowledge_base_id
-      folder_id: str(a.folder_id, 'folder_id') || kbId,
+      folder_id: folderId,
       urls,
     })
     return out({ results: data.results || {} })
