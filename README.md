@@ -6,6 +6,7 @@
 
 | 目录 | 服务 | 功能 |
 |------|------|------|
+| [`ima-mcp/`](./ima-mcp) | 腾讯 ima 知识库 / 笔记 | `ima_search_knowledge_bases` 搜知识库 · `ima_list_knowledge`/`ima_search_knowledge` 查知识 · `ima_import_urls` 导入网页 · `ima_upload_file` 上传文件入库 · `ima_read_media` 读原文 · `ima_list_notebooks`/`ima_search_notes`/`ima_get_note_content` 笔记读写 |
 | [`qqmail-mcp/`](./qqmail-mcp) | 只读查 QQ 邮箱（mail.qq.com） | `check_status` 配置与连通性 · `list_folders` 列文件夹 · `list_recent` 列最近邮件 · `search` 关键词搜索（**取头部本地过滤，不用 IMAP SEARCH**——QQ 对中文的 IMAP 搜索会安静返回空） · `read_message` 读正文与附件清单。**只读**：不发信/不删信/不改已读，且每个邮箱都以 `readOnly` 打开 |
 | [`weather-mcp/`](./weather-mcp) | 逐小时天气（Open-Meteo，免 key） | `hourly_forecast` 逐小时气温/降水量/降水概率/风向风速 · `dry_windows` 找某天连续无雨的时间窗（判据为「降水≤阈值 **且** 概率≤阈值」，可调，默认对"不怕小雨"的人偏严） · `resolve_place` 地名转坐标 |
 | [`meme-finder/`](./meme-finder) | 找表情包（GitHub 图集） | `search_packs` 按主题词搜仓库+扫巨型图集目录 · `list_pack` 列图并给出可直连链接(jsdelivr 改写) · `save_pack`/`list_saved`/`remove_saved` 本地清单登记与查找 · `fetch_pack` 下载到本地(如实报成败) |

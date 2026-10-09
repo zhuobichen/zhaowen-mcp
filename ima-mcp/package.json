@@ -1,0 +1,25 @@
+{
+  "name": "ima-mcp",
+  "version": "1.0.0",
+  "description": "腾讯 ima 知识库 / 笔记 官方 OpenAPI 的 MCP Server",
+  "type": "module",
+  "main": "index.ts",
+  "bin": {
+    "ima-mcp": "index.ts"
+  },
+  "scripts": {
+    "start": "tsx index.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

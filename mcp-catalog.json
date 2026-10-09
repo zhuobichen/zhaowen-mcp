@@ -9,6 +9,33 @@
   },
   "services": [
     {
+      "name": "ima-mcp",
+      "path": "ima-mcp/",
+      "package": "ima-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "ima_search_knowledge_bases",
+        "ima_list_addable_knowledge_bases",
+        "ima_get_knowledge_base",
+        "ima_list_knowledge",
+        "ima_search_knowledge",
+        "ima_check_repeated_names",
+        "ima_import_urls",
+        "ima_upload_file",
+        "ima_add_knowledge",
+        "ima_get_media_info",
+        "ima_read_media",
+        "ima_list_notebooks",
+        "ima_list_notes",
+        "ima_search_notes",
+        "ima_get_note_content",
+        "ima_create_note",
+        "ima_append_note"
+      ]
+    },
+    {
       "name": "agent-sessions",
       "path": "agent-sessions/",
       "package": "agent-sessions-mcp",
