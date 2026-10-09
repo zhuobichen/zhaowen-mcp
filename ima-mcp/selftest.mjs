@@ -81,7 +81,7 @@ try {
 
   const list = await rpc("tools/list", {});
   const names = (list.result?.tools || []).map((t) => t.name);
-  check("tools/list 返回 17 个工具", names.length === 17, `实际 ${names.length}`);
+  check("tools/list 返回 22 个工具", names.length === 22, `实际 ${names.length}`);
 
   // 未知工具应返回 isError 而不是崩进程
   const bad = await rpc("tools/call", { name: "__nope__", arguments: {} });

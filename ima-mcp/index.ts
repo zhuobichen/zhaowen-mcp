@@ -9,6 +9,10 @@
  * 规格来源: 官方 skill 包 ima-skills-1.1.10
  *   knowledge-base/references/api.md -> /openapi/wiki/v1/*
  *   notes/references/api.md-> /openapi/note/v1/*
+ *
+ * 另有 5 个未公开接口（create_folder / rename_knowledge / move_knowledge /
+ * create_knowledge_base / update_note），靠探测服务端路由 + 用参数校验报错
+ * 反推 schema 得到。官方文档随时可能不跟它们对齐，工具描述里已标注。
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -16,7 +20,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import { createHash, createHmac } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, extname, join, resolve } from 'node:path'
@@ -79,7 +83,7 @@ function credentials() {
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 // 可重试错误码: 下游网络错误 / 频控 / 服务器内部错误
-const RETRYABLE = new Set([110010, 110021, 20002, 210003])
+const RETRYABLE = new Set([110010, 110021, 20002, 210003, 200001])
 
 async function call(apiPath: string, body: unknown, attempt = 0): Promise<any> {
   const { clientId, apiKey } = credentials()
@@ -561,6 +565,105 @@ const handlers: Record<string, (a: any) => Promise<any>> = {
     })
   },
 
+  // ===== 知识库整理（未公开接口）=====
+  // 以下 4 个接口不在官方 skill 文档里，是通过「404 vs 参数校验错误」探测 +
+  // 用报错信息反推schema 挖出来的，服务端随时可能变更或下线。
+
+  async ima_create_knowledge_base(a) {
+    // 先看原始输入再trim：str() 会把首尾空白吃掉，
+    // 直接拿它的结果判「不能以空格开头」是永远不成立的死代码。
+    const rawName = String(a.name ?? '')
+    const name = str(rawName, 'name')
+    // 服务端正则 ^[\S][\S ]{0,23}[\S]{0,1}$：不能以空格开头，总长 1-25。
+    // 这里只做本地预检给出更友好的提示，最终以服务端校验为准。
+    if (/^\s/.test(rawName)) {
+      throw new Error('知识库名称不能以空格开头')
+    }
+    if (rawName.length > 25) {
+      throw new Error(`知识库名称超长: ${rawName.length} 字，上限 25 字`)
+    }
+    const TYPES: Record<string, string> = {
+      mine: 'KBT_MINE_KB',
+      personal: 'KBT_MINE_KB',
+      shared: 'KBT_SHARED_KB',
+      subscribed: 'KBT_SUBSCRIBED_CREATE_KB',
+    }
+    const rawType = String(a.type ?? 'mine').trim()
+    const type = TYPES[rawType.toLowerCase()] ?? rawType
+    if (!['KBT_MINE_KB', 'KBT_SHARED_KB', 'KBT_SUBSCRIBED_CREATE_KB'].includes(type)) {
+      throw new Error(
+        `type 取值非法: ${rawType}（可用 mine / shared / subscribed，或直接传 KBT_* 枚举）`,
+      )
+    }
+    const data = await call(`${WIKI}/create_knowledge_base`, { name, type })
+    return out({ id: data.id, name: data.name || name, type })
+  },
+
+  async ima_create_folder(a) {
+    const name = str(a.name, 'name')
+    const body: Record<string, unknown> = {
+      knowledge_base_id: str(a.knowledge_base_id, 'knowledge_base_id'),
+      name,
+    }
+    // 根目录下的子文件夹是实测通过的；指定 parent_folder_id 建多级目录
+    // 服务端未公开文档，实测能接受该字段但未验证效果，建完请用
+    // ima_list_knowledge确认落点。
+    if (a.parent_folder_id) body.parent_folder_id = String(a.parent_folder_id)
+    const data = await call(`${WIKI}/create_folder`, body)
+    return out({
+      folder_id: data.media_id,
+      name,
+      parent_folder_id: a.parent_folder_id ? String(a.parent_folder_id) : '',
+      hint: '用 ima_list_knowledge 传入上面的 folder_id 确认落点',
+    })
+  },
+
+  async ima_rename_knowledge(a) {
+    // 注意字段名是 media_id 而不是 knowledge_id —— 用 knowledge_id 会被静默
+    // 忽略，然后服务端返回 code=220001「参数错误」。
+    await call(`${WIKI}/rename_knowledge`, {
+      knowledge_base_id: str(a.knowledge_base_id, 'knowledge_base_id'),
+      media_id: str(a.media_id, 'media_id'),
+      name: str(a.name, 'name'),
+    })
+    return out({
+      renamed: true,
+      media_id: String(a.media_id),
+      name: String(a.name),
+    })
+  },
+
+  async ima_move_knowledge(a) {
+    // 实测结论（2026-10-10）：该接口接受请求并返回 code=0，但 move_results 恒为空，
+    // 同库换文件夹 / 跨库移动 / 移动文件夹三种场景都没有任何条目真的移动。
+    // 也就是说是服务端空实现（或 OpenAPI 凭证未开通移动权限）。
+    // 工具照样暴露，但返回值必须如实说明没有生效，不能让调用方以为搬完了。
+    const body: Record<string, unknown> = {
+      src_knowledge_base_id: str(a.src_knowledge_base_id, 'src_knowledge_base_id'),
+      dst_knowledge_base_id: str(a.dst_knowledge_base_id, 'dst_knowledge_base_id'),
+    }
+    if (a.src_folder_id) body.src_folder_id = String(a.src_folder_id)
+    if (a.dst_folder_id) body.dst_folder_id = String(a.dst_folder_id)
+    const mediaIds = (Array.isArray(a.media_ids) ? a.media_ids : a.media_id ? [a.media_id] : [])
+      .map((v: any) => String(v ?? '').trim())
+      .filter(Boolean)
+    // media_ids 是repeated string（传数字或对象会被 codec 拒绝），
+    // 不是数组套对象。
+    if (mediaIds.length) body.media_ids = mediaIds
+    const data = await call(`${WIKI}/move_knowledge`, body)
+    const moved = Object.keys(data.move_results || {}).length
+    return out({
+      request_accepted: true,
+      moved,
+      // 恒为 false：服务端目前不返回逐条结果，也确实没移动。
+      effect_verified: false,
+      move_results: data.move_results || {},
+      hint:
+        '服务端返回成功但没有任何条目被移动（move_results 为空），这是实测结论不是你的用法问题。' +
+ '需要真正归类请在 ima 客户端里拖拽，或改用「新建文件夹 + 重新上传」。',
+    })
+  },
+
   // ===== 笔记 =====
 
   async ima_list_notebooks(a) {
@@ -650,6 +753,51 @@ const handlers: Record<string, (a: any) => Promise<any>> = {
         content: str(a.content, 'content'),
       }),
     )
+  },
+
+  async ima_update_note(a) {
+    // 未公开接口，枚举 trpc.ima.openapi_notebook.BlockUpdateAction 实测只有三个值：
+    // APPEND / DELETE / EDIT。传其它值服务端会直接反序列化失败。
+    const ACTIONS = ['APPEND', 'DELETE', 'EDIT'] as const
+    const raw: any[] = Array.isArray(a.updates) ? a.updates : [a.updates].filter(Boolean)
+    if (!raw.length) throw new Error('缺少必填参数: updates')
+
+    const updates = raw.map((u: any, i: number) => {
+      const verb = String(u?.action ?? '').trim().toUpperCase().replace(/^BLOCK_UPDATE_ACTION_/, '')
+      if (!ACTIONS.includes(verb as any)) {
+        throw new Error(
+          `updates[${i}].action 非法: ${u?.action}（可用 APPEND / DELETE / EDIT）`,
+        )
+      }
+      const item: Record<string, unknown> = {
+        action: `BLOCK_UPDATE_ACTION_${verb}`,
+      }
+      if (u?.block_id) item.block_id = String(u.block_id)
+      if (u?.content !== undefined) item.content = String(u.content)
+      if (u?.content_format !== undefined) item.content_format = Number(u.content_format)
+      // 未探明的字段透传，避免因为服务端新增字段而卡住。
+      if (u?.extra && typeof u.extra === 'object') Object.assign(item, u.extra)
+      return item
+    })
+
+    if (updates.length > 100) throw new Error('单次最多 100 个 updates')
+
+    const body: Record<string, unknown> = {
+      noteId: str(a.note_id, 'note_id'),
+      // 必填，传空字符串会被判为空。用随机值做请求幂等标识。
+      userRequestId: String(a.user_request_id ?? `ima-mcp-${Date.now()}-${randomUUID()}`),
+      updates,
+    }
+    const data = await call(`${NOTE}/update_note`, body)
+    // 接口整体 code=0 并不代表每条都成功，必须逐条回传 results。
+    const results: any[] = data.results || []
+    const failed = results.filter((r: any) => r.success === false)
+    return out({
+      note_id: data.note_id || a.note_id,
+      applied: results.length - failed.length,
+      failed: failed.length,
+      results,
+    })
   },
 }
 
@@ -891,6 +1039,107 @@ const TOOLS = [
         content: { type: 'string', description: '要追加的 Markdown' },
       },
       required: ['note_id', 'content'],
+    },
+  },
+  {
+    name: 'ima_create_knowledge_base',
+    description:
+      '新建知识库（未公开接口）。名称 1-25 字且不能以空格开头。type: mine=个人库(默认) shared=共享库 subscribed=订阅创建的库。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '知识库名称，1-25 字，不能以空格开头' },
+        type: {
+          type: 'string',
+          description: 'mine(默认) / shared / subscribed，或直接传 KBT_MINE_KB 等枚举',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'ima_create_folder',
+    description:
+      '在知识库里新建文件夹（未公开接口）。建完用 ima_list_knowledge 确认落点，返回的 folder_id 就是返回值。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        knowledge_base_id: { type: 'string', description: '知识库 ID' },
+        name: { type: 'string', description: '文件夹名称' },
+        parent_folder_id: {
+          type: 'string',
+          description: '父文件夹 ID，省略表示根目录（多级目录服务端未公开文档，建完请确认）',
+        },
+      },
+      required: ['knowledge_base_id', 'name'],
+    },
+  },
+  {
+    name: 'ima_rename_knowledge',
+    description:
+      '重命名知识库里的条目或文件夹（未公开接口）。注意参数是 media_id，不是 knowledge_id。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        knowledge_base_id: { type: 'string', description: '知识库 ID' },
+        media_id: { type: 'string', description: '条目 media_id（ima_list_knowledge 返回）' },
+        name: { type: 'string', description: '新名称，1-255 字' },
+      },
+      required: ['knowledge_base_id', 'media_id', 'name'],
+    },
+  },
+  {
+    name: 'ima_move_knowledge',
+    description:
+      '移动知识库条目到另一个知识库 / 文件夹（未公开接口）。⚠️ 实测服务端返回成功但条目并不会真的移动，请勿依赖此工具做归档，移完请用 ima_list_knowledge 复核。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        src_knowledge_base_id: { type: 'string', description: '源知识库 ID' },
+        dst_knowledge_base_id: { type: 'string', description: '目标知识库 ID' },
+        src_folder_id: { type: 'string', description: '源文件夹 ID，省略表示源根目录' },
+        dst_folder_id: { type: 'string', description: '目标文件夹 ID，省略表示目标根目录' },
+        media_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '要移动的 media_id 列表',
+        },
+      },
+      required: ['src_knowledge_base_id', 'dst_knowledge_base_id'],
+    },
+  },
+  {
+    name: 'ima_update_note',
+    description:
+      '按块精确编辑笔记（未公开接口，需为笔记作者）。action: APPEND / DELETE / EDIT。⚠️ 实测该接口写配额独立且极低，正常使用常返回 code=200001 频率超限，此时请改用 ima_append_note。接口返回 code=0 不代表每条都成功，要看 failed 字段。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string', description: '笔记 ID' },
+        updates: {
+          type: 'array',
+          description: '最多 100 条修改指令，按顺序执行',
+          items: {
+            type: 'object',
+            properties: {
+              action: {
+                type: 'string',
+                description: 'APPEND / DELETE / EDIT（也可写全 BLOCK_UPDATE_ACTION_XXX）',
+              },
+              block_id: { type: 'string', description: '目标块 ID，DELETE / EDIT 通常需要' },
+              content: { type: 'string', description: 'Markdown 内容' },
+              content_format: { type: 'number', description: '内容格式，1=Markdown' },
+              extra: {
+                type: 'object',
+                description: '透传字段，用于服务端新增的未探明参数',
+              },
+            },
+            required: ['action'],
+          },
+        },
+        user_request_id: { type: 'string', description: '请求幂等 ID，省略自动生成' },
+      },
+      required: ['note_id', 'updates'],
     },
   },
 ]

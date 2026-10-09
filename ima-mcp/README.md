@@ -2,7 +2,8 @@
 
 把腾讯 [ima](https://ima.qq.com) 的知识库和笔记接进 MCP，基于**官方 OpenAPI**，不走 Cookie、不逆向客户端。
 
-接口规格来自官方 skill 包 `ima-skills-1.1.10`（`knowledge-base/references/api.md` + `notes/references/api.md`）。
+接口规格来自官方 skill 包 `ima-skills-1.1.10`（`knowledge-base/references/api.md` + `notes/references/api.md`），
+另外通过服务端路由探测 + 参数校验报错反推，额外挖出 5 个**官方文档未公开**的接口（见下方「未公开接口」章节）。
 
 ## 凭证
 
@@ -50,7 +51,7 @@ npm test
 }
 ```
 
-## 工具（17 个）
+## 工具（22 个）
 
 ### 知识库 `/openapi/wiki/v1`
 
@@ -78,6 +79,28 @@ npm test
 | `ima_get_note_content` | `get_doc_content` |
 | `ima_create_note` | `import_doc` |
 | `ima_append_note` | `append_doc` |
+
+### 未公开接口（探测得出）
+
+| 工具 | 底层接口 | 说明 |
+| --- | --- | --- |
+| `ima_create_knowledge_base` | `wiki/v1/create_knowledge_base` | 新建知识库 |
+| `ima_create_folder` | `wiki/v1/create_folder` | 知识库内新建文件夹 |
+| `ima_rename_knowledge` | `wiki/v1/rename_knowledge` | 重命名条目 / 文件夹 |
+| `ima_move_knowledge` | `wiki/v1/move_knowledge` | 移动条目（⚠️ 见下方限制） |
+| `ima_update_note` | `note/v1/update_note` | 按块编辑笔记（⚠️ 见下方限制） |
+
+## 未公开接口的坑（实测）
+
+这几个接口不在官方文档里，行为只能靠实调确认，踩过的坑记录在这里：
+
+- **`wiki` 用 snake_case，`note` 用 camelCase。** 同一套风格混用会被服务端**静默忽略**（不报错，就是不生效），极难排查。
+- **`rename_knowledge` 的参数是 `media_id`，不是 `knowledge_id`。** 传错会得到 `220001`，而不是「找不到条目」。
+- **`move_knowledge` 的 `media_ids` 是 repeated string**，不是「数组套对象」。
+- **`move_knowledge` 是个空操作桩**：同库换文件夹、跨库移动、移进文件夹，全部返回 `code=0` 但 `move_results:{}`，条目原地不动。工具描述里已标注不要依赖它做归档。
+- **`update_note` 写配额独立且极低**：稳定返回 `code=200001`（频率超限），而同服务的 `append_note` 完全正常 —— 说明是该新接口自身的配额限制。`APPEND / DELETE / EDIT` 三个 action 已确认存在（反序列化器会拒绝其它值），但具体字段组合仍被限流挡住，需要用时先小步试。
+
+> 这几个接口随时可能变更或下线。`move_knowledge` 的工具描述里带了 `effect_verified:false` 标注，方便调用方判断可信度。
 
 ## 关键约束
 
