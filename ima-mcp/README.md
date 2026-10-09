@@ -102,9 +102,19 @@ npm test
 
 > 这几个接口随时可能变更或下线。`move_knowledge` 的工具描述里带了 `effect_verified:false` 标注，方便调用方判断可信度。
 
+### 删除 / 回收站：确认不存在
+
+**OpenAPI 侧没有任何删除能力**，已系统性探测确认：
+
+- 37 个删除类候选路由全部返回 404，覆盖 `delete_` / `remove_` / `destroy_` / `discard_` / `clear_` / `trash_` / `recycle_` / `restore_` / `move_to_trash` 等动词变体，以及 `delete_note` / `delete_doc` / `delete_media` / `batch_delete_knowledge` 等跨实体与批量命名。
+- 官方文档里删除只以**错误码**形式出现（`100006 笔记已删除`、`210006 NOTE_IS_DELETE`、`210012 USER_IS_DELETE`），没有任何删除或移动接口的定义。
+- 这与 `move_knowledge` 是空操作桩是一致的：ima 只放开写入，不开放破坏性操作。
+
+结论：**MCP 写入的内容无法通过 API 删掉**，误建的知识库/条目只能在 ima 客户端手动清理。反过来说，MCP 也不会误删你的库内容。
+
 ## 关键约束
 
-- **没有问答接口。** 官方 OpenAPI 只覆盖知识库/笔记的增删查改，**不提供 RAG 问答**。想让 AI「问 ima 问题」只能自己在 MCP 外面拼检索流程。
+- **没有问答接口。** 官方 OpenAPI 只覆盖知识库/笔记的**查询与写入**（无删除），**不提供 RAG 问答**。想让 AI「问 ima 问题」只能自己在 MCP 外面拼检索流程。
 - 根目录的 `folder_id` 等于 `knowledge_base_id`；`import_urls` 的 `folder_id` 必填，不传时工具会自动用 `knowledge_base_id`兜底。
 - 上传大小限制：Excel/TXT/Xmind/MD/HTML 10MB，图片 30MB，EPUB 50MB，PDF/Word/PPT/音频 200MB。超限在本地就拦掉，不发请求。
 - 视频链接（B站/YouTube）不支持通过 API 入库，只能在 ima 桌面端手动添加。
