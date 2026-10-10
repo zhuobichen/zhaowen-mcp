@@ -2,7 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { loadConfig } from "./lib/config.js";
 import {
@@ -232,22 +232,32 @@ async function toolFetchPack(args: any): Promise<string> {
   const failures: string[] = [];
   for (const img of images) {
     const url = toReachableUrl({ owner: parts.owner, repo: parts.repo, ref: info.defaultBranch, path: img.path });
-    const name = img.path.split("/").pop() || "image";
+    // 保留仓库内的相对路径。
+    //
+    // 这里**曾经只取 basename**，那是个静默丢数据的 bug：很多图集把同一张图存成多个版本
+    // 且**文件名完全相同**，例如 large/xxx.webp、media/xxx.webp、previews/xxx.webp。
+    // 平铺进同一个目录就会互相覆盖 —— 内容不算全丢（每张还剩一个版本），
+    // 但**留下哪个由下载顺序决定**，用户可能拿到缩略图而不是原图。
+    // 实测：某仓库 762 条路径平铺后只剩 465 个文件。
+    const rel = img.path.replace(/^\/+/, "");
+    const dest = join(outDir, ...rel.split("/"));
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(cfg.fetchTimeoutMs) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       if (!buf.length) throw new Error("0 字节");
-      writeFileSync(join(outDir, name), buf);
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, buf);
       okCount++;
     } catch (e: any) {
-      failures.push(`${name}: ${e?.message ?? e}`);
+      failures.push(`${rel}: ${e?.message ?? e}`);
     }
   }
 
   const out: string[] = [
     `下载完成: 成功 ${okCount} / 共 ${images.length} 张`,
     `落地目录: ${outDir}`,
+    `（**保留仓库内的相对路径**——同名但不同目录的文件不会被覆盖）`,
   ];
   if (failures.length) {
     out.push("");
