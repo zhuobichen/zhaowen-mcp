@@ -26,7 +26,36 @@ export interface SyncSelfResult {
   warnings?: string[];
 }
 
-export async function syncSelf(config: SkillManagerConfig): Promise<SyncSelfResult> {
+export interface SyncSelfOptions {
+  /** true 时只比对并报告会新增/删除哪些文件，不复制、不提交 */
+  dryRun?: boolean;
+}
+
+/** 递归列出相对文件路径（POSIX 风格），跳过 EXCLUDE —— 用于同步前的镜像比对 */
+async function listRelFiles(root: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  const walk = async (dir: string): Promise<void> => {
+    let entries: import("fs").Dirent[];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (EXCLUDE.has(e.name)) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.isFile()) out.add(path.relative(root, full).split(path.sep).join("/"));
+    }
+  };
+  await walk(root);
+  return out;
+}
+
+export async function syncSelf(
+  config: SkillManagerConfig,
+  opts: SyncSelfOptions = {}
+): Promise<SyncSelfResult> {
   const warnings: string[] = [];
   const src = config.selfSrcDir;
   const repoDir = config.mcpRepoDir;
@@ -42,7 +71,51 @@ export async function syncSelf(config: SkillManagerConfig): Promise<SyncSelfResu
     };
   }
 
-  // 2. 复制自身源码 → 仓库副本（更新语义：先删旧目标）
+  // 2. 镜像比对：找出「只在仓库存在」的文件 —— 它们会被下面的 rm 删掉。
+  //    加这一步是为了不让同步静默丢文件（曾因此误删仓库里的 validate*.ts）。
+  let onlyInTarget: string[] = [];
+  let onlyInSource: string[] = [];
+  let onBothSides: string[] = [];
+  try {
+    const [srcFiles, dstFiles] = await Promise.all([listRelFiles(src), listRelFiles(target)]);
+    onlyInTarget = [...dstFiles].filter((f) => !srcFiles.has(f)).sort();
+    onlyInSource = [...srcFiles].filter((f) => !dstFiles.has(f)).sort();
+    onBothSides = [...srcFiles].filter((f) => dstFiles.has(f)).sort();
+  } catch {
+    /* 目标不存在 → 首次同步，无历史文件可丢 */
+  }
+
+  if (onlyInTarget.length) {
+    warnings.push(
+      `⚠️ 本次同步将【删除】仓库中 ${onlyInTarget.length} 个本地不存在的文件：\n` +
+        onlyInTarget.map((f) => `  - skill-manager/${f}`).join("\n") +
+        `\n（sync_self 是镜像同步、以本地为准。若要保留它们，请先补回本地 ${src}，或先用 dry_run 查看清单。）`
+    );
+  }
+
+  if (opts.dryRun) {
+    const modified: string[] = [];
+    for (const f of onBothSides) {
+      try {
+        const [a, b] = await Promise.all([
+          fs.readFile(path.join(src, f)),
+          fs.readFile(path.join(target, f)),
+        ]);
+        if (!a.equals(b)) modified.push(f);
+      } catch {
+        /* 读不到就略过 */
+      }
+    }
+    return {
+      ok: true,
+      message:
+        `[dry-run] 未复制、未提交。新增 ${onlyInSource.length} 个；修改 ${modified.length} 个；删除 ${onlyInTarget.length} 个。` +
+        (onlyInTarget.length ? "（删除清单见 warnings）" : ""),
+      warnings,
+    };
+  }
+
+  // 3. 复制自身源码 → 仓库副本（镜像语义：先删旧目标）
   let copied = 0;
   try {
     await fs.rm(target, { recursive: true, force: true });
@@ -65,7 +138,7 @@ export async function syncSelf(config: SkillManagerConfig): Promise<SyncSelfResu
     };
   }
 
-  // 3. 主 README 表格行检查（skill-manager 行存在则跳过，缺失则追加）
+  // 4. 主 README 表格行检查（skill-manager 行存在则跳过，缺失则追加）
   try {
     const readmePath = path.join(repoDir, "README.md");
     const readme = await fs.readFile(readmePath, "utf8");
@@ -78,7 +151,7 @@ export async function syncSelf(config: SkillManagerConfig): Promise<SyncSelfResu
     warnings.push(`README 检查失败（已跳过）：${e.message}`);
   }
 
-  // 4. 变更检查 + git
+  // 5. 变更检查 + git
   let statusBefore: string;
   try {
     statusBefore = await gitStatus(repoDir, config.gitBin);
@@ -112,7 +185,7 @@ export async function syncSelf(config: SkillManagerConfig): Promise<SyncSelfResu
   }
   const commitHash = await gitRevParseHead(repoDir, config.gitBin).catch(() => "");
 
-  // 5. push（显式调用本工具才执行）
+  // 6. push（显式调用本工具才执行）
   try {
     await gitPush(repoDir, config.gitBin, branch);
   } catch (e: any) {

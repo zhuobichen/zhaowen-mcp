@@ -143,8 +143,16 @@ async function main() {
       {
         name: "sync_self",
         description:
-          "把 skill-manager MCP 自身源码同步到 zhaowen-mcp 集合仓库工作副本（复制排除 node_modules/dist）→ 更新 README → git add/commit/push。只有显式调用本工具才会执行 push。",
-        inputSchema: { type: "object", properties: {} },
+          "把 skill-manager MCP 自身源码同步到 zhaowen-mcp 集合仓库工作副本（复制排除 node_modules/dist）→ 更新 README → git add/commit/push。只有显式调用本工具才会执行 push。注意：这是**镜像同步**（先删空目标目录再复制），仓库中「本地不存在」的文件会被一并删除；执行前会先比对并在 warnings 里列出将删清单，可用 dry_run=true 只查看清单而不落盘。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            dry_run: {
+              type: "boolean",
+              description: "可选：true 时只比对并报告会新增/删除哪些文件，不复制、不提交",
+            },
+          },
+        },
       },
       {
         name: "publish_mcp",
@@ -318,7 +326,9 @@ async function main() {
         }
 
         case "sync_self": {
-          const result = await syncSelf(config);
+          const result = await syncSelf(config, {
+            dryRun: args.dry_run === true || args.dry_run === "true",
+          });
           const lines = [result.message];
           if (result.commitHash) {
             lines.push(`commit: ${result.commitHash.slice(0, 7)}`);
