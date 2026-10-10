@@ -11,14 +11,6 @@ export interface UpsertResult {
   content: string;
 }
 
-/** 表格单元格安全化：竖线会撕裂列结构、换行会断行 —— 一律压平 */
-function sanitizeCell(s: string): string {
-  return String(s ?? "")
-    .replace(/\|/g, "\\|")
-    .replace(/\s*\r?\n\s*/g, " ")
-    .trim();
-}
-
 export function upsertReadmeRow(
   readme: string,
   targetDir: string,
@@ -27,7 +19,7 @@ export function upsertReadmeRow(
 ): UpsertResult {
   const cell = `[\`${targetDir}/\`](${targetDir}/)`;
   const lines = readme.split(/\r?\n/);
-  const row = `| ${sanitizeCell(title)} | ${cell} | ${sanitizeCell(description)} |`;
+  const row = `| ${title} | ${cell} | ${description} |`;
 
   // 1. 命中：整行替换（保持 3 列）
   for (let i = 0; i < lines.length; i++) {

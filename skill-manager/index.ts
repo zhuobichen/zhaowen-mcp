@@ -5,6 +5,8 @@
  * 盘点本地 skill + 一键发布到 GitHub（zhaowen-skill 仓库）。
  * - list_skills: 盘点本地所有 skill 及位置/状态
  * - check_sensitive: 检测敏感信息（密码/内网IP/API key/token 等）
+ * - validate_skill: 只读校验 Skill frontmatter、目录引用和 UI 元数据
+ * - validate_mcp: 只读校验 MCP package、入口和工具协议结构
  * - publish_skill: 显式触发时把指定 skill 规范化命名后推送到 GitHub（zhaowen-skill）
  * - publish_mcp: 把指定本地 MCP server 目录发布到 zhaowen-mcp 集合仓库
  * - sync_self: 把 skill-manager 自身同步到 zhaowen-mcp
@@ -22,14 +24,16 @@ import {
 import * as path from "path";
 import { loadConfig } from "./lib/config.js";
 import { scanAll } from "./lib/skills.js";
+import { validateSkill } from "./lib/validate.js";
 import { scanPath } from "./lib/sensitive.js";
 import { publishSkill } from "./lib/publish.js";
 import { syncSelf } from "./lib/syncself.js";
 import { publishMcp } from "./lib/publishmcp.js";
+import { validateMcp } from "./lib/validate-mcp.js";
 
 async function main() {
   const server = new Server(
-    { name: "skill-manager", version: "1.0.0" },
+    { name: "skill-manager", version: "1.1.0" },
     { capabilities: { tools: {} } }
   );
 
@@ -66,6 +70,44 @@ async function main() {
             },
           },
           required: ["path"],
+        },
+      },
+      {
+        name: "validate_skill",
+        description:
+          "只读校验指定 Skill：检查 SKILL.md frontmatter、name/目录一致性、SKILL.md 中的本地引用和可选 agents/openai.yaml。不会修改文件、提交或推送。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            skill_dir: {
+              type: "string",
+              description: "要校验的 Skill 目录绝对路径",
+            },
+            strict: {
+              type: "boolean",
+              description: "可选，严格模式下 frontmatter name 与目录名不一致会失败",
+            },
+          },
+          required: ["skill_dir"],
+        },
+      },
+      {
+        name: "validate_mcp",
+        description:
+          "只读校验指定 MCP 服务：检查 package.json、入口文件、README、MCP SDK 依赖、工具注册和 tools/call 处理器。不会修改文件、提交或推送。",
+        inputSchema: {
+          type: "object",
+          properties: {
+            mcp_dir: {
+              type: "string",
+              description: "要校验的 MCP 服务目录绝对路径",
+            },
+            strict: {
+              type: "boolean",
+              description: "可选，严格模式下 README 和协议静态检查警告会升级为错误",
+            },
+          },
+          required: ["mcp_dir"],
         },
       },
       {
@@ -217,6 +259,39 @@ async function main() {
           }
           if (scan.hits.length > 50) lines.push(`  ... 其余 ${scan.hits.length - 50} 处`);
           lines.push("提示: 发布 skill 时默认 abort；传 sensitive_action='mask' 可自动脱敏上传版。");
+          return { content: [{ type: "text", text: lines.join("\n") }] };
+        }
+
+        case "validate_skill": {
+          const skillDir = String(args.skill_dir || "");
+          if (!skillDir) {
+            return { content: [{ type: "text", text: "错误: 缺少 skill_dir（Skill 目录绝对路径）" }] };
+          }
+          const result = await validateSkill(skillDir, args.strict === true || args.strict === "true");
+          const lines = [
+            `${result.ok ? "✅ Skill 校验通过" : "❌ Skill 校验失败"}: ${result.skillDir}`,
+            `文件数: ${result.files}`,
+          ];
+          if (result.errors.length) lines.push(`错误:\n${result.errors.map((item) => `- ${item}`).join("\n")}`);
+          if (result.warnings.length) lines.push(`警告:\n${result.warnings.map((item) => `- ${item}`).join("\n")}`);
+          return { content: [{ type: "text", text: lines.join("\n") }] };
+        }
+
+        case "validate_mcp": {
+          const mcpDir = String(args.mcp_dir || "");
+          if (!mcpDir) {
+            return { content: [{ type: "text", text: "错误: 缺少 mcp_dir（MCP 服务目录绝对路径）" }] };
+          }
+          const result = await validateMcp(mcpDir, args.strict === true || args.strict === "true");
+          const lines = [
+            `${result.ok ? "✅ MCP 校验通过" : "❌ MCP 校验失败"}: ${result.mcpDir}`,
+            `文件数: ${result.files}`,
+            `包: ${result.packageName || "（未声明）"}${result.version ? `@${result.version}` : ""}`,
+            `入口: ${result.entrypoint || "（未找到）"}`,
+            `工具（静态识别 ${result.toolNames.length} 个）: ${result.toolNames.length ? result.toolNames.join(", ") : "（未识别）"}`,
+          ];
+          if (result.errors.length) lines.push(`错误:\n${result.errors.map((item) => `- ${item}`).join("\n")}`);
+          if (result.warnings.length) lines.push(`警告:\n${result.warnings.map((item) => `- ${item}`).join("\n")}`);
           return { content: [{ type: "text", text: lines.join("\n") }] };
         }
 
