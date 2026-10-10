@@ -28,60 +28,41 @@ export function parseFrontmatter(content: string): {
   name?: string;
   description?: string;
 } {
-  const normalized = content.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
-  const lines = normalized.split("\n");
-  if (lines[0]?.trim() !== "---") return {};
-
-  const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (!content.startsWith("---")) return {};
+  const end = content.indexOf("\n---", 4);
   if (end < 0) return {};
-
-  const unquote = (value: string): string => {
-    const trimmed = value.trim();
-    if (trimmed.length >= 2) {
-      const first = trimmed[0];
-      const last = trimmed[trimmed.length - 1];
-      if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-        return trimmed.slice(1, -1).replace(/\\([\\"'])/g, "$1");
-      }
-    }
-    return trimmed;
+  const fm = content.slice(4, end);
+  const nameMatch = fm.match(/^name:\s*["']?([^"'\n]+)["']?/m);
+  return {
+    name: nameMatch ? nameMatch[1].trim() : undefined,
+    description: parseDescription(fm),
   };
+}
 
-  let name: string | undefined;
-  let description: string | undefined;
-
-  for (let index = 1; index < end; index += 1) {
-    const line = lines[index];
-    const nameMatch = /^name:\s*(.*)$/.exec(line);
-    if (nameMatch) {
-      name = unquote(nameMatch[1]);
-      continue;
-    }
-
-    const descriptionMatch = /^description:\s*(.*)$/.exec(line);
-    if (!descriptionMatch) continue;
-
-    const marker = descriptionMatch[1].trim();
-    const blockMarker = /^[|>][-+]?$/u.test(marker) ? marker[0] : "";
-    if (!blockMarker && marker !== "") {
-      description = unquote(marker);
-      continue;
-    }
-
+/**
+ * 解析 frontmatter 里的 description，支持三种 YAML 写法：
+ *   单行标量      description: 文本
+ *   引号标量      description: "文本"
+ *   block scalar  description: |        （多行，缩进续行）
+ *
+ * block scalar 必须单独处理：否则通用正则会捕获到字面的 `|`，
+ * 污染下游 —— 这曾导致 README 表格生成出 `| | | [\`x/\`](x/) | | |` 这样的 5 列空单元格。
+ */
+function parseDescription(fm: string): string | undefined {
+  const block = /^description:\s*([|>])[+-]?\s*$/m.exec(fm);
+  if (block && block.index !== undefined) {
+    const rest = fm.slice(block.index + block[0].length);
     const parts: string[] = [];
-    for (let next = index + 1; next < end; next += 1) {
-      const nextLine = lines[next];
-      // A non-indented YAML key starts the next frontmatter field.
-      if (/^\S[^:]*:\s*/.test(nextLine)) break;
-      parts.push(nextLine.replace(/^\s+/, "").trimEnd());
-      index = next;
+    for (const line of rest.split(/\r?\n/)) {
+      if (!line.trim()) continue;      // block 内的空行
+      if (!/^\s/.test(line)) break;    // 回到顶层 key，block 结束
+      parts.push(line.trim());
     }
-    description = (blockMarker === "|" ? parts.join("\n") : parts.join(" "))
-      .replace(/[ \t]+/g, " ")
-      .trim();
+    const text = parts.join(" ").trim();
+    return text || undefined;
   }
-
-  return { name: name || undefined, description: description || undefined };
+  const scalar = fm.match(/^description:\s*["']?([^\n]+?)["']?\s*$/m);
+  return scalar ? scalar[1].trim() : undefined;
 }
 
 async function readFrontmatter(skillMdPath: string): Promise<{ name?: string; description?: string }> {
