@@ -12,7 +12,7 @@
 | [`meme-finder/`](./meme-finder) | 找表情包（GitHub 图集） | `search_packs` 按主题词搜仓库+扫巨型图集目录 · `list_pack` 列图并给出可直连链接(jsdelivr 改写) · `save_pack`/`list_saved`/`remove_saved` 本地清单登记与查找 · `fetch_pack` 下载到本地(如实报成败) |
 | [`xiaohongshu/`](./xiaohongshu) | 小红书发布（代理本机引擎） | `xhs_status` 引擎/登录状态/工具可用性 · `xhs_login_qrcode` 扫码登录 · `xhs_publish_note` 发布图文（标题字数/`#话题`/图片路径/正文长度/markdown 残留把关，支持 dry_run） · `xhs_save_draft` 存草稿 · `xhs_search`/`xhs_my_feeds`/`xhs_get_note` 只读查询 · `xhs_delete_note` 删除（需 confirm） · `xhs_raw` 直通引擎 |
 | [`codex-models/`](./codex-models) | Codex 模型配置管理 | `list_models` 列出 · `list_available` 查未配置 · `add_model` 新增(自动模板+备份) · `set_model` 切换 · `remove_model` 删除 |
-| [`memory-push/`](./memory-push) | 零散文档 → MEMORY 知识库 | `list_docs` 列出仓库结构 · `publish_doc` 推送本地文档/目录到 MEMORY(支持 dry_run) |
+| [`memory-push/`](./memory-push) | memory-kb | `list_docs` 列结构 · `search_docs` 判重检索 · `read_doc` 读卡片 · `write_docs` 批量原子写+单次 push · `publish_doc` 推文档；另含 `kb-cli.ts` 命令行通道（供 Codex 等 MCP 工具不可用的环境） |
 | [`image-vision/`](./image-vision) | 识图 + 生图 | `describe_image` 识图 · `generate_image` 生图 · `check_vision_status` |
 | [`minimax-video-mcp/`](./minimax-video-mcp) | 生视频 | `submit_video` 提交 · `query_video` 查询 · `download_video` 下载 |
 | [`skill-manager/`](./skill-manager) | skill/MCP 盘点 + 校验 + 一键发布 GitHub | `list_skills` 盘点 · `validate_skill` Skill 校验 · `validate_mcp` MCP 校验 · `check_sensitive` 敏感检测 · `publish_skill` 发布 Skill · `publish_mcp` 发布 MCP · `sync_self` 同步自身 · `get_config` |

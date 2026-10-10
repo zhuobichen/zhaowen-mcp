@@ -46,8 +46,13 @@ export async function gitStatus(repoDir: string, gitBin: string): Promise<string
   const r = await runGit(repoDir, gitBin, ["status", "--porcelain"]);
   return r.stdout;
 }
-export async function gitAdd(repoDir: string, gitBin: string, paths: string[] = []): Promise<GitResult> {
-  return runGit(repoDir, gitBin, ["add", ...(paths.length ? paths : ["-A"])]);
+/**
+ * 暂存指定路径。paths 必填——刻意不提供 `git add -A` 的退化路径，
+ * 避免把仓库里无关的未提交改动一起卷进本次提交。
+ */
+export async function gitAdd(repoDir: string, gitBin: string, paths: string[]): Promise<GitResult> {
+  if (!paths.length) throw new Error("gitAdd 需要显式 paths（不执行 git add -A）");
+  return runGit(repoDir, gitBin, ["add", "--", ...paths]);
 }
 export async function gitCommit(repoDir: string, gitBin: string, message: string): Promise<GitResult> {
   return runGit(repoDir, gitBin, ["commit", "-m", message]);
@@ -62,4 +67,24 @@ export async function gitCurrentBranch(repoDir: string, gitBin: string): Promise
 export async function gitRevParseHead(repoDir: string, gitBin: string): Promise<string> {
   const r = await runGit(repoDir, gitBin, ["rev-parse", "HEAD"]);
   return r.stdout.trim();
+}
+
+/** 读取远端地址，用于校验工作副本指向的是预期仓库（防写错副本） */
+export async function gitRemoteUrl(repoDir: string, gitBin: string, remote = "origin"): Promise<string> {
+  const r = await runGit(repoDir, gitBin, ["remote", "get-url", remote]);
+  return r.stdout.trim();
+}
+
+/**
+ * 拉取远端并 rebase 本地提交。脏工作树用 rebase.autoStash 自动 stash/unstash，
+ * 避免"副本落后 → push 被拒"。调用方需容忍失败（降级为警告）。
+ */
+export async function gitPullRebase(repoDir: string, gitBin: string, branch: string): Promise<GitResult> {
+  return runGit(repoDir, gitBin, ["-c", "rebase.autoStash=true", "pull", "--rebase", "origin", branch]);
+}
+
+/** 判断 HEAD 是否有对应上游分支 */
+export async function gitHasUpstream(repoDir: string, gitBin: string): Promise<boolean> {
+  const r = await runGit(repoDir, gitBin, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  return r.code === 0 && !!r.stdout.trim();
 }

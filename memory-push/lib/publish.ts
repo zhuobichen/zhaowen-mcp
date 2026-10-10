@@ -1,5 +1,5 @@
 /**
- * publish_doc：把本地零散文档资料推送到 MEMORY 知识库仓库。
+ * publish_doc：把本地零散文档资料推送到知识库仓库。
  * 流程：校验源 → 复制到仓库 <subdir>/（合并语义，不删旧文件）→ 敏感检查 → git add/commit/push。
  * 只有显式调用本工具才会 push；dry_run 可只预览。
  */
@@ -182,7 +182,9 @@ export async function publishDoc(
     ].join("\n");
 
   try {
-    await gitAdd(repoDir, config.gitBin);
+    // 只暂存本次推送的目标路径，不用 git add -A（避免卷进仓库里无关的未提交改动）
+    const add = await gitAdd(repoDir, config.gitBin, [relTarget]);
+    if (add.code !== 0) throw new Error(add.stderr || add.stdout);
     await gitCommit(repoDir, config.gitBin, commitMessage);
   } catch (e: any) {
     return {
@@ -211,7 +213,7 @@ export async function publishDoc(
 
   return {
     ok: true,
-    message: `✅ 已推送 ${relTarget.replace(/\\/g, "/")} 到 MEMORY（commit ${commitHash.slice(0, 7)}，分支 ${branch}）`,
+    message: `✅ 已推送 ${relTarget.replace(/\\/g, "/")} 到知识库（commit ${commitHash.slice(0, 7)}，分支 ${branch}）`,
     targetPath: target,
     copiedFiles: copied,
     commitHash,

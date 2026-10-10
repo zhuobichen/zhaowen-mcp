@@ -191,3 +191,59 @@ export async function maskDir(dir: string): Promise<number> {
   await walk(dir, maskFile);
   return masked;
 }
+
+function selectRules(ignoreRulePrefixes?: string[]): SensitiveRule[] {
+  const ignored = ignoreRulePrefixes ?? [];
+  if (!ignored.length) return SENSITIVE_RULES;
+  return SENSITIVE_RULES.filter((r) => !ignored.some((p) => r.id.startsWith(p)));
+}
+
+/**
+ * 扫描一段内存中的内容（不落盘）。供 write_docs 在写盘前拦截敏感信息，
+ * 避免像 publish_doc 那样"先复制到副本、再发现命中"留下脏文件。
+ */
+export function scanContent(
+  content: string,
+  relPath: string,
+  ignoreRulePrefixes?: string[]
+): SensitiveHit[] {
+  if (isCredFileName(relPath)) {
+    return [{
+      ruleId: "file-1", category: "凭据文件", label: "凭据文件文件名",
+      file: relPath, line: 0, sample: "<凭据文件名>",
+    }];
+  }
+  const rules = selectRules(ignoreRulePrefixes);
+  const hits: SensitiveHit[] = [];
+  const lines = content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    for (const rule of rules) {
+      if (rule.pattern.test(lines[i])) {
+        hits.push({
+          ruleId: rule.id, category: rule.category, label: rule.label,
+          file: relPath, line: i + 1, sample: lines[i].trim().slice(0, 80) || "<空行>",
+        });
+      }
+    }
+  }
+  return hits;
+}
+
+/** 对一段内容做脱敏改写，返回新内容与替换次数 */
+export function maskContent(
+  content: string,
+  ignoreRulePrefixes?: string[]
+): { content: string; masked: number } {
+  const rules = selectRules(ignoreRulePrefixes);
+  const lines = content.split(/\r?\n/);
+  let masked = 0;
+  for (let i = 0; i < lines.length; i++) {
+    for (const rule of rules) {
+      if (rule.pattern.test(lines[i])) {
+        lines[i] = maskLine(lines[i], rule);
+        masked++;
+      }
+    }
+  }
+  return { content: lines.join("\n"), masked };
+}
