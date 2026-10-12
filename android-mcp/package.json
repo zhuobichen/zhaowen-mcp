@@ -1,0 +1,19 @@
+{
+  "name": "android-mcp",
+  "version": "1.0.0",
+  "description": "用 ADB + 模拟器在本机测试安卓 App：起 AVD、装包、截图、读界面层级、按文字点击、logcat 调试、一条命令构建 APK。",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node selftest.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.20.0"
+  }
+}
