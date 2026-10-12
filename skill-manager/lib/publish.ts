@@ -7,7 +7,7 @@ import * as path from "path";
 import type { SkillManagerConfig } from "./config.js";
 import { resolveTargetName } from "./naming.js";
 import { scanPath, maskDir, isTextFile } from "./sensitive.js";
-import { upsertReadmeRowFile } from "./readme.js";
+import { sanitizeCell, summarize, upsertReadmeRowFile } from "./readme.js";
 import {
   ensureRepo,
   gitAdd,
@@ -25,6 +25,8 @@ export interface PublishArgs {
   new_name?: string;
   check_sensitive?: boolean;
   sensitive_action?: "abort" | "mask";
+  /** 可选：README 目标分区标题关键词（子串匹配）。缺省按名称前缀自动选分区 */
+  readme_section?: string;
 }
 
 export interface PublishResult {
@@ -90,6 +92,28 @@ async function rewriteName(skillDir: string, targetName: string): Promise<void> 
   }
   const updated = content.replace(/^name:\s*["']?[^"'\n]+["']?/m, `name: ${targetName}`);
   if (updated !== content) await fs.writeFile(md, updated, "utf8");
+}
+
+/**
+ * README「Skill」列取值（不是目录名，也不是 description 片段）：
+ * agents/openai.yaml 的 display_name → frontmatter name → 目录名。
+ */
+async function resolveReadmeTitle(
+  skillDir: string,
+  fmName: string | undefined,
+  targetName: string
+): Promise<string> {
+  try {
+    const raw = await fs.readFile(path.join(skillDir, "agents", "openai.yaml"), "utf8");
+    const match = /^\s*display_name:\s*(.+)$/m.exec(raw);
+    if (match) {
+      const value = sanitizeCell(match[1].replace(/^["']|["']$/g, ""));
+      if (value) return value;
+    }
+  } catch {
+    // 无 openai.yaml，走回退
+  }
+  return sanitizeCell(fmName || targetName) || targetName;
 }
 
 function buildCommitMessage(
@@ -200,10 +224,16 @@ export async function publishSkill(
 
   // 6. 改写副本 name + 更新 README
   await rewriteName(targetRepoDir, targetName);
-  const title = (fm.description ? fm.description.split(/[。.]/)[0] : targetName).slice(0, 20) || targetName;
-  const desc = (fm.description || "可复用 skill").slice(0, 60);
+  const title = await resolveReadmeTitle(targetRepoDir, fm.name, targetName);
+  const desc = summarize(fm.description || "可复用 skill", 120);
+  const prefixed = config.namePrefixes.some((p) =>
+    targetName.toLowerCase().startsWith(`${p.toLowerCase()}_`)
+  );
   try {
-    await upsertReadmeRowFile(path.join(config.repoDir, "README.md"), targetName, title, desc);
+    await upsertReadmeRowFile(path.join(config.repoDir, "README.md"), targetName, title, desc, {
+      section: args.readme_section,
+      prefixed,
+    });
   } catch (e: any) {
     warnings.push(`README 更新失败（已跳过）：${e.message}`);
   }

@@ -136,6 +136,11 @@ async function main() {
               description:
                 "可选，默认 abort：abort=命中敏感项即中止并返回清单；mask=上传版本将命中值替换为 <占位符>，本地文件不动",
             },
+            readme_section: {
+              type: "string",
+              description:
+                "可选：README 目标分区标题关键词（子串匹配，如「其他自制」「借鉴自腾讯」）。缺省按名称前缀自动选：「ylx_/clz_」前缀 → 带来源前缀分区，否则 → 无前缀分区",
+            },
           },
           required: ["skill_dir"],
         },
@@ -313,6 +318,7 @@ async function main() {
             new_name: args.new_name ? String(args.new_name) : undefined,
             check_sensitive: args.check_sensitive !== undefined ? Boolean(args.check_sensitive) : undefined,
             sensitive_action: args.sensitive_action === "mask" ? "mask" : undefined,
+            readme_section: args.readme_section ? String(args.readme_section) : undefined,
           });
           const lines = [result.message];
           if (result.sensitive) {
