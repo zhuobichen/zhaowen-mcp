@@ -156,6 +156,34 @@ export interface ImageGenOptions {
   outputPath?: string; // 保存路径,默认 process.cwd()/generated_images/gen_<ts>.png
 }
 
+export interface ImageGenResult {
+  path: string;
+  /** 服务端在响应里**回报**的模型名。没给就是 null —— 不要拿请求值冒充。 */
+  model: string | null;
+  /** 我们请求时指定的模型（IMAGE_MODEL 或参数）。 */
+  requestedModel: string;
+  /** 服务端回报的用量（有就存，没有就 null）。 */
+  usage: unknown;
+  /** 元数据 sidecar 的落盘路径。 */
+  metaPath: string;
+}
+
+/**
+ * 把「请求了什么 / 服务端回报了什么」存一份 sidecar（`<图>.meta.json`）。
+ *
+ * 为什么非要当场记：**光看请求参数证明不了出图用的是哪个模型** —— 中转可以替换。
+ * 而生成物本身通常不带模型元数据（实测这些 PNG 里只有一个 dpi 标签），
+ * 所以事后从产物上是反查不出来的，证据只能在这个时刻攥住。
+ */
+async function writeMeta(
+  outPath: string,
+  meta: Record<string, unknown>
+): Promise<string> {
+  const metaPath = outPath + ".meta.json";
+  await writeFile(metaPath, JSON.stringify(meta, null, 2) + "\n", "utf-8");
+  return metaPath;
+}
+
 /**
  * 生成图片并保存到本地,返回绝对文件路径。
  *
@@ -167,7 +195,7 @@ export interface ImageGenOptions {
 export async function generateImage(
   prompt: string,
   opts: ImageGenOptions = {}
-): Promise<string> {
+): Promise<ImageGenResult> {
   const apiKey =
     process.env.IMAGE_API_KEY || process.env.VISION_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
   const baseUrl = (
@@ -233,7 +261,21 @@ export async function generateImage(
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, imgBuffer);
 
-  return outputPath;
+  const reportedModel = typeof data.model === "string" ? data.model : null;
+  const usage = data.usage ?? null;
+  const metaPath = await writeMeta(outputPath, {
+    at: new Date().toISOString(),
+    kind: "generate",
+    endpoint,
+    requestedModel: model,
+    reportedModel,
+    usage,
+    prompt,
+    size,
+    outputPath,
+  });
+
+  return { path: outputPath, model: reportedModel, requestedModel: model, usage, metaPath };
 }
 
 // ==================== 图片编辑（图生图） ====================
@@ -263,7 +305,7 @@ export interface ImageEditOptions {
 export async function editImage(
   prompt: string,
   opts: ImageEditOptions
-): Promise<string> {
+): Promise<ImageGenResult> {
   const apiKey =
     process.env.IMAGE_API_KEY || process.env.VISION_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
   const baseUrl = (
@@ -312,6 +354,7 @@ export async function editImage(
       body: buildForm(field) as any,
     });
 
+  let usedField = "image[]";
   let resp = await post("image[]");
   if (!resp.ok) {
     const status = resp.status;
@@ -325,6 +368,7 @@ export async function editImage(
       );
     }
     resp = alt;
+    usedField = "image";
   }
 
   const data = (await resp.json()) as any;
@@ -351,5 +395,21 @@ export async function editImage(
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, imgBuffer);
 
-  return outputPath;
+  const reportedModel = typeof data.model === "string" ? data.model : null;
+  const usage = data.usage ?? null;
+  const metaPath = await writeMeta(outputPath, {
+    at: new Date().toISOString(),
+    kind: "edit",
+    endpoint: baseUrl + "/images/edits",
+    requestedModel: model,
+    reportedModel,
+    usage,
+    field: usedField,
+    inputs: images,
+    prompt,
+    size,
+    outputPath,
+  });
+
+  return { path: outputPath, model: reportedModel, requestedModel: model, usage, metaPath };
 }

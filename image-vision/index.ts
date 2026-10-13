@@ -14,7 +14,32 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { existsSync } from "fs";
-import { describeImage, editImage, generateImage, getVisionConfig } from "./vision.js";
+import {
+  describeImage,
+  editImage,
+  generateImage,
+  getVisionConfig,
+  type ImageGenResult,
+} from "./vision.js";
+
+/**
+ * 生图/改图的统一回执。
+ *
+ * **只报请求参数是不够的**：中转可以悄悄换模型，而生成物本身不带模型元数据，
+ * 事后从图片上反查不出来。所以这里把「服务端回报的模型」和「请求的模型」分开写，
+ * 没回报就明说没回报 —— 别拿请求值冒充。
+ */
+function imageReceipt(lead: string, r: ImageGenResult): string {
+  const lines = [`${lead}: ${r.path}`];
+  lines.push(
+    r.model
+      ? `服务端回报模型: ${r.model}（请求的: ${r.requestedModel}）`
+      : `⚠️ 服务端没有回报模型名（请求的是 ${r.requestedModel}）—— 实际用了哪个，这份回执里查不到`
+  );
+  if (r.usage) lines.push(`用量: ${JSON.stringify(r.usage)}`);
+  lines.push(`元数据: ${r.metaPath}`);
+  return lines.join("\n");
+}
 
 /**
  * **识图默认关，生图不受影响。**
@@ -200,12 +225,12 @@ async function main() {
               content: [{ type: "text", text: "错误: 请提供图片生成提示词 prompt" }],
             };
           }
-          const outputPath = await generateImage(prompt, {
+          const out = await generateImage(prompt, {
             size: args.size ? String(args.size) : undefined,
             outputPath: args.output_path ? String(args.output_path) : undefined,
           });
           return {
-            content: [{ type: "text", text: `已生成图片: ${outputPath}` }],
+            content: [{ type: "text", text: imageReceipt("已生成图片", out) }],
           };
         }
 
@@ -230,13 +255,13 @@ async function main() {
               content: [{ type: "text", text: `错误: 这些输入图片不存在:\n  ${missing.join("\n  ")}` }],
             };
           }
-          const outPath = await editImage(prompt, {
+          const out = await editImage(prompt, {
             images: imgs,
             size: args.size ? String(args.size) : undefined,
             outputPath: args.output_path ? String(args.output_path) : undefined,
           });
           return {
-            content: [{ type: "text", text: `已编辑并保存: ${outPath}` }],
+            content: [{ type: "text", text: imageReceipt("已编辑并保存", out) }],
           };
         }
 

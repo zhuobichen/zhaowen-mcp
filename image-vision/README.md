@@ -23,12 +23,30 @@
 - `edit_image` 打的是 `POST {base}/images/edits`，`multipart/form-data` 上传图片。
   「把这行字改掉」「换个背景」「拿这两张合成一张」走这条。
 
-### `edit_image` 的两个实测坑
+### `edit_image` 的三个实测坑
 
 1. **多图的字段名各家不一致**：本机这份中转要 `image[]`，有的实现只认 `image`。
    所以第一次失败会**自动换写法重试一次**，而不是把 400 直接甩给调用方。
 2. **中转按 `User-Agent` 拦**：不带 UA 的脚本请求会拿到 **403** —— 那不是权限问题，
    是 UA 被挡。所以代码里显式带一个 UA，别把它当无关紧要的 header 删掉。
+3. **中转不回报模型名**：实测响应里**没有 `model` 字段**（有 `usage`）。
+   也就是说「出图到底用的是哪个模型」在这个通道上**无法证实也无法证伪** ——
+   请求参数写了 `gpt-image-2.5`，不等于跑的就是它。
+
+### 为什么每次生成都落一份 `<图>.meta.json`
+
+因为上面第 3 条：**光看请求参数证明不了什么**，而生成物本身也不带模型元数据
+（实测这些 PNG 里只有一个 `dpi` 标签），事后从图片上反查不出来。
+所以回执和 sidecar 里把两件事**分开写**：
+
+```
+requestedModel : "gpt-image-2.5"   ← 我们请求的
+reportedModel  : null              ← 服务端回报的；没回报就是 null，不拿请求值冒充
+usage          : { input_tokens, output_tokens, image_tokens, ... }
+field          : "image[]"         ← 哪个 multipart 字段名生效了
+```
+
+工具回执里也会写明「服务端有没有回报模型」；没回报时**明说查不到**，不装作知道。
 
 ### 识图为什么默认关
 
@@ -71,15 +89,26 @@ npx tsx index.ts          # 直接运行
 
 ## 开发自检
 
-类型检查需要 typescript（本服务没装 devDependency，装了才跑）：
+本服务**没装 devDependency**，所以类型检查要临时装两个包（`--no-save`，不动 `package.json`）：
 
 ```sh
-npm i -D typescript && npx tsc --noEmit -p tsconfig.json
+npm i --no-save typescript @types/node
+node node_modules/typescript/bin/tsc --ignoreConfig --noEmit --strict --skipLibCheck \
+  --esModuleInterop --moduleResolution bundler --module esnext --target es2022 \
+  --types node index.ts vision.ts
 ```
 
+两个实测坑：
+
+- 直接 `-p tsconfig.json` 会因为仓库的 tsconfig 没有 `types` 字段而**认不出 `fs` / `process` / `Buffer`**，
+  报一整屏 `TS2591`（"Do you need to install type definitions for node?"）——
+  **那不是你的代码错**，是类型定义没被加载。要么像上面那样显式 `--types node`，要么去改 tsconfig。
+- **连着跑两次 `npm i --no-save` 会把上一个包 prune 掉**（第二次装完之后 `tsc` 就找不到了），
+  要装就一起装。
+
 更值得做的是**用真实工具调一遍**：起本服务走 stdio 握手，`tools/list` 看清单，
-再真调一次 `edit_image`（给一张图 + 一句指令，确认回来的文件能打开）。
-只做 `tsc` 看不出字段名、UA、超时这些真问题。
+再真调一次 `edit_image`（给一张图 + 一句指令，确认回来的文件能打开、回执里有模型与用量行）。
+只做 `tsc` 看不出字段名、UA、超时这些真问题——这次就是靠真调才发现**中转根本不回报模型名**。
 
 ## 部署到另一台机器
 
