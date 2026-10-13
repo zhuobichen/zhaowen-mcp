@@ -35,6 +35,7 @@
 | 服务 | 来源 | 用途 |
 |------|------|------|
 | `amap-maps` | [npm `@amap/amap-maps-mcp-server`](https://www.npmjs.com/package/@amap/amap-maps-mcp-server)（高德官方） | 地理编码/逆地理 · 关键词与周边 POI 搜索 · 距离测量 · 步行/骑行/驾车/**公交**路径规划 · IP 定位 · 天气。需 `AMAP_MAPS_API_KEY`，**平台类型必须选「Web服务」**（Web端 JS API 的 key 用不了）。也可用 Streamable HTTP 接入：`https://mcp.amap.com/mcp?key=<key>`，无需本地安装 |
+| `zotero-mcp` | [pypi `zotero-mcp-server`](https://pypi.org/project/zotero-mcp-server/)（[54yyyu/zotero-mcp](https://github.com/54yyyu/zotero-mcp)，MIT） | 检索与读取 Zotero 库：条目/集合/全文/批注检索 · 条目详情与摘要 · 附件内容提取，共 **25 个工具**。本机以 **Streamable HTTP** 接入（`http://127.0.0.1:23120/mcp`），不占本地目录。⚠️ 它还暴露 `write_note`/`write_tag`/`write_metadata`/`write_item`/`add_by_identifier` 等**写入工具**，与「Zotero 只读」的规矩冲突 —— 只读场景下别调这些 |
 
 #### `amap-maps` 实测踩坑（2026-10 补充）
 

@@ -392,6 +392,43 @@
         "maps_weather"
       ],
       "notes": "第三方官方 MCP，非本仓库代码，因此没有本地目录与 entrypoint。建议用 Streamable HTTP 接入（https://mcp.amap.com/mcp?key=<key>）；本机走的是 Node stdio 包（Node >=22.14）。Key 要选「Web服务」平台类型，且只放 .claude.json，不要入库。用法上的坑（同一个路名多候选点能让总长差 6 km、规划器会静默换走法、渡口通航时间看 open_time 等 10 条）见 README「amap-maps 实测踩坑」。"
+    },
+    {
+      "name": "zotero-mcp",
+      "external": true,
+      "source": "pypi:zotero-mcp-server (github.com/54yyyu/zotero-mcp, MIT)",
+      "version": "0.5.0",
+      "status": "active",
+      "runtime": "http",
+      "launch": "已在本地常驻，接入地址 http://127.0.0.1:23120/mcp（Streamable HTTP）",
+      "tools": [
+        "get_libraries",
+        "search_library",
+        "search_libraries",
+        "search_annotations",
+        "get_item_details",
+        "get_annotations",
+        "get_content",
+        "get_collections",
+        "search_collections",
+        "get_collection_details",
+        "get_collection_items",
+        "get_subcollections",
+        "create_collection",
+        "update_collection",
+        "delete_collection",
+        "add_items_to_collection",
+        "remove_items_from_collection",
+        "search_fulltext",
+        "get_item_abstract",
+        "fulltext_database",
+        "write_note",
+        "write_tag",
+        "write_metadata",
+        "write_item",
+        "add_by_identifier"
+      ],
+      "notes": "第三方 MCP（54yyyu/zotero-mcp，MIT），非本仓库代码，因此没有本地目录与 entrypoint。本机走 Streamable HTTP，不占本地副本。工具清单取自运行中的服务（tools/list）。⚠️ 其中 create_collection/update_collection/delete_collection/add_items_to_collection/remove_items_from_collection/write_note/write_tag/write_metadata/write_item/add_by_identifier 会**写入 Zotero 库**，与「Zotero 文献库只读」的规矩冲突 —— 只读场景下不要调用。另注：本机另有 upstream 原样克隆在 E:/CodeProject/zotero-mcp，不必也不应 vendor 进本仓库。"
     }
   ]
 }
