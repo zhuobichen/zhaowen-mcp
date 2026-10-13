@@ -80,3 +80,24 @@ npm i -D typescript && npx tsc --noEmit -p tsconfig.json
 更值得做的是**用真实工具调一遍**：起本服务走 stdio 握手，`tools/list` 看清单，
 再真调一次 `edit_image`（给一张图 + 一句指令，确认回来的文件能打开）。
 只做 `tsc` 看不出字段名、UA、超时这些真问题。
+
+## 部署到另一台机器
+
+1. 把整个 `image-vision/` 目录放到目标机器的任意位置（`node_modules/` 里已带 `tsx`，**不用联网装**）；
+   目标机器只要有 **Node.js 18+**（`edit_image` 用的 `FormData`/`Blob` 依赖它）。
+2. 在目标机器 `~/.claude.json` 顶层的 `mcpServers` 里加一项，模板见
+   `image-vision-mcp-config.example.json`，把 `args` 里的两处路径与 `cwd` 改成实际路径。
+3. 重启 Claude Code —— 工具清单在**连接那一刻**定下，旧会话里还是旧清单。
+
+> ⚠️ `VISION_API_KEY` / `IMAGE_API_KEY` 是敏感凭据：**不要**写进本文件、示例配置或任何提交。
+> 示例文件里只有占位符。
+
+## 本服务**不再**在 `~/.claude/mcp-servers/` 下维护
+
+它曾经有两份：`~/.claude/mcp-servers/image-vision/`（实际注册在跑的那份）和本仓库这份。
+结果是**两份可运行代码各自演化、静默漂移** —— 跑的那份攒了 4 处改动（`VISION_DESCRIBE_ENABLED`
+开关、生图说明读运行时模型、`IMAGE_BASE_URL` 默认值、状态输出）一个都没回仓库。
+
+2026-10-13 已合并回本仓库，并删掉 `~/.claude/mcp-servers/` 那份；注册指向本仓库。
+**以后只在本仓库改。**
+
