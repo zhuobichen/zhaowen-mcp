@@ -176,6 +176,7 @@
       "tools": [
         "describe_image",
         "generate_image",
+    "edit_image",
         "check_vision_status"
       ]
     },

@@ -161,7 +161,7 @@ export interface ImageGenOptions {
  *
  * 配置环境变量:
  *   IMAGE_API_KEY  - API Key(必填,fallback VISION_API_KEY / ANTHROPIC_AUTH_TOKEN)
- *   IMAGE_BASE_URL - 端点(必填,fallback VISION_API_URL)
+ *   IMAGE_BASE_URL - 端点,默认 https://one-hub.hycx-gd.cn/v1(fallback VISION_API_URL)
  *   IMAGE_MODEL    - 模型名,默认 gpt-image-2-ca
  */
 export async function generateImage(
@@ -171,18 +171,13 @@ export async function generateImage(
   const apiKey =
     process.env.IMAGE_API_KEY || process.env.VISION_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
   const baseUrl = (
-    process.env.IMAGE_BASE_URL || process.env.VISION_API_URL || ""
+    process.env.IMAGE_BASE_URL || process.env.VISION_API_URL || "https://one-hub.hycx-gd.cn/v1"
   ).replace(/\/$/, "");
   const model = process.env.IMAGE_MODEL || "gpt-image-2-ca";
 
   if (!apiKey) {
     throw new Error(
       "未配置图片生成 API Key。请设置环境变量 IMAGE_API_KEY 或 VISION_API_KEY"
-    );
-  }
-  if (!baseUrl) {
-    throw new Error(
-      "未配置图片生成 API 端点。请设置环境变量 IMAGE_BASE_URL 或 VISION_API_URL"
     );
   }
   if (!prompt || !prompt.trim()) {
@@ -235,6 +230,124 @@ export async function generateImage(
   const ts = Date.now();
   const outputPath =
     opts.outputPath || join(process.cwd(), "generated_images", `gen_${ts}.png`);
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, imgBuffer);
+
+  return outputPath;
+}
+
+// ==================== 图片编辑（图生图） ====================
+
+export interface ImageEditOptions {
+  images: string[];    // 输入图片的绝对路径（1~4 张）
+  size?: string;       // 输出尺寸,默认 "1024x1024"
+  outputPath?: string; // 保存路径,默认 process.cwd()/generated_images/edit_<ts>.png
+}
+
+/**
+ * 在已有图片上做编辑,返回编辑后的绝对文件路径。
+ *
+ * 为什么必须单独一条:**`generateImage` 做不了这件事**。它打的是
+ * `/images/generations`,body 里只有 model/prompt/size/n,**没有任何图片入参** ——
+ * 说它"能改图"是把模型的编辑能力当成了这套代码的能力。图生图走的是
+ * `/images/edits`,multipart 上传。
+ *
+ * 两个实测坑:
+ * 1. 多图的字段名各家不一致(本机这份中转要 `image[]`,有的实现只认 `image`),
+ *    所以第一次失败会自动换写法重试一次,而不是直接把错误抛给用户;
+ * 2. 中转会**按 User-Agent 拦**——不带 UA 的脚本请求会拿到 403,那不是权限问题,
+ *    所以这里显式带一个 UA。
+ *
+ * 环境变量与 `generateImage` 完全共用(IMAGE_API_KEY / IMAGE_BASE_URL / IMAGE_MODEL)。
+ */
+export async function editImage(
+  prompt: string,
+  opts: ImageEditOptions
+): Promise<string> {
+  const apiKey =
+    process.env.IMAGE_API_KEY || process.env.VISION_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
+  const baseUrl = (
+    process.env.IMAGE_BASE_URL || process.env.VISION_API_URL || "https://one-hub.hycx-gd.cn/v1"
+  ).replace(/\/$/, "");
+  const model = process.env.IMAGE_MODEL || "gpt-image-2-ca";
+
+  if (!apiKey) {
+    throw new Error(
+      "未配置图片生成 API Key。请设置环境变量 IMAGE_API_KEY 或 VISION_API_KEY"
+    );
+  }
+  if (!prompt || !prompt.trim()) {
+    throw new Error("图片编辑提示词不能为空");
+  }
+  const images = (opts.images || []).filter(Boolean);
+  if (!images.length) {
+    throw new Error("图生图至少要传一张输入图片(images)");
+  }
+  if (images.length > 4) {
+    throw new Error(`图生图一次最多 4 张输入图片,收到 ${images.length} 张`);
+  }
+
+  const size = opts.size || "1024x1024";
+
+  const buildForm = (field: string): FormData => {
+    const fd = new FormData();
+    fd.append("model", model);
+    fd.append("prompt", prompt);
+    fd.append("size", size);
+    fd.append("n", "1");
+    for (const p of images) {
+      const buf = readFileSync(p);
+      fd.append(field, new Blob([buf], { type: detectMimeType(p) }), basename(p));
+    }
+    return fd;
+  };
+
+  const post = (field: string) =>
+    fetch(baseUrl + "/images/edits", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "User-Agent": "OpenAI/Python 1.0",
+      },
+      body: buildForm(field) as any,
+    });
+
+  let resp = await post("image[]");
+  if (!resp.ok) {
+    const status = resp.status;
+    const firstMsg = (await resp.text()).slice(0, 300);
+    const alt = await post("image");
+    if (!alt.ok) {
+      const altMsg = (await alt.text()).slice(0, 300);
+      throw new Error(
+        `图片编辑 API 错误 ${status}: ${firstMsg}` +
+          `（改用 image 字段重试仍失败 ${alt.status}: ${altMsg}）`
+      );
+    }
+    resp = alt;
+  }
+
+  const data = (await resp.json()) as any;
+  const item = data?.data?.[0];
+  if (!item) {
+    throw new Error("图片编辑 API 返回空数据");
+  }
+
+  let imgBuffer: Buffer;
+  if (item.b64_json) {
+    imgBuffer = Buffer.from(item.b64_json, "base64");
+  } else if (item.url) {
+    const imgResp = await fetch(item.url);
+    if (!imgResp.ok) {
+      throw new Error(`下载编辑后图片失败: ${imgResp.status}`);
+    }
+    imgBuffer = Buffer.from(await imgResp.arrayBuffer());
+  } else {
+    throw new Error("图片编辑 API 返回格式未知(无 b64_json/url)");
+  }
+
+  const outputPath =
+    opts.outputPath || join(process.cwd(), "generated_images", `edit_${Date.now()}.png`);
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, imgBuffer);
 
