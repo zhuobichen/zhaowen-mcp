@@ -154,6 +154,12 @@ export async function describeImage(
 export interface ImageGenOptions {
   size?: string;       // 图片尺寸,默认 "1024x1024"
   outputPath?: string; // 保存路径,默认 process.cwd()/generated_images/gen_<ts>.png
+  /**
+   * 后端覆盖：`doubao` 走本地豆包桌面版（约 15 秒/张、2048×2048，带可见水印），
+   * `http` 走 one-hub。**不传则看环境变量 IMAGE_PROVIDER**（默认 http）。
+   * 留这个参数是为了让「默认走哪条」可配，同时另一条路仍然够得着。
+   */
+  provider?: string;
 }
 
 export interface ImageGenResult {
@@ -196,6 +202,14 @@ export async function generateImage(
   prompt: string,
   opts: ImageGenOptions = {}
 ): Promise<ImageGenResult> {
+  // 后端可选：`IMAGE_PROVIDER=doubao` 走**本地豆包桌面版**（CDP 驱动它的对话界面），
+  // 不碰 one-hub。默认仍是 http —— 不设这个变量，行为与以前完全一致。
+  // 实测豆包约 15 秒/张、2048×2048，且产物自带 AIGC 元数据（可当场留证）。
+  if ((opts.provider || process.env.IMAGE_PROVIDER || "http").trim().toLowerCase() === "doubao") {
+    const { generateImageViaDoubao } = await import("./doubao.js");
+    return generateImageViaDoubao(prompt, opts);
+  }
+
   const apiKey =
     process.env.IMAGE_API_KEY || process.env.VISION_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
   const baseUrl = (
@@ -282,8 +296,14 @@ export async function generateImage(
 
 export interface ImageEditOptions {
   images: string[];    // 输入图片的绝对路径（1~4 张）
-  size?: string;       // 输出尺寸,默认 "1024x1024"
+  size?: string;       // 输出尺寸,默认 "1024x1024"（豆包后端忽略它,见下）
   outputPath?: string; // 保存路径,默认 process.cwd()/generated_images/edit_<ts>.png
+  /**
+   * 后端覆盖,含义同 `ImageGenOptions.provider`：`doubao` 走本地豆包桌面版
+   * （CDP 把它当参考图送进对话），`http` 走 one-hub 的 `/images/edits`。
+   * **不传则看环境变量 IMAGE_PROVIDER**（默认 http）。
+   */
+  provider?: string;
 }
 
 /**
@@ -306,6 +326,14 @@ export async function editImage(
   prompt: string,
   opts: ImageEditOptions
 ): Promise<ImageGenResult> {
+  // 豆包后端：把底图当**参考图**送进它的对话界面，再按提示词改（2026-10-14 实测可用）。
+  // 注意 `size` 在这条路上**无效** —— 豆包客户端里选不了输出尺寸，
+  // 所以 meta 里记的是产出的**实际**尺寸，不是请求的 size。
+  if ((opts.provider || process.env.IMAGE_PROVIDER || "http").trim().toLowerCase() === "doubao") {
+    const { editImageViaDoubao } = await import("./doubao.js");
+    return editImageViaDoubao(prompt, opts);
+  }
+
   const apiKey =
     process.env.IMAGE_API_KEY || process.env.VISION_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
   const baseUrl = (

@@ -111,6 +111,12 @@ async function main() {
               type: "string",
               description: "可选：保存到本地的完整文件路径（默认当前目录/generated_images/）",
             },
+            provider: {
+              type: "string",
+              description:
+                "可选：指定后端。doubao=本地豆包桌面版（约 15 秒/张、2048×2048，产物带可见水印「豆包 AI 生成」）；" +
+                "http=one-hub（默认，IMAGE_MODEL 指的那个）。不传则按环境变量 IMAGE_PROVIDER。",
+            },
           },
           required: ["prompt"],
         },
@@ -123,7 +129,9 @@ async function main() {
         description:
           `在**已有图片**上做编辑（图生图）：传入 1~4 张本地图片 + 编辑指令，返回编辑后的文件路径。` +
           `适用「把这行字改掉」「换个背景」「基于这两张图合成」这类需求。` +
-          `只给文字从零画图请用 generate_image。基于 ${process.env.IMAGE_MODEL || "gpt-image-2-ca"} 模型。`,
+          `只给文字从零画图请用 generate_image。` +
+          `后端随 IMAGE_PROVIDER：默认走 one-hub 的 ${process.env.IMAGE_MODEL || "gpt-image-2-ca"}；` +
+          `provider="doubao" 则走本地豆包桌面版（把底图当参考图送进对话，版式/文字保留得好，产物带可见水印）。`,
         inputSchema: {
           type: "object",
           properties: {
@@ -138,11 +146,17 @@ async function main() {
             },
             size: {
               type: "string",
-              description: "输出尺寸，如 1024x1024（默认）",
+              description: "输出尺寸，如 1024x1024（默认）。**豆包后端忽略它**（客户端里选不了尺寸）",
             },
             output_path: {
               type: "string",
               description: "可选：保存到本地的完整文件路径（默认当前目录/generated_images/）",
+            },
+            provider: {
+              type: "string",
+              description:
+                "可选：指定后端。doubao=本地豆包桌面版（把底图当参考图送进它的对话界面，约 30~60 秒/张，" +
+                "产物带可见水印「豆包 AI 生成」）；不传=看环境变量 IMAGE_PROVIDER，默认 http（one-hub）。",
             },
           },
           required: ["prompt", "images"],
@@ -200,22 +214,29 @@ async function main() {
         case "check_vision_status": {
           const config = getVisionConfig();
           const hasKey = !!config.apiKey;
-          return {
-            content: [
-              {
-                type: "text",
-                text: [
-                  `视觉 API 配置状态:`,
-                  `- API Key: ${hasKey ? "已配置 ✓" : "未配置 ✗"}`,
-                  `- API URL: ${config.apiUrl}`,
-                  `- 读图模型: ${config.model}`,
-                  `- 读图工具: ${DESCRIBE_ENABLED ? "已启用" : "默认关闭（主模型自带识图）"}`,
-                  `- 生图模型: ${process.env.IMAGE_MODEL || "gpt-image-2-ca"}`,
-                  hasKey ? "" : "\n请设置环境变量 VISION_API_KEY 来启用识图功能。",
-                ].join("\n"),
-              },
-            ],
-          };
+          const provider = (process.env.IMAGE_PROVIDER || "http").trim().toLowerCase();
+          const lines = [
+            `视觉 API 配置状态:`,
+            `- API Key: ${hasKey ? "已配置 ✓" : "未配置 ✗"}`,
+            `- API URL: ${config.apiUrl}`,
+            `- 读图模型: ${config.model}`,
+            `- 读图工具: ${DESCRIBE_ENABLED ? "已启用" : "默认关闭（主模型自带识图）"}`,
+            `- 生图后端: ${provider === "doubao" ? "doubao（本地豆包桌面版，CDP）" : "http（one-hub）"}`,
+            provider === "doubao"
+              ? `   端点: ${process.env.DOUBAO_CDP_URL || "http://127.0.0.1:9333"}`
+              : `   模型: ${process.env.IMAGE_MODEL || "gpt-image-2-ca"}`,
+          ];
+          if (provider === "doubao") {
+            const { doubaoStatus } = await import("./doubao.js");
+            const st = await doubaoStatus();
+            lines.push(
+              `   豆包实例: ${st.reachable ? "调试端口通 ✓" : "连不上 ✗ " + (st.error || "")}`,
+              `   聊天页: ${st.chatTargetUrl || "未找到"}`,
+              `   输入框: ${st.composerVisible ? "可见 ✓" : "不可见 ✗（界面没起来或没登录）"}`
+            );
+          }
+          if (!hasKey && provider !== "doubao") lines.push(`\n请设置环境变量 VISION_API_KEY 来启用识图功能。`);
+          return { content: [{ type: "text", text: lines.join("\n") }] };
         }
 
         case "generate_image": {
@@ -228,6 +249,7 @@ async function main() {
           const out = await generateImage(prompt, {
             size: args.size ? String(args.size) : undefined,
             outputPath: args.output_path ? String(args.output_path) : undefined,
+            provider: args.provider ? String(args.provider) : undefined,
           });
           return {
             content: [{ type: "text", text: imageReceipt("已生成图片", out) }],
@@ -259,6 +281,7 @@ async function main() {
             images: imgs,
             size: args.size ? String(args.size) : undefined,
             outputPath: args.output_path ? String(args.output_path) : undefined,
+            provider: args.provider ? String(args.provider) : undefined,
           });
           return {
             content: [{ type: "text", text: imageReceipt("已编辑并保存", out) }],
