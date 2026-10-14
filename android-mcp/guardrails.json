@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "qq-qzone",
+      "note": "QQ/微信里的「空间」(QZone) 一律不碰。2026-10-14 用户明确要求：这个 QQ 号的空间不许查看。",
+      "denyTapText": ["空间", "QQ空间", "我的空间", "好友动态", "空间动态"],
+      "denyTapTextContains": ["qzone"],
+      "denyTapTextInPackages": ["com.tencent.mobileqq", "com.tencent.mm"],
+      "denyUrlPatterns": ["qzone.qq.com", "mqqapi://qzone", "mqqwpa://qzone", "qzonemoment", "h5.qzone"],
+      "denyForegroundPatterns": ["qzone"]
+    }
+  ]
+}

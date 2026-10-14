@@ -34,13 +34,31 @@ function attr(tag: string, name: string): string {
   return m ? m[1] : "";
 }
 
+/**
+ * XML 实体解码。
+ *
+ * 除了五个命名实体，**数字字符引用也必须解**：uiautomator 会把表情、换行写成
+ * `&#128552;` / `&#10;` 这种形式，只解命名实体的话它们会原样漏进输出 ——
+ * 实测看到过 dump 里写着「这大骨这么大&#128552;」，而同一屏截图里表情是正常渲染的。
+ */
 function decode(s: string): string {
   return s
+    .replace(/&#x([0-9a-fA-F]+);/g, (_m, h: string) => fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_m, d: string) => fromCodePoint(parseInt(d, 10)))
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&");
+}
+
+function fromCodePoint(cp: number): string {
+  if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff) return "";
+  try {
+    return String.fromCodePoint(cp);
+  } catch {
+    return "";
+  }
 }
 
 /** "[0,0][1080,1920]" → 中心点 */
@@ -91,11 +109,14 @@ export function parseUiXml(xml: string): UiNode[] {
   return nodes;
 }
 
+/** 文本进了单行输出前把控制字符转义掉，否则一条节点会占好几行、整个列表没法看。 */
+const oneLine = (s: string) => s.replace(/\r/g, "\\r").replace(/\n/g, "\\n").replace(/\t/g, "\\t");
+
 export function formatNodes(nodes: UiNode[], max = 150): string {
   if (!nodes.length) return "（UI 层级为空 —— 可能页面是 Canvas/Surface 自绘，或应用刚启动还没渲染）";
   const lines: string[] = [];
   for (const n of nodes.slice(0, max)) {
-    const label = n.text || n.desc || (n.checked ? "[已勾选]" : "");
+    const label = oneLine(n.text || n.desc || (n.checked ? "[已勾选]" : ""));
     const flags: string[] = [];
     if (n.clickable) flags.push("clickable");
     if (n.longClickable) flags.push("long-clickable");
@@ -111,6 +132,16 @@ export function formatNodes(nodes: UiNode[], max = 150): string {
   }
   if (nodes.length > max) lines.push(`… 另有 ${nodes.length - max} 个节点未显示`);
   return lines.join("\n");
+}
+
+/** 给 android_wait_idle 用的界面指纹：连续两次算出同一个值 = 这一屏稳定了。 */
+export function screenSignature(nodes: UiNode[]): string {
+  return nodes.map((n) => `${n.cls}|${n.text}|${n.desc}|${n.bounds}`).join("\n");
+}
+
+/** 机器可消费的形态（text 保留真实换行，不转义）。 */
+export function toJson(nodes: UiNode[]): string {
+  return JSON.stringify(nodes, null, 2);
 }
 
 /**

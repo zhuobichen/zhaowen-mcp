@@ -9,6 +9,8 @@ import {
   AndroidError,
   adb,
   adbBinary,
+  dumpUiXml,
+  foreground,
   listDevices,
   listAvds,
   resolveDevice,
@@ -16,7 +18,9 @@ import {
   startEmulator,
   stopEmulator,
 } from "./lib/android.js";
-import { parseUiXml, formatNodes, findByText, type UiNode } from "./lib/uiautomator.js";
+import { parseUiXml, formatNodes, findByText, screenSignature, toJson, type UiNode } from "./lib/uiautomator.js";
+import { checkForeground, checkGuardrails, guardMessage, guardrailsSummary } from "./lib/guardrails.js";
+import { inputText as inputTextImpl } from "./lib/input.js";
 
 // ---------------------------------------------------------------- 工具实现
 
@@ -25,8 +29,12 @@ const SERIAL_PROP = {
   description: "可选：目标设备 serial（adb devices 里的值）。只有一台设备时可省略",
 };
 
-function ok(text: string) {
-  return { content: [{ type: "text" as const, text }] };
+type McpContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+function ok(text: string | McpContent[]) {
+  return { content: Array.isArray(text) ? text : [{ type: "text" as const, text }] };
 }
 
 function must(r: { code: number; stdout: string; stderr: string }, what: string): string {
@@ -43,6 +51,8 @@ async function sh(serial: string, cmd: string[], timeoutMs = 20000) {
 
 async function toolStatus(_args: any): Promise<string> {
   const lines: string[] = ["# Android 环境状态"];
+  // 禁区配置也在这里露个脸：规矩是配置文件说了算，不是靠记性 —— 出问题先看这一节。
+  const guardLines = ["", "## 禁区（guardrails）", ...guardrailsSummary()];
   let adbPath = "?";
   let adbVersion = "";
   try {
@@ -53,7 +63,7 @@ async function toolStatus(_args: any): Promise<string> {
     lines.push(`## ✗ adb 不可用`);
     lines.push(String(e?.message ?? e));
     lines.push("", "装好 SDK 后重启本 MCP 即可。Windows 建议同时设置 ANDROID_SDK_ROOT。");
-    return lines.join("\n");
+    return lines.concat(guardLines).join("\n");
   }
   lines.push(`## ✓ adb`, `- 路径: ${adbPath}`, `- 版本: ${adbVersion}`);
 
@@ -80,7 +90,7 @@ async function toolStatus(_args: any): Promise<string> {
   } catch {
     lines.push("## 模拟器", "emulator 不可用（没装 SDK Emulator，或改用真机）");
   }
-  return lines.join("\n");
+  return lines.concat(guardLines).join("\n");
 }
 
 async function toolDeviceInfo(args: any): Promise<string> {
@@ -114,27 +124,25 @@ async function toolDeviceInfo(args: any): Promise<string> {
 
 async function toolDumpUi(args: any): Promise<string> {
   const serial = await resolveDevice(args.serial);
-  // --compressed 显著减小 XML 体积；格式不变，解析无影响。
-  must(await sh(serial, ["uiautomator", "dump", "--compressed", "/sdcard/window_dump.xml"], 30000), "uiautomator dump");
-  const r = await adb(["exec-out", "cat", "/sdcard/window_dump.xml"], serial, 30000);
-  if (r.stdout.includes("<?xml")) {
-    const nodes = parseUiXml(r.stdout);
-    const head = `# 当前界面（${nodes.length} 个可见节点）\n`;
-    const foot =
-      "\n\n坐标可直接喂给 android_tap 的 x/y；也可直接用 android_tap 的 text 参数按文字点。" +
-      "完整层级用 android_shell 跑 `uiautomator dump` 拿原始 XML。";
-    return head + formatNodes(nodes, Number(args.max) || 150) + foot;
+  const fg = await foreground(serial).catch(() => ({ raw: "" }) as { raw: string; packageName?: string; activity?: string });
+  const blocked = checkForeground(fg.packageName, fg.activity);
+  if (blocked) return guardMessage(blocked, "dump_ui");
+
+  const nodes = parseUiXml(await dumpUiXml(serial));
+  if (String(args.format ?? "text").toLowerCase() === "json") {
+    return JSON.stringify({ foreground: fg.activity ?? null, count: nodes.length, nodes }, null, 2);
   }
-  // 部分机型 dump 到文件后 cat 拿不到，回退用传统 pull 方式。
-  const local = join(tmpdir(), "window_dump.xml");
-  must(await adb(["pull", "/sdcard/window_dump.xml", local], serial, 30000), "pull dump");
-  const xml = readFileSync(local, "utf8");
-  const nodes = parseUiXml(xml);
-  return `# 当前界面（${nodes.length} 个可见节点）\n` + formatNodes(nodes, Number(args.max) || 150);
+  const head = `# 当前界面（${nodes.length} 个可见节点${fg.activity ? `，前台 ${fg.activity}` : ""}）\n`;
+  const foot =
+    "\n\n坐标可直接喂给 android_tap 的 x/y；也可直接用 android_tap 的 text 参数按文字点。" +
+    "要机器可消费的形态就传 format=\"json\"。完整层级用 android_shell 跑 `uiautomator dump` 拿原始 XML。";
+  return head + formatNodes(nodes, Number(args.max) || 150) + foot;
 }
 
 async function toolTap(args: any): Promise<string> {
   const serial = await resolveDevice(args.serial);
+  const blocked = await guard(serial, { action: "tap", nodeText: args.text ? String(args.text) : undefined });
+  if (blocked) return blocked;
   let x = Number(args.x);
   let y = Number(args.y);
   let what = "";
@@ -177,10 +185,16 @@ async function toolInputText(args: any): Promise<string> {
   const serial = await resolveDevice(args.serial);
   const text = String(args.text ?? "");
   if (!text) return "错误：text 不能为空";
-  // 空格必须写成 %s —— `input text "a b"` 会被设备 shell 拆成两个参数，只剩下 "a"。
-  const encoded = text.replace(/ /g, "%s");
-  must(await sh(serial, ["input", "text", encoded], 20000), "input text");
-  return `已输入: ${text}`;
+  // 在禁区页面里输入等于参与，所以这里也过一遍。
+  const blocked = await guard(serial, { action: "input_text" });
+  if (blocked) return blocked;
+
+  const r = await inputTextImpl(serial, text, { clear: Boolean(args.clear) });
+  const lines = [`已输入: ${text}`, `- 走法: ${r.note}`];
+  if (r.readback !== undefined) lines.push(`- 输入框现在是: ${JSON.stringify(r.readback)}`);
+  if (r.method === "ascii") lines.push(`- 校验: 纯 ASCII，走设备原生输入，未回读`);
+  else lines.push(r.verified ? `- 校验: 通过（回读到这段文字）` : `- ⚠️ 校验: 没在输入框里看到这段文字 —— 用 android_dump_ui 确认一下`);
+  return lines.join("\n");
 }
 
 const KEYS: Record<string, string> = {
@@ -201,39 +215,87 @@ const KEYS: Record<string, string> = {
   unlock: "KEYCODE_WAKEUP",
 };
 
+/**
+ * 把 key 参数翻成 `input keyevent` 能吃的形式。
+ *
+ * 数字 keycode 要**原样透传**：老的写法是 `KEYCODE_${raw}`，传 "279" 会拼成
+ * `KEYCODE_279`（无效），而工具描述里明明写着"或直接写数字 keycode" —— 实测踩过。
+ */
+function resolveKeycode(raw: string): string {
+  const r = raw.trim();
+  if (/^\d+$/.test(r)) return r;
+  if (/^0x[0-9a-fA-F]+$/i.test(r)) return String(parseInt(r, 16));
+  const lower = r.toLowerCase();
+  if (KEYS[lower]) return KEYS[lower];
+  if (/^KEYCODE_/i.test(r)) return r.toUpperCase();
+  return `KEYCODE_${r.toUpperCase()}`;
+}
+
 async function toolPressKey(args: any): Promise<string> {
   const serial = await resolveDevice(args.serial);
-  const raw = String(args.key ?? "");
-  const code = KEYS[raw.toLowerCase()] ?? (raw.startsWith("KEYCODE_") ? raw : `KEYCODE_${raw.toUpperCase()}`);
+  const code = resolveKeycode(String(args.key ?? ""));
   must(await sh(serial, ["input", "keyevent", code], 15000), "keyevent");
   return `已按键 ${code}`;
 }
 
 async function toolWaitForText(args: any): Promise<string> {
   const serial = await resolveDevice(args.serial);
+  const fg0 = await foreground(serial).catch(() => ({ raw: "" }) as { raw: string; packageName?: string; activity?: string });
+  const blocked0 = checkForeground(fg0.packageName, fg0.activity);
+  if (blocked0) return guardMessage(blocked0, "wait_for_text");
+
   const target = String(args.text ?? "");
+  const gone = Boolean(args.gone);
   const timeoutMs = Number(args.timeout_ms) || 15000;
-  const deadline = Date.now() + timeoutMs;
+  const started = Date.now();
+  const deadline = started + timeoutMs;
   let last = "";
   while (Date.now() < deadline) {
     const nodes = await currentNodes(serial);
     const hits = findByText(nodes, target, Boolean(args.exact));
-    if (hits.length) {
-      return `✓ ${Math.round((timeoutMs - (deadline - Date.now())) / 100) / 10}s 后出现了「${target}」\n` +
+    const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+    if (gone ? hits.length === 0 : hits.length > 0) {
+      if (gone) return `✓ ${elapsed}s 后「${target}」从界面上消失了（当前 ${nodes.length} 个节点）`;
+      return (
+        `✓ ${elapsed}s 后出现了「${target}」\n` +
         hits.slice(0, 5).map((n) => `#${n.index} "${n.text || n.desc}" @${n.x},${n.y} bounds=${n.bounds}`).join("\n") +
-        (hits[0]?.clickable ? "\n（该节点可点击）" : "");
+        (hits[0]?.clickable ? "\n（该节点可点击）" : "")
+      );
     }
     last = formatNodes(nodes, 20);
     await new Promise((r) => setTimeout(r, Number(args.interval_ms) || 1000));
   }
-  return `✗ ${timeoutMs}ms 内没等到「${target}」。最后一次看到的界面：\n${last}`;
+  return gone
+    ? `✗ ${timeoutMs}ms 内「${target}」一直在。最后一次看到的界面：\n${last}`
+    : `✗ ${timeoutMs}ms 内没等到「${target}」。最后一次看到的界面：\n${last}`;
 }
 
 async function currentNodes(serial: string): Promise<UiNode[]> {
-  await sh(serial, ["uiautomator", "dump", "--compressed", "/sdcard/window_dump.xml"], 30000);
-  const r = await adb(["exec-out", "cat", "/sdcard/window_dump.xml"], serial, 30000);
-  if (!r.stdout.includes("<?xml")) return [];
-  return parseUiXml(r.stdout);
+  return parseUiXml(await dumpUiXml(serial));
+}
+
+/**
+ * 动作前的禁区检查。
+ *
+ * 为什么要先问一次"现在站在哪个 app"：有些规则只在特定 app 内成立
+ * （例如 QQ / 微信里的「空间」入口）。拿不到前台**不会静默放行** ——
+ * 那种情况下文字规则按保守处理拦下，见 lib/guardrails.ts。
+ */
+async function guard(
+  serial: string,
+  ctx: { action: string; targetPackage?: string; targetActivity?: string; nodeText?: string; command?: string }
+): Promise<string | null> {
+  let pkg: string | undefined;
+  // 只有"按文字点"这种规则才需要知道当前前台，而 dumpsys 不便宜 —— 没文字就不去问。
+  if (ctx.nodeText) {
+    try {
+      pkg = (await foreground(serial)).packageName;
+    } catch {
+      pkg = undefined; // 设备忙 / dumpsys 超时 —— 交给 guardrails 的保守分支处理
+    }
+  }
+  const hit = checkGuardrails({ ...ctx, packageName: pkg });
+  return hit ? guardMessage(hit, ctx.action) : null;
 }
 
 /** 找到包含 target 的最小可点击节点（"文字不可点、按钮可点"的兜底）。 */
@@ -264,8 +326,13 @@ function parseBounds(b: string): { x1: number; y1: number; x2: number; y2: numbe
   return { x1, y1, x2, y2, w: x2 - x1, h: y2 - y1 };
 }
 
-async function toolScreenshot(args: any): Promise<string> {
+async function toolScreenshot(args: any): Promise<string | McpContent[]> {
   const serial = await resolveDevice(args.serial);
+  // 截图 = 看。禁区页面里连看都不该看，所以先问一句现在站在哪儿。
+  const fg = await foreground(serial).catch(() => ({ raw: "" }) as { raw: string; packageName?: string; activity?: string });
+  const blocked = checkForeground(fg.packageName, fg.activity);
+  if (blocked) return guardMessage(blocked, "screenshot");
+
   const png = await adbBinary(["exec-out", "screencap", "-p"], serial, 30000);
   // PNG 魔数校验：拿到的不是 PNG 就说明命令没走 exec-out 或设备不支持。
   const isPng = png.length > 8 && png[0] === 0x89 && png[1] === 0x50 && png[2] === 0x4e && png[3] === 0x47;
@@ -279,7 +346,17 @@ async function toolScreenshot(args: any): Promise<string> {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${serial}-${Date.now()}.png`);
   writeFileSync(file, png);
-  return `截图已保存：${file}\n（${png.length} 字节，${serial}）可直接用图片查看工具打开这个路径。`;
+
+  const caption =
+    `截图已保存：${file}\n（${png.length} 字节，${serial}${fg.activity ? `，前台 ${fg.activity}` : ""}）`;
+  if (args.inline) {
+    // 直接把图塞回给调用方，省掉"拿到路径再读一次"那一轮。
+    return [
+      { type: "text", text: caption },
+      { type: "image", data: png.toString("base64"), mimeType: "image/png" },
+    ];
+  }
+  return `${caption}\n可直接用图片查看工具打开这个路径；要省一轮就传 inline=true。`;
 }
 
 async function toolInstall(args: any): Promise<string> {
@@ -299,6 +376,12 @@ async function toolLaunch(args: any): Promise<string> {
   const serial = await resolveDevice(args.serial);
   const pkg = String(args.package ?? "");
   if (!pkg) return "错误：需要 package 名";
+  const blocked = await guard(serial, {
+    action: "launch_app",
+    targetPackage: pkg,
+    targetActivity: args.activity ? String(args.activity) : undefined,
+  });
+  if (blocked) return blocked;
   const cmd = args.activity
     ? ["shell", "am", "start", "-n", args.activity.includes("/") ? args.activity : `${pkg}/${args.activity}`]
     : ["shell", "monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1"];
@@ -389,6 +472,8 @@ async function toolShell(args: any): Promise<string> {
     ? args.command.map(String)
     : String(args.command ?? "").split(" ").filter(Boolean);
   if (!cmd.length) return "错误：需要 command";
+  const blocked = await guard(serial, { action: "shell", command: cmd.join(" ") });
+  if (blocked) return blocked;
   const r = await sh(serial, cmd, Number(args.timeout_ms) || 20000);
   const out = [r.stdout.trim(), r.stderr.trim()].filter(Boolean).join("\n");
   return out || `(命令无输出，exit ${r.code})`;
@@ -445,6 +530,139 @@ async function toolListApks(args: any): Promise<string> {
   return apks.length ? `# ${dir} 下的 APK\n${apks.join("\n")}` : `${dir} 下没找到 APK（先构建）`;
 }
 
+/** {x,y} 或 {text} → 屏幕坐标（按文字找 + 回溯可点祖先，和 android_tap 同一套）。 */
+async function resolvePoint(serial: string, args: any): Promise<{ x: number; y: number; what: string }> {
+  if (args.text) {
+    const nodes = await currentNodes(serial);
+    let hits = findByText(nodes, String(args.text), Boolean(args.exact));
+    if (!hits.some((n) => n.clickable) && hits.length) {
+      hits = hits.map((n) => closestClickable(nodes, n)).filter((n): n is UiNode => Boolean(n));
+    }
+    if (!hits.length) {
+      throw new AndroidError(`界面上找不到文字「${args.text}」。当前界面节点：\n${formatNodes(nodes, 40)}`);
+    }
+    if (hits.length > 1 && !args.first) {
+      throw new AndroidError(
+        `文字「${args.text}」命中 ${hits.length} 个节点，请给更精确的 text 或传 first=true 用第一个：\n` +
+          hits.slice(0, 10).map((n) => `#${n.index} "${n.text || n.desc}" @${n.x},${n.y}`).join("\n")
+      );
+    }
+    return { x: hits[0].x, y: hits[0].y, what: `文字「${args.text}」→ ` };
+  }
+  const x = Number(args.x);
+  const y = Number(args.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    throw new AndroidError("需要 x/y 坐标，或 text=要操作的文字");
+  }
+  return { x, y, what: "" };
+}
+
+/**
+ * 等界面稳定。
+ *
+ * 判据：**连续两次 dump 的节点指纹完全一致**。没有这个工具时只能 `sleep` 硬等 ——
+ * 短了截到动画中间、长了白等，实测一轮操作要来回七八次 sleep + 截图。
+ */
+async function toolWaitIdle(args: any): Promise<string> {
+  const serial = await resolveDevice(args.serial);
+  const fg = await foreground(serial).catch(() => ({ raw: "" }) as { raw: string; packageName?: string; activity?: string });
+  const blocked = checkForeground(fg.packageName, fg.activity);
+  if (blocked) return guardMessage(blocked, "wait_idle");
+
+  const timeout = Number(args.timeout_ms) || 15000;
+  const interval = Number(args.interval_ms) || 500;
+  const started = Date.now();
+  const deadline = started + timeout;
+  let prev = "";
+  let count = 0;
+  while (Date.now() < deadline) {
+    const nodes = await currentNodes(serial);
+    const sig = screenSignature(nodes);
+    count = nodes.length;
+    if (sig && sig === prev) {
+      return `✓ 界面已稳定（${((Date.now() - started) / 1000).toFixed(1)}s，${nodes.length} 个节点${fg.activity ? `，前台 ${fg.activity}` : ""}）`;
+    }
+    prev = sig;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  const nodes = parseUiXml(await dumpUiXml(serial).catch(() => ""));
+  return (
+    `✗ ${timeout}ms 内界面没有稳定下来（一直在变，或者一直是空屏）。最后一次看到 ${count || nodes.length} 个节点：\n` +
+    formatNodes(nodes, 20)
+  );
+}
+
+async function toolLongPress(args: any): Promise<string> {
+  const serial = await resolveDevice(args.serial);
+  const blocked = await guard(serial, { action: "long_press", nodeText: args.text ? String(args.text) : undefined });
+  if (blocked) return blocked;
+  const { x, y, what } = await resolvePoint(serial, args);
+  // 同点长按 = 把 swipe 的起终点设成同一个地方。
+  const ms = Number(args.duration_ms) || 800;
+  must(await sh(serial, ["input", "swipe", String(x), String(y), String(x), String(y), String(ms)], 20000), "long press");
+  return `${what}已长按 (${x},${y}) ${ms}ms on ${serial}`;
+}
+
+async function toolDoubleTap(args: any): Promise<string> {
+  const serial = await resolveDevice(args.serial);
+  const blocked = await guard(serial, { action: "double_tap", nodeText: args.text ? String(args.text) : undefined });
+  if (blocked) return blocked;
+  const { x, y, what } = await resolvePoint(serial, args);
+  // AOSP 的 `input` 没有 doubletap 子命令，只能连点两次；间隔给 90ms 左右。
+  must(await sh(serial, ["input", "tap", String(x), String(y)], 15000), "tap");
+  await new Promise((r) => setTimeout(r, Number(args.gap_ms) || 90));
+  must(await sh(serial, ["input", "tap", String(x), String(y)], 15000), "tap");
+  return `${what}已双击 (${x},${y}) on ${serial}`;
+}
+
+async function toolDrag(args: any): Promise<string> {
+  const serial = await resolveDevice(args.serial);
+  const x1 = Number(args.x1), y1 = Number(args.y1), x2 = Number(args.x2), y2 = Number(args.y2);
+  if ([x1, y1, x2, y2].some((v) => !Number.isFinite(v))) return "错误：需要 x1,y1,x2,y2";
+  const ms = Number(args.duration_ms) || 800;
+  // draganddrop 会先按住再移动，和 swipe 的"划过去"不是一回事。
+  const r = await sh(serial, ["input", "draganddrop", String(x1), String(y1), String(x2), String(y2), String(ms)], 25000);
+  if (r.code !== 0) {
+    return `draganddrop 不可用（${(r.stderr || r.stdout).trim() || `exit ${r.code}`}）。可退用 android_swipe（起终点相同即为长按、不同即为滑动）。`;
+  }
+  return `已拖拽 (${x1},${y1}) → (${x2},${y2}) ${ms}ms`;
+}
+
+/**
+ * 把设备调成适合自动化的状态。
+ * 三个动效缩放是"时序不稳"的根源：界面在动画中时截图/取层级拿到的是中间态。
+ */
+async function toolPrepare(args: any): Promise<string> {
+  const serial = await resolveDevice(args.serial);
+  const out: string[] = [`# 设备预备（${serial}）`];
+  const off = args.animations !== false;
+  for (const k of ["window_animation_scale", "transition_animation_scale", "animator_duration_scale"]) {
+    const before = (await sh(serial, ["settings", "get", "global", k])).stdout.trim();
+    await sh(serial, ["settings", "put", "global", k, off ? "0" : "1"]);
+    const after = (await sh(serial, ["settings", "get", "global", k])).stdout.trim();
+    out.push(`- ${k}: ${before || "(默认)"} → ${after}`);
+  }
+  // 亮屏（WAKEUP 对已亮屏无害），再上滑一次解锁无密码设备
+  await sh(serial, ["input", "keyevent", "224"]);
+  const sizeRaw = (await sh(serial, ["wm", "size"])).stdout;
+  const m = sizeRaw.match(/(\d+)x(\d+)/);
+  if (m) {
+    const w = Number(m[1]);
+    const h = Number(m[2]);
+    await sh(serial, ["input", "swipe", String(Math.round(w / 2)), String(Math.round(h * 0.8)), String(Math.round(w / 2)), String(Math.round(h * 0.2)), "200"]);
+    out.push(`- 屏幕: ${w}x${h}`);
+  }
+  out.push("- 已尝试亮屏 + 上滑解锁（有密码/图案的机器请自己先解开）");
+  return out.join("\n");
+}
+
+async function toolForeground(args: any): Promise<string> {
+  const serial = await resolveDevice(args.serial);
+  const fg = await foreground(serial);
+  if (!fg.raw) return `没能识别当前前台（dumpsys 里既没有 mResumedActivity 也没有 mCurrentFocus）。serial=${serial}`;
+  return [`# 当前前台（${serial}）`, `- 包名: ${fg.packageName ?? "(未识别)"}`, `- activity: ${fg.activity ?? "(未识别)"}`, `- 原始行: ${fg.raw}`].join("\n");
+}
+
 // ---------------------------------------------------------------- MCP 装配
 
 const TOOLS = [
@@ -481,18 +699,27 @@ const TOOLS = [
   {
     name: "android_screenshot",
     description:
-      "截屏并保存成 PNG，返回绝对路径 —— 用图片查看工具打开这个路径就能「看见」屏幕。这是验证 UI 的第一手段。",
-    inputSchema: { type: "object", properties: { serial: SERIAL_PROP } },
+      "截屏并保存成 PNG，返回绝对路径 —— 用图片查看工具打开这个路径就能「看见」屏幕。这是验证 UI 的第一手段。" +
+      "传 inline=true 则把图直接作为图片内容返回，省掉「拿路径再读一次」那一轮。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        serial: SERIAL_PROP,
+        inline: { type: "boolean", description: "直接把 PNG 作为图片内容返回（默认 false，只给路径）" },
+      },
+    },
   },
   {
     name: "android_dump_ui",
     description:
-      "dump 当前界面层级，返回紧凑节点列表（文字/控件类型/坐标/可点击标记）。要找按钮、要判断页面状态时用它，比截图更精确也更省 token。",
+      "dump 当前界面层级，返回紧凑节点列表（文字/控件类型/坐标/可点击标记）。要找按钮、要判断页面状态时用它，比截图更精确也更省 token。" +
+      '要机器消费就传 format="json"（含前台 activity）。',
     inputSchema: {
       type: "object",
       properties: {
         serial: SERIAL_PROP,
         max: { type: "number", description: "最多返回多少节点（默认 150）" },
+        format: { type: "string", description: 'text（默认，给人读）/ json（给程序读）' },
       },
     },
   },
@@ -530,10 +757,16 @@ const TOOLS = [
   },
   {
     name: "android_input_text",
-    description: "输入文字（空格会自动转成 %s）。中文输入法场景建议配合 input_keyevent 或改用 adb shell input text 的 ASCII 限制。",
+    description:
+      "往焦点输入框输入文字，**中文可用**。按内容自动分流：纯 ASCII 走设备原生 input text；含非 ASCII 走设备侧 ADBKeyboard 广播。" +
+      "返回里会写明实际走了哪条路并回读校验。前提是输入框已有焦点 —— 拿不准就先 android_tap 点一下它。",
     inputSchema: {
       type: "object",
-      properties: { text: { type: "string" }, serial: SERIAL_PROP },
+      properties: {
+        text: { type: "string" },
+        clear: { type: "boolean", description: "先清空输入框再输入（默认 false，即追加）" },
+        serial: SERIAL_PROP,
+      },
       required: ["text"],
     },
   },
@@ -555,6 +788,7 @@ const TOOLS = [
       type: "object",
       properties: {
         text: { type: "string", description: "等待出现的文字" },
+        gone: { type: "boolean", description: "true = 等它消失（默认等它出现）" },
         timeout_ms: { type: "number", description: "超时毫秒，默认 15000" },
         interval_ms: { type: "number", description: "轮询间隔，默认 1000" },
         exact: { type: "boolean" },
@@ -685,6 +919,77 @@ const TOOLS = [
       required: ["command"],
     },
   },
+  {
+    name: "android_wait_idle",
+    description:
+      "等界面稳定下来再返回（连续两次 dump 的节点完全一致才算稳定）。**用它替掉 sleep** —— " +
+      "跳转/加载/动画之后立刻截图或取层级，拿到的往往是中间态。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        timeout_ms: { type: "number", description: "最多等多久（默认 15000）" },
+        interval_ms: { type: "number", description: "多久查一次（默认 500）" },
+        serial: SERIAL_PROP,
+      },
+    },
+  },
+  {
+    name: "android_long_press",
+    description: "长按。传 x/y 或 text=（与 android_tap 同一套定位）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        x: { type: "number" }, y: { type: "number" },
+        text: { type: "string" }, exact: { type: "boolean" }, first: { type: "boolean" },
+        duration_ms: { type: "number", description: "按下多久，默认 800" },
+        serial: SERIAL_PROP,
+      },
+    },
+  },
+  {
+    name: "android_double_tap",
+    description: "双击（AOSP 没有 doubletap 子命令，实现是连点两次，间隔约 90ms）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        x: { type: "number" }, y: { type: "number" },
+        text: { type: "string" }, exact: { type: "boolean" }, first: { type: "boolean" },
+        gap_ms: { type: "number", description: "两次点击的间隔，默认 90" },
+        serial: SERIAL_PROP,
+      },
+    },
+  },
+  {
+    name: "android_drag",
+    description: "拖拽（按住再移动，走 input draganddrop）。只是「划过去」的话 android_swipe 就够。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        x1: { type: "number" }, y1: { type: "number" },
+        x2: { type: "number" }, y2: { type: "number" },
+        duration_ms: { type: "number", description: "整段拖拽时长，默认 800" },
+        serial: SERIAL_PROP,
+      },
+      required: ["x1", "y1", "x2", "y2"],
+    },
+  },
+  {
+    name: "android_prepare",
+    description:
+      "把设备调成适合自动化的状态：关三个动效缩放（时序不稳的根源）、亮屏、上滑解锁。开工前跑一次能省掉后面一堆 sleep。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        animations: { type: "boolean", description: "是否关动效（默认 true；传 false 则恢复成 1）" },
+        serial: SERIAL_PROP,
+      },
+    },
+  },
+  {
+    name: "android_foreground",
+    description: "当前前台是哪个包、哪个 activity。「我现在到底在哪一页」用它，比 dump 更直接。",
+    inputSchema: { type: "object", properties: { serial: SERIAL_PROP } },
+  },
 ] as const;
 
 async function main() {
@@ -698,6 +1003,8 @@ async function main() {
       switch (name) {
         case "android_status": return ok(await toolStatus(args));
         case "android_device_info": return ok(await toolDeviceInfo(args));
+        case "android_foreground": return ok(await toolForeground(args));
+        case "android_prepare": return ok(await toolPrepare(args));
         case "android_start_emulator": {
           let avd = args.avd ? String(args.avd) : undefined;
           if (!avd) {
@@ -723,9 +1030,13 @@ async function main() {
         case "android_dump_ui": return ok(await toolDumpUi(args));
         case "android_tap": return ok(await toolTap(args));
         case "android_swipe": return ok(await toolSwipe(args));
+        case "android_long_press": return ok(await toolLongPress(args));
+        case "android_double_tap": return ok(await toolDoubleTap(args));
+        case "android_drag": return ok(await toolDrag(args));
         case "android_input_text": return ok(await toolInputText(args));
         case "android_press_key": return ok(await toolPressKey(args));
         case "android_wait_for_text": return ok(await toolWaitForText(args));
+        case "android_wait_idle": return ok(await toolWaitIdle(args));
         case "android_install": return ok(await toolInstall(args));
         case "android_launch_app": return ok(await toolLaunch(args));
         case "android_force_stop": return ok(await toolForceStop(args));

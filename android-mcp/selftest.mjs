@@ -98,23 +98,35 @@ try {
 
   const list = await rpc("tools/list", {});
   const tools = list.result?.tools ?? [];
-  check(`tools/list 返回 ${tools.length} 个工具`, tools.length >= 20, `实际 ${tools.length}`);
+  const names = new Set(tools.map((t) => t.name));
+  // 逐项比对，而不是「至少 20 个」那种松断言 —— 松断言的特点是：工具面变了它也不响。
+  const EXPECTED = [
+    "android_status", "android_device_info", "android_foreground", "android_prepare",
+    "android_start_emulator", "android_stop_emulator",
+    "android_screenshot", "android_dump_ui",
+    "android_tap", "android_swipe", "android_long_press", "android_double_tap", "android_drag",
+    "android_input_text", "android_press_key", "android_wait_for_text", "android_wait_idle",
+    "android_install", "android_launch_app", "android_force_stop", "android_uninstall",
+    "android_list_packages", "android_app_info", "android_logcat", "android_clear_logcat",
+    "android_build", "android_list_apks", "android_shell",
+  ];
+  const missing = EXPECTED.filter((n) => !names.has(n));
+  const extra = [...names].filter((n) => !EXPECTED.includes(n));
+  check(
+    `工具清单与预期完全一致（${EXPECTED.length} 个）`,
+    missing.length === 0 && extra.length === 0,
+    `缺: ${missing.join(", ") || "无"}｜多: ${extra.join(", ") || "无"}`
+  );
   check("每个工具都有 description", tools.every((t) => (t.description ?? "").length > 10));
   check("每个工具都有 object inputSchema", tools.every((t) => t.inputSchema?.type === "object"));
-
-  const mustHave = [
-    "android_status", "android_start_emulator", "android_screenshot", "android_dump_ui",
-    "android_tap", "android_install", "android_launch_app", "android_logcat",
-    "android_build", "android_shell",
-  ];
-  const names = new Set(tools.map((t) => t.name));
-  for (const m of mustHave) check(`含核心工具 ${m}`, names.has(m));
 
   // 没 adb 的机器上，status 必须优雅返回错误文案，而不是让整个 server 挂掉
   const st = await rpc("tools/call", { name: "android_status", arguments: {} });
   const text = st.result?.content?.[0]?.text ?? "";
   check("无 adb 时 android_status 仍返回可读结果", text.length > 0, JSON.stringify(st).slice(0, 200));
   check("结果含 adb/设备 相关指引", /adb|设备/.test(text), text.slice(0, 120));
+  // 禁区是配置驱动的，status 里必须能看见它真的被读进来了（否则"配了但没生效"没人会发现）
+  check("android_status 里能看到禁区配置已加载", text.includes("禁区") && text.includes("qq-qzone"), text.slice(-260));
 } catch (e) {
   check("协议自测执行完成", false, String(e));
   if (stderr) console.error("stderr:", stderr.slice(0, 600));

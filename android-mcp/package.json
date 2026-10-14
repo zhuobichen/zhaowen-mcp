@@ -6,7 +6,9 @@
   "main": "index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node selftest.mjs"
+    "test": "node selftest.mjs",
+    "setup:ime": "node scripts/setup-input-ime.mjs",
+    "smoke": "node scripts/smoke-device.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

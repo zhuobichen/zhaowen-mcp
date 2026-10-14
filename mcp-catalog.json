@@ -338,23 +338,28 @@
       "requires": [
         "Android SDK Platform-Tools (adb)",
         "Android SDK Emulator + AVD（仅模拟器相关工具）",
-        "JDK 17（仅 android_build）"
+        "JDK 17（仅 android_build）",
+        "设备侧 ADBKeyboard v2.5-dev（仅中文输入，用 scripts/setup-input-ime.mjs 装；不装则退化成「宿主机剪贴板+粘贴」，只对模拟器有效）"
       ],
       "credentials": [],
       "tools": [
         "android_status",
         "android_device_info",
+        "android_foreground",
+        "android_prepare",
         "android_start_emulator",
         "android_stop_emulator",
         "android_screenshot",
         "android_dump_ui",
+        "android_wait_idle",
         "android_tap",
         "android_swipe",
+        "android_long_press",
+        "android_double_tap",
+        "android_drag",
         "android_input_text",
         "android_press_key",
         "android_wait_for_text",
-        "android_build",
-        "android_list_apks",
         "android_install",
         "android_launch_app",
         "android_force_stop",
@@ -363,9 +368,11 @@
         "android_app_info",
         "android_logcat",
         "android_clear_logcat",
+        "android_build",
+        "android_list_apks",
         "android_shell"
       ],
-      "notes": "ADB + emulator 的封装，让 agent 自己跑完「构建→安装→操作→看结果→读日志」。不自带 SDK：缺 adb 时服务照常启动，android_status 返回可读安装指引。多设备时不猜 serial（避免把操作打到别人手机上）；截图走 exec-out 并校验 PNG 魔数；uiautomator dump 过滤掉 70~80% 噪声节点并预计算中心点坐标。详见 android-mcp/README.md。"
+      "notes": "ADB + emulator 的封装，让 agent 自己跑完「构建→安装→操作→看结果→读日志」。不自带 SDK：缺 adb 时服务照常启动，android_status 返回可读安装指引。多设备时不猜 serial（避免把操作打到别人手机上）；截图走 exec-out 并校验 PNG 魔数；uiautomator dump 过滤掉 70~80% 噪声节点并预计算中心点坐标。**中文输入**走设备侧 ADBKeyboard 广播（input text 对非 ASCII 会抛 NPE），失败退回宿主机剪贴板+粘贴。**禁区（guardrails.json）**把「哪些地方不许碰」做成配置，工具层强制拦截 tap/launch/shell/input/dump/screenshot，不靠模型记性。android_wait_idle 用「连续两次 dump 一致」替掉 sleep。两个脚本：scripts/setup-input-ime.mjs（装输入法，校验 sha256）、scripts/smoke-device.mjs（真机冒烟，16 项）。详见 android-mcp/README.md。"
     },
     {
       "name": "amap-maps",

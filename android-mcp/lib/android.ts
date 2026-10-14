@@ -15,8 +15,9 @@
  *    的静默失败，宁可抛错让调用方指定 serial。
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 
 export class AndroidError extends Error {}
 
@@ -246,6 +247,55 @@ export async function resolveDevice(explicit?: string): Promise<string> {
   );
 }
 
+/**
+ * dump 当前界面层级，返回 XML 原文。
+ *
+ * 抽出来是因为 dump / 中文输入 / 等待 三处都要用，而且这里有一处机型差异要兜：
+ * 有些设备 dump 到 /sdcard 之后 `exec-out cat` 拿不到，得退回落本地文件再读。
+ */
+export async function dumpUiXml(serial: string, timeoutMs = 30000): Promise<string> {
+  await adb(["shell", "uiautomator", "dump", "--compressed", "/sdcard/window_dump.xml"], serial, timeoutMs);
+  const r = await adb(["exec-out", "cat", "/sdcard/window_dump.xml"], serial, timeoutMs);
+  if (r.stdout.includes("<?xml")) return r.stdout;
+  const local = join(tmpdir(), "android-mcp-dumps", `dump-${Date.now()}.xml`);
+  mkdirSync(dirname(local), { recursive: true });
+  const p = await adb(["pull", "/sdcard/window_dump.xml", local], serial, timeoutMs);
+  if (p.code !== 0 || !existsSync(local)) return r.stdout; // 如实返回（可能是空的），别假装拿到了
+  return readFileSync(local, "utf8");
+}
+
+export interface ForegroundInfo {
+  packageName?: string;
+  activity?: string;
+  /** 原始那一行，便于调用方自己再判断 */
+  raw: string;
+}
+
+/**
+ * 当前前台是什么 app / 哪个 activity。
+ *
+ * 不在设备侧 grep 的原因：经多层转义时管道会被吞掉（本机实测踩过），
+ * 所以把 dumpsys 整段拉回本机过滤，稳但慢一点。
+ */
+export async function foreground(serial: string): Promise<ForegroundInfo> {
+  const a = await adb(["shell", "dumpsys", "activity", "activities"], serial, 30000);
+  // 字段名随版本变：老系统是 `mResumedActivity:`，Android 16(API 36) 上是
+  // `topResumedActivity=` / `ResumedActivity:`（实测前者在此版本上已经不存在 —— 只认老名字会一直认不出来）。
+  // `mFocusedApp` 一并当兜底，别赌某一台机器上恰好有哪个。
+  const m = a.stdout.match(
+    /(?:mResumedActivity|topResumedActivity|ResumedActivity|mFocusedApp)[=:]\s*ActivityRecord\{[^}]*?\s([A-Za-z][A-Za-z0-9_.]*)\/([A-Za-z0-9_.$]+)/
+  );
+  if (m) return { packageName: m[1], activity: `${m[1]}/${m[2]}`, raw: m[0].trim() };
+
+  const w = await adb(["shell", "dumpsys", "window", "windows"], serial, 30000);
+  const wm = w.stdout.match(/mCurrentFocus=Window\{[^}]*?([A-Za-z][A-Za-z0-9_.]*\/[A-Za-z0-9_.$]+)/);
+  if (wm) {
+    const [pkg, act] = wm[1].split("/");
+    return { packageName: pkg, activity: `${pkg}/${act}`, raw: wm[0].trim() };
+  }
+  return { raw: "" };
+}
+
 export function listAvds(): Promise<RunResult> {
   const bin = resolveEmulator();
   return runProcess(bin, ["-list-avds"], { timeoutMs: 15000, encoding: "utf8" }).then((r) => ({
@@ -267,6 +317,8 @@ export async function startEmulator(
   opts: { waitBoot?: boolean; bootTimeoutMs?: number; extraArgs?: string[] } = {}
 ): Promise<{ serial?: string; booted: boolean; message: string }> {
   const bin = resolveEmulator();
+  // 先记下"启动前已经在线的设备"，用来识别哪台是新起的（见下面等开机的判据）。
+  const beforeSerials = new Set((await listDevices()).map((d) => d.serial));
   const args = ["-avd", avd, "-no-boot-anim", ...(opts.extraArgs ?? [])];
   const child = spawn(bin, args, {
     detached: true,
@@ -281,18 +333,37 @@ export async function startEmulator(
   }
 
   const deadline = Date.now() + (opts.bootTimeoutMs ?? 180000);
-  // 先等设备上线
+  // 先等设备上线。判据是「出现一台**新**设备」，不能用「在线台数 === 1」——
+  // 本机已经有设备在线时后者永远不成立，会一路等到超时再报"设备未上线"（其实上线了）。
   let serial: string | undefined;
   while (Date.now() < deadline) {
     const online = (await listDevices()).filter((d) => d.state === "device");
-    if (online.length === 1) {
-      serial = online[0].serial;
+    const fresh = online.find((d) => !beforeSerials.has(d.serial));
+    if (fresh) {
+      serial = fresh.serial;
       break;
     }
     await sleep(2000);
   }
   if (!serial) {
-    return { booted: false, message: `模拟器 ${avd} 已在后台启动，但 ${Math.round((opts.bootTimeoutMs ?? 180000) / 1000)}s 内设备未上线` };
+    // 超时了。可能是 AVD 本来就在跑（那就没有"新设备"），也可能是真没起来 —— 去看看再下结论。
+    const online = (await listDevices()).filter((d) => d.state === "device");
+    if (online.length >= 1) {
+      const only = online.length === 1 ? online[0].serial : undefined;
+      const booted = only ? (await adb(["shell", "getprop", "sys.boot_completed"], only, 10000)).stdout.trim() === "1" : false;
+      if (booted && only) {
+        return {
+          serial: only,
+          booted: true,
+          message: `AVD ${avd} 看起来本来就在运行，没等到新设备；当前在线 ${only} 且已完成开机（serial=${only}）`,
+        };
+      }
+    }
+    const seen = online.map((d) => `${d.serial}(${d.state})`).join(", ") || "(无)";
+    return {
+      booted: false,
+      message: `模拟器 ${avd} 已在后台启动，但 ${Math.round((opts.bootTimeoutMs ?? 180000) / 1000)}s 内没等到新设备上线。当前 adb 设备：${seen}`,
+    };
   }
   // 再等 sys.boot_completed=1
   while (Date.now() < deadline) {
