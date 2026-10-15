@@ -124,7 +124,7 @@ async function main() {
             new_name: {
               type: "string",
               description:
-                "可选：规范化后的目录名（如 ylx_pm25_analysis）。缺省自动生成 ylx_<清洗后目录名>",
+                "可选：规范化的名字（如 pm25_analysis）。缺省用清洗后的目录名，不加任何前缀",
             },
             check_sensitive: {
               type: "boolean",

@@ -40,7 +40,7 @@ export function resolveTargetName(
       return {
         name: "",
         ok: false,
-        reason: `new_name 含非 ASCII 字符（如中文）：${newName}。请用英文 slug（如 ylx_pm25_analysis、clz_wechat_mp_ops 或 cnki-search）。`,
+        reason: `new_name 含非 ASCII 字符（如中文）：${newName}。请用英文 slug（如 pm25_analysis、wechat_mp_ops 或 cnki-search）。`,
       };
     }
     if (!isValidSlug(name)) {
