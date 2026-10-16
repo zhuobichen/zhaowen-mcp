@@ -375,6 +375,40 @@
       "notes": "ADB + emulator 的封装，让 agent 自己跑完「构建→安装→操作→看结果→读日志」。不自带 SDK：缺 adb 时服务照常启动，android_status 返回可读安装指引。多设备时不猜 serial（避免把操作打到别人手机上）；截图走 exec-out 并校验 PNG 魔数；uiautomator dump 过滤掉 70~80% 噪声节点并预计算中心点坐标。**中文输入**走设备侧 ADBKeyboard 广播（input text 对非 ASCII 会抛 NPE），失败退回宿主机剪贴板+粘贴。**禁区（guardrails.json）**把「哪些地方不许碰」做成配置，工具层强制拦截 tap/launch/shell/input/dump/screenshot，不靠模型记性。android_wait_idle 用「连续两次 dump 一致」替掉 sleep。两个脚本：scripts/setup-input-ime.mjs（装输入法，校验 sha256）、scripts/smoke-device.mjs（真机冒烟，16 项）。详见 android-mcp/README.md。"
     },
     {
+      "name": "cloudmusic-desktop-mcp",
+      "path": "cloudmusic-desktop-mcp/",
+      "package": "gpt-cloudmusic-control",
+      "version": "0.2.0",
+      "entrypoint": "server.py",
+      "status": "active",
+      "runtime": "stdio",
+      "language": "python",
+      "requires": [
+        "Python >= 3.11",
+        "网易云音乐 Windows 桌面客户端，且必须以 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9223 启动（用平台自带的 launch_netease_music，或手动关掉客户端后再启）"
+      ],
+      "credentials": [],
+      "tools": [
+        "get_netease_status",
+        "launch_netease_music",
+        "search_music",
+        "search_and_play",
+        "play_netease_item",
+        "get_netease_queue",
+        "set_netease_queue",
+        "clear_netease_queue",
+        "search_and_set_netease_queue",
+        "add_to_netease_queue",
+        "set_netease_play_mode",
+        "set_netease_volume",
+        "set_desktop_lyrics",
+        "set_desktop_lyrics_theme",
+        "control_netease",
+        "send_netease_shortcut"
+      ],
+      "notes": "**vendored 第三方**（上游 github.com/Seraph310/cloudmusic-desktop-mcp，MIT，2026-10-17 抓的 v0.2.0），也是本仓库唯一的 **Python** 服务 —— skill-manager 的 publish_mcp/validate_mcp 只认 JS/TS 的 index.ts+package.json，收不了它，所以这一份是手动放进来的。原理：客户端是 Electron，带 CDP 端口启动后连上去找 URL 以 orpheus:// 开头的 page，**劫持客户端自己的 webpack require**（塞假模块把 require 捞到 window 上），再用它调客户端自己的内部模块读写状态、用 getDispatch 派发内部 action；点播走 orpheus:// 协议，播放/音量/歌词另走 SendInput 全局热键。**全程不读 cookie / 账号 / 凭据**，借的是已登录客户端进程自己的身份。**本地改动**：原版把 webpack 模块号写死（__gpt_cm_require__(12).a.getStore()），而客户端升级会重排模块号 —— 本机 3.1.41 上 store 是 8，症状是 queue_control_ready 仍报 true 但每个有状态工具都抛 TypeError；已改成运行时扫出同时暴露 getStore()/getDispatch() 的那个模块，11 个调用点一处生效。实测通过 get_netease_queue / set_netease_volume / search_music；**改队列与切播放模式未实测**（会真实改变播放状态）。**未解决**：客户端内搜索函数没定位到（上游用的模块 14 在 3.1.41 变成 15，而 15 是 370+ 个预绑定 url 的请求工厂层），搜索现走匿名 HTTPS 兜底 music.163.com/api/search/get/web，只能搜到匿名可见的结果。详见该目录 VENDOR-NOTES.md。"
+    },
+    {
       "name": "amap-maps",
       "external": true,
       "source": "npm:@amap/amap-maps-mcp-server",
