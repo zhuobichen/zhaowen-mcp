@@ -11,9 +11,16 @@ export interface SkillManagerConfig {
   repoDir: string;
   /** 本地 INDEX.md 路径 */
   indexPath: string;
-  /** 命名前缀（命名规范 <namespace>_用途_名称） */
+  /**
+   * 【遗留 / 已弃用】早期设想的「<namespace>_用途_名称」命名规范。
+   * **发布时的命名逻辑根本不读它**（见 lib/naming.ts 的 resolveTargetName —— 该参数是
+   * 未使用参数，命名一律不加前缀）。留着只为兼容旧配置。
+   */
   namespace: string;
-  /** 已知来源前缀列表（发布时 new_name 带其中任一前缀则保留，不再强补 namespace） */
+  /**
+   * 已知来源前缀列表。只用于**识别**已有名字带没带前缀（决定 README 归到哪个分区），
+   * 不会给新名字补前缀。默认 `ylx,clz` 是历史遗留的两个来源。
+   */
   namePrefixes: string[];
   gitBin: string;
   /** MCP 自身源目录（sync_self 用） */
@@ -46,7 +53,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): SkillManagerCo
     indexPath:
       env.SKILL_INDEX_PATH ||
       "C:\\Users\\chenlizhuo\\.claude\\skills\\INDEX.md",
-    namespace: env.SKILL_NAMESPACE || "ylx",
+    // 已弃用、不参与命名；默认留空，免得 get_config 里显示一个像"规范"的前缀出来。
+    namespace: env.SKILL_NAMESPACE || "",
     namePrefixes: (env.SKILL_NAME_PREFIXES || "ylx,clz")
       .split(",")
       .map((s) => s.trim().toLowerCase())

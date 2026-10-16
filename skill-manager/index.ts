@@ -370,7 +370,11 @@ async function main() {
                 type: "text",
                 text: [
                   `skill-manager 配置:`,
-                  `- 命名前缀: ${config.namespace}`,
+                  // 这一行以前写「命名前缀: ylx」，害得调用方照着去拼 ylx_xxx 传进 new_name。
+                  // 实际 resolveTargetName() 的 namespace 参数是未使用参数（命名逻辑根本没读它），
+                  // 发布时**不会**加任何前缀。配置项留着只是向后兼容，别把它当成命名规范。
+                  `- 命名: 不加任何来源前缀（缺省用清洗后的目录名；new_name 显式给什么就用什么）`,
+                  `- (遗留配置项 namespace=${config.namespace}，已不参与命名，勿据此拼名字)`,
                   `- skill 仓库: ${config.repoUrl}`,
                   `- skill 仓库工作副本: ${config.repoDir}`,
                   `- MCP 集合仓库: ${config.mcpRepoUrl}`,
