@@ -62,22 +62,42 @@ def main():
     if '"%s"' % ns.name in s:
         raise SystemExit("已经注册过 %s 了，没动" % ns.name)
 
-    cands = [m.start() for m in re.finditer(r'"mcpServers"\s*:\s*\{', s)]
-    good = [c for c in cands if re.match(r'"mcpServers"\s*:\s*\{\s*"', s[c:])]
-    print("mcpServers 出现 %d 处，其中非空对象 %d 处" % (len(cands), len(good)))
-    if len(good) != 1:
-        raise SystemExit("顶层 mcpServers 不唯一，中止（先用 --dry-run 看清楚）")
-    i = good[0]
-    j = re.match(r'"mcpServers"\s*:\s*\{', s[i:]).end() + i
+    # 顶层 = **缩进最小**的那个。
+    # 早先按"非空对象个数"判，遇到 projects[...] 下另有非空 mcpServers（如某项目专属的
+    # firecrawl）就会数出 2 个而误判不唯一、直接中止。实际顶层一定是最外层缩进。
+    found = [
+        (len(m.group(1)), m.start(), m.end())
+        for m in re.finditer(r'(?m)^( *)"mcpServers"\s*:\s*\{', s)
+    ]
+    if not found:
+        raise SystemExit("找不到 mcpServers，中止")
+    base = min(f[0] for f in found)
+    top = [f for f in found if f[0] == base]
+    print(
+        "mcpServers 出现 %d 处；最小缩进 %d 空格，该缩进下 %d 处"
+        % (len(found), base, len(top))
+    )
+    if len(top) != 1:
+        raise SystemExit(
+            "顶层 mcpServers 不唯一（缩进 %d 空格的有 %d 处），中止（先用 --dry-run 看清楚）"
+            % (base, len(top))
+        )
+    _, i, j = top[0]
 
     m = re.match(r'"mcpServers"\s*:\s*\{\s*\n( *)"', s[i:])
     indent = len(m.group(1)) if m else 4
     print("顶层 mcpServers 在第 %d 字符，缩进 %d 空格" % (i, indent))
 
-    body = json.dumps({ns.name: entry}, ensure_ascii=False, indent=indent)
-    lines = body.splitlines()[1:-1]
-    inner = "\n".join((" " * indent + ln[indent:]) if ln.startswith(" " * indent) else (" " * indent + ln)
-                      for ln in lines)
+    # 用 indent=2 渲染 entry 本身，再整体平移到目标缩进：键在 `indent`、
+    # 字段在 `indent+2`、数组元素在 `indent+4`，与文件里既有条目一致。
+    # （旧写法把 indent 同时当 json 缩进宽度和键缩进，导致字段多缩进一级、
+    #   数组元素多两级；因为顶层判定一直中止，这 bug 从没被触发过。）
+    obj = json.dumps(entry, ensure_ascii=False, indent=2).splitlines()
+    inner = "\n".join(
+        [' ' * indent + '%s: %s' % (json.dumps(ns.name, ensure_ascii=False), obj[0])]
+        + [' ' * indent + ln for ln in obj[1:-1]]
+        + [' ' * indent + obj[-1]]
+    )
     new = s[:j] + "\n" + inner + "," + s[j:]
 
     # 落盘前自检：新旧都解析得开，且只多这一项
