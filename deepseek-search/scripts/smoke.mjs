@@ -87,6 +87,9 @@ try {
         ...(process.env.SMOKE_SUMMARY_CHARS
           ? { summary_chars: Number(process.env.SMOKE_SUMMARY_CHARS) }
           : {}),
+        ...(process.env.SMOKE_MIN_SCORE
+          ? { min_score: Number(process.env.SMOKE_MIN_SCORE) }
+          : {}),
       },
     });
     console.log("\n④ deepseek_search（计费一次）→\n" + indent(textOf(se).split("\n").slice(0, 12).join("\n")));

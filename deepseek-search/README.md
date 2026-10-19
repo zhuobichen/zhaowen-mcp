@@ -23,12 +23,27 @@
 | `localization` | 否 | — | 用于本地化排序的 IP 地址，一般不用填 |
 | `summary_chars` | 否 | 600 | 格式化输出里每条摘要显示多少字符，`0` 不截断 |
 | `content_chars` | 否 | 800 | 格式化输出里每条正文显示多少字符，`0` 不截断 |
+| `min_score` | 否 | 0 | 只保留 `rerank_score` ≥ 该值的结果；`0` 不过滤，想只要靠谱结果传 `1.5` |
 | `raw` | 否 | false | 返回原始 JSON 而不是格式化文本 |
 
 > ⚠️ **为什么要截断**：官方说 `summary` "通常 600–800 字符"，但抓文档站时它会把**整页**塞进
 > `summary`。不截断的话一次 `count=3` 就能吐八千多字符，很吃上下文。
 > 默认按 `summary_chars` / `content_chars` 截断并在末位标明总长度；要全文就 `raw: true`
 > 或把对应 `*_chars` 传 `0`。
+
+### 结果可信度（重要）
+
+官方文档说"搜索正常结束但没有匹配结果时，返回空数组"，但**实测基本不出现**：
+用完全乱码的 query `zzqxjvwplkdfghmnaeuoi` 测试，API 照样返回 5 条，
+`rerank_score` 只有 **0.17–0.22**。
+
+**所以"搜不到"在这家 API 上的表现是「低分噪声」，不是空结果。** 为此本工具做了两件事：
+
+- **全部结果 < 1.5 时输出警告**：`⚠️ 全部结果 rerank_score < 1.5（优质线），可能没有实质匹配`
+- **`min_score` 可过滤**：传 `1.5` 只留优质结果，输出会注明 `已按 min_score=1.5 过滤掉 N 条`；
+  若过滤后一条不剩，会直接告诉你原始最高分是多少
+
+判据参考：`rerank_score` **≥1.5 为优质**（0–3），`authority` **≥3 为极权威**（0–4，`-1` 未知）。
 
 ### `deepseek_fetch` 参数
 
@@ -107,4 +122,12 @@
 npm install
 npm run typecheck
 npx tsx index.ts        # stdio 模式，由 MCP 客户端驱动
+
+# 冒烟：默认只跑免费路径；SMOKE_CALL=1 才真发一次搜索（计费约 0.005 元）
+npm run smoke
+SMOKE_CALL=1 SMOKE_QUERY="DeepSeek 搜索 API" SMOKE_COUNT=3 npm run smoke
+SMOKE_CALL=1 SMOKE_MIN_SCORE=1.5 npm run smoke      # 验过滤路径
 ```
+
+> 改完代码要**重启 MCP 客户端**才生效。`check_status` 的第一行会打印 `版本`，
+> 一眼就能确认新版本有没有加载（不用去比对进程启动时间和源码 mtime）。

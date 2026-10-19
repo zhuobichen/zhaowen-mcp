@@ -25,7 +25,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 const BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
 
 /** 取 API Key。DEEPSEEK_API_KEY 优先；直连 DeepSeek 的 Claude Code 会话里
@@ -173,6 +173,13 @@ async function main() {
               description: "格式化输出里每条正文最多显示多少字符，默认 800。0 表示不截断。",
               minimum: 0,
             },
+            min_score: {
+              type: "number",
+              description:
+                "只保留 rerank_score ≥ 该值的结果，默认 0（不过滤）。官方口径 ≥1.5 为优质，想只要靠谱结果就传 1.5。",
+              minimum: 0,
+              maximum: 3,
+            },
             ori_question: {
               type: "string",
               description: "触发搜索的原始用户问题（1–128 字符），有助于理解搜索意图，可选。",
@@ -273,11 +280,50 @@ async function main() {
             };
           }
 
-          const out: string[] = [
-            `共 ${results.length} 条。rerank_score ≥1.5 为优质，authority ≥3 为极权威。`,
-            "",
-          ];
-          results.forEach((it, i) => {
+          // 按 min_score 过滤（默认 0 = 不过滤）
+          const minScore = Math.max(0, Number(a.min_score) || 0);
+          const kept =
+            minScore > 0
+              ? results.filter(
+                  (it) => typeof it.rerank_score === "number" && it.rerank_score >= minScore
+                )
+              : results;
+          const filteredOut = results.length - kept.length;
+
+          if (kept.length === 0) {
+            const top = Math.max(
+              ...results.map((it) => (typeof it.rerank_score === "number" ? it.rerank_score : 0))
+            );
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    `无结果达到 min_score=${minScore}（原始 ${results.length} 条，最高分 ${top.toFixed(
+                      2
+                    )}）。\n` +
+                    "⚠️ 分数普遍偏低说明这个 query 很可能没有实质匹配 —— 换关键词，或把 min_score 调低。",
+                },
+              ],
+            };
+          }
+
+          // 全部低分 → 明确警告。实测乱码 query 也会返回 0.1–0.2 分的噪声，不是空数组。
+          const allLow = kept.every(
+            (it) => typeof it.rerank_score !== "number" || it.rerank_score < 1.5
+          );
+
+          const out: string[] = [];
+          if (filteredOut > 0) {
+            out.push(`已按 min_score=${minScore} 过滤掉 ${filteredOut} 条`);
+          }
+          if (allLow) {
+            out.push(
+              "⚠️ 全部结果 rerank_score < 1.5（优质线），可能没有实质匹配 —— 建议换 query 或降低预期"
+            );
+          }
+          out.push(`共 ${kept.length} 条。rerank_score ≥1.5 为优质，authority ≥3 为极权威。`, "");
+          kept.forEach((it, i) => {
             out.push(`[${i + 1}] ${it.title ?? "(无标题)"}`);
             out.push(`    URL: ${it.url ?? ""}`);
             out.push(
@@ -343,6 +389,7 @@ async function main() {
           const { key, source } = resolveKey();
           const text = [
             "DeepSeek Search/Fetch 配置",
+            `  版本     : ${VERSION}`,   // 改完代码重启后，看这行就知道新版本有没有生效
             `  Base URL : ${BASE_URL}`,
             `  API Key  : ${key ? `已设置（${key.length} 字符，来源 ${source}）` : "未设置"}`,
             "",
