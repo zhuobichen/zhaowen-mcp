@@ -25,7 +25,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
 
 /** 取 API Key。DEEPSEEK_API_KEY 优先；直连 DeepSeek 的 Claude Code 会话里
@@ -113,6 +113,14 @@ async function callApi(
   return { ok: true, data };
 }
 
+/** 按**字符**（不是 UTF-16 码元）截断，避免把 emoji/中文截成半个。max<=0 表示不截断。 */
+function clip(s: string, max: number): { text: string; truncated: boolean } {
+  if (!max || max <= 0) return { text: s, truncated: false };
+  const chars = [...s];
+  if (chars.length <= max) return { text: s, truncated: false };
+  return { text: chars.slice(0, max).join(""), truncated: true };
+}
+
 function fmtScore(v: unknown): string {
   if (typeof v !== "number") return "?";
   return v >= 1.5 ? `${v.toFixed(2)}（优质）` : `${v.toFixed(2)}`;
@@ -154,6 +162,17 @@ async function main() {
               type: "boolean",
               description: "是否在结果里返回网页正文（content 字段），默认 false。开启后返回体积会大很多。",
             },
+            summary_chars: {
+              type: "number",
+              description:
+                "格式化输出里每条摘要最多显示多少字符，默认 600。⚠️ 官方说 summary 通常 600–800 字，但抓文档站时会返回整页，不截断会吃爆上下文。要全文传 0（不截断）或用 raw。",
+              minimum: 0,
+            },
+            content_chars: {
+              type: "number",
+              description: "格式化输出里每条正文最多显示多少字符，默认 800。0 表示不截断。",
+              minimum: 0,
+            },
             ori_question: {
               type: "string",
               description: "触发搜索的原始用户问题（1–128 字符），有助于理解搜索意图，可选。",
@@ -184,6 +203,12 @@ async function main() {
             raw: {
               type: "boolean",
               description: "为 true 时返回原始 JSON。默认 false。",
+            },
+            max_chars: {
+              type: "number",
+              description:
+                "正文最多返回多少字符，默认 8000。0 表示不截断。长文档站会返回很大，默认截断以保护上下文。",
+              minimum: 0,
             },
           },
           required: ["url"],
@@ -217,6 +242,9 @@ async function main() {
           }
 
           const count = Math.min(50, Math.max(1, Number(a.count ?? 10) || 10));
+          // 显示用的截断长度（不影响 API 请求，只影响格式化输出）
+          const summaryChars = a.summary_chars === undefined ? 600 : Math.max(0, Number(a.summary_chars) || 0);
+          const contentChars = a.content_chars === undefined ? 800 : Math.max(0, Number(a.content_chars) || 0);
           const payload: Record<string, unknown> = {
             query,
             count,
@@ -257,14 +285,22 @@ async function main() {
                 it.date ?? "日期未知"
               }${it.site_name ? ` · ${it.site_name}` : ""}`
             );
-            const summary = it.summary || it.snippet;
-            if (summary) out.push(`    摘要：${summary}`);
+            const summary = String(it.summary || it.snippet || "");
+            if (summary) {
+              const c = clip(summary, summaryChars);
+              out.push(
+                `    摘要：${c.text}` +
+                  (c.truncated ? `…（共 ${[...summary].length} 字符，全文用 raw: true）` : "")
+              );
+            }
             if (it.content) {
               const body = String(it.content);
+              const c = clip(body, contentChars);
               out.push(
-                `    正文（${body.length} 字符，截断显示）：${body.slice(0, 300)}${
-                  body.length > 300 ? "…" : ""
-                }`
+                `    正文：${c.text}` +
+                  (c.truncated
+                    ? `…（共 ${[...body].length} 字符，可调大 content_chars 或用 raw: true）`
+                    : "")
               );
             }
             out.push("");
@@ -285,12 +321,19 @@ async function main() {
             return { content: [{ type: "text", text: JSON.stringify(r.data, null, 2) }] };
           }
           const title = r.data?.title || "(无标题)";
-          const content = r.data?.content || "";
+          const content = String(r.data?.content || "");
+          const maxChars = a.max_chars === undefined ? 8000 : Math.max(0, Number(a.max_chars) || 0);
+          const c = clip(content, maxChars);
+          const head = `# ${title}\n\nURL: ${url}\n正文 ${[...content].length} 字符`;
           return {
             content: [
               {
                 type: "text",
-                text: `# ${title}\n\nURL: ${url}\n正文 ${content.length} 字符\n\n${content}`,
+                text:
+                  head +
+                  (c.truncated
+                    ? `（已截断，显示前 ${maxChars}，调大 max_chars 或传 0 取全文）\n\n${c.text}\n\n…[截断]`
+                    : `\n\n${c.text}`),
               },
             ],
           };

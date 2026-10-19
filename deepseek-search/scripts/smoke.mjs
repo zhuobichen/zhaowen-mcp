@@ -81,7 +81,13 @@ try {
   if (doCall) {
     const se = await rpc("tools/call", {
       name: "deepseek_search",
-      arguments: { query: "DeepSeek 搜索 API", count: 2 },
+      arguments: {
+        query: process.env.SMOKE_QUERY || "DeepSeek 搜索 API",
+        count: Number(process.env.SMOKE_COUNT || 2),
+        ...(process.env.SMOKE_SUMMARY_CHARS
+          ? { summary_chars: Number(process.env.SMOKE_SUMMARY_CHARS) }
+          : {}),
+      },
     });
     console.log("\n④ deepseek_search（计费一次）→\n" + indent(textOf(se).split("\n").slice(0, 12).join("\n")));
   } else {
