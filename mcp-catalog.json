@@ -476,7 +476,7 @@
       "name": "deepseek-search",
       "path": "deepseek-search/",
       "package": "deepseek-search-mcp",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "entrypoint": "index.ts",
       "status": "active",
       "tools": [
@@ -484,7 +484,7 @@
         "deepseek_fetch",
         "check_status"
       ],
-      "notes": "包 DeepSeek 的网页搜索/抓取接口（api.deepseek.com/v1/tools/search | /fetch）。鉴权 DEEPSEEK_API_KEY（兜底 ANTHROPIC_AUTH_TOKEN，直连 DeepSeek 的 Claude Code 会话里只有后者），Base URL 可用 DEEPSEEK_BASE_URL 覆盖。计费：Search / Fetch 各 5 元 / 1000 次**成功**请求；只有 HTTP 200 且产生结果才计费，count 不影响价格。限速：各 5 QPS 且为账号级，Fetch 另按目标域名限速。search 结果带 rerank_score(0-3, ≥1.5 优质) 与 authority(0-4, ≥3 极权威)，支持 site:/lang:/after:/before: 等语法。npm run smoke 默认只测免费路径。v1.1.0：新增 summary_chars(默认600)/content_chars(默认800)/fetch 的 max_chars(默认8000)，默认截断并标明总长度——官方说 summary 通常 600–800 字符，但抓文档站会返回整页，不截断一次 count=3 能吐八千多字符；要全文用 raw 或把 *_chars 传 0。"
+      "notes": "包 DeepSeek 的网页搜索/抓取接口（api.deepseek.com/v1/tools/search | /fetch）。鉴权 DEEPSEEK_API_KEY（兜底 ANTHROPIC_AUTH_TOKEN，直连 DeepSeek 的 Claude Code 会话里只有后者），Base URL 可用 DEEPSEEK_BASE_URL 覆盖。计费：Search / Fetch 各 5 元 / 1000 次**成功**请求；只有 HTTP 200 且产生结果才计费，count 不影响价格。限速：各 5 QPS 且为账号级，Fetch 另按目标域名限速。search 结果带 rerank_score(0-3, ≥1.5 优质) 与 authority(0-4, ≥3 极权威)，支持 site:/lang:/after:/before: 等语法。npm run smoke 默认只测免费路径。v1.1.0：新增 summary_chars(默认600)/content_chars(默认800)/fetch 的 max_chars(默认8000)，默认截断并标明总长度——官方说 summary 通常 600–800 字符，但抓文档站会返回整页，不截断一次 count=3 能吐八千多字符；要全文用 raw 或把 *_chars 传 0。v1.2.0：① 实测「无匹配」不返回空数组而是低分噪声（乱码 query 也返回 0.17–0.22 分），故当全部结果 rerank_score<1.5 时输出警告；新增 min_score 参数可过滤（传 1.5 只要优质）。② check_status 打印版本号，方便确认重启是否生效。"
     }
   ]
 }
