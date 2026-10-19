@@ -176,7 +176,7 @@
       "tools": [
         "describe_image",
         "generate_image",
-    "edit_image",
+        "edit_image",
         "check_vision_status"
       ]
     },
@@ -471,6 +471,20 @@
         "add_by_identifier"
       ],
       "notes": "第三方 MCP（54yyyu/zotero-mcp，MIT），非本仓库代码，因此没有本地目录与 entrypoint。本机走 Streamable HTTP，不占本地副本。工具清单取自运行中的服务（tools/list）。⚠️ 其中 create_collection/update_collection/delete_collection/add_items_to_collection/remove_items_from_collection/write_note/write_tag/write_metadata/write_item/add_by_identifier 会**写入 Zotero 库**，与「Zotero 文献库只读」的规矩冲突 —— 只读场景下不要调用。另注：本机另有 upstream 原样克隆在 E:/CodeProject/zotero-mcp，不必也不应 vendor 进本仓库。"
+    },
+    {
+      "name": "deepseek-search",
+      "path": "deepseek-search/",
+      "package": "deepseek-search-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "deepseek_search",
+        "deepseek_fetch",
+        "check_status"
+      ],
+      "notes": "包 DeepSeek 的网页搜索/抓取接口（api.deepseek.com/v1/tools/search | /fetch）。鉴权 DEEPSEEK_API_KEY（兜底 ANTHROPIC_AUTH_TOKEN，直连 DeepSeek 的 Claude Code 会话里只有后者），Base URL 可用 DEEPSEEK_BASE_URL 覆盖。计费：Search / Fetch 各 5 元 / 1000 次**成功**请求；只有 HTTP 200 且产生结果才计费，count 不影响价格。限速：各 5 QPS 且为账号级，Fetch 另按目标域名限速。search 结果带 rerank_score(0-3, ≥1.5 优质) 与 authority(0-4, ≥3 极权威)，支持 site:/lang:/after:/before: 等语法。npm run smoke 默认只测免费路径。"
     }
   ]
 }
