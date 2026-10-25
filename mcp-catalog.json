@@ -492,7 +492,7 @@
       "package": "@larksuiteoapi/lark-mcp",
       "version": "external-beta",
       "entrypoint": "npx @larksuiteoapi/lark-mcp mcp -a <APP_ID> -s <APP_SECRET> -t preset.default",
-      "status": "documentation-only",
+      "status": "active",
       "external": true,
       "tools": [
         "im.v1.message.create",
@@ -508,7 +508,7 @@
         "wiki.v2.space.getNode",
         "contact.v3.user.batchGetId"
       ],
-      "notes": "飞书/Lark 官方 OpenAPI MCP 直连（larksuite/lark-openapi-mcp，Beta），本目录为接入档案非自研代码。工具经 -t 预设选择（light/default/im/base/doc/task/calendar）。前置：开放平台自建应用 App ID/Secret + 权限域 + 发布版本；凭证仅存本地客户端配置不入仓库；用户身份访问需 login 子命令 OAuth + --token-mode user_access_token。凭证就绪并接入客户端后转 active。"
+      "notes": "飞书/Lark 官方 OpenAPI MCP 直连（larksuite/lark-openapi-mcp，Beta），本目录为接入档案非自研代码。工具经 -t 预设选择（light/default/im/base/doc/task/calendar）。前置：开放平台自建应用 App ID/Secret + 权限域 + 发布版本；凭证仅存本地客户端配置不入仓库；用户身份访问需 login 子命令 OAuth + --token-mode user_access_token。已接入 Claude Code user scope（2026-10-25，preset.default）。"
     }
   ]
 }
