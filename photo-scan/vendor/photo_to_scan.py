@@ -2,7 +2,8 @@
 """photo_to_scan.py — turn phone photos of paper documents into flat, upright scans.
 
 Pipeline per page (all classical, no model downloads required):
-  1. perspective   -- cv2 four-corner warp, only when the whole sheet is visible
+  1. perspective   -- cv2 four-corner warp, OFF by default (opt-in: it can lock onto
+                      the table border and crop the page margins, page number included)
   2. orientation   -- 90/270 axis from OCR text-line aspect (or ink profile),
                       then 0/180 from OCR quality with the line classifier off
                       (or from the ink centroid inside each text line)
@@ -616,13 +617,19 @@ def process_one(path: Path, outdir: Path, args):
     rgb_full = as_float(im)
     rgb_small = as_float(resize_long(im, ANALYSIS_SIDE))
 
-    # 1. perspective, only when the sheet is clearly smaller than the frame:
-    #    if the photo is filled edge to edge there is nothing to correct, and a
-    #    quad fitted to an inner table border would crop the page margins away
-    report["perspective"] = "none"
+    # 1. perspective: OFF by default, and guarded when on.
+    #
+    #    The quad detector is happy to lock onto the *table's outer border*
+    #    instead of the sheet edge, and everything outside that border — page
+    #    margins, the note under the form, the page number — is then cropped
+    #    away. That is silent, one-way data loss on an otherwise perfect scan,
+    #    so it is opt-in and, when enabled, reverted if it eats ink.
+    report["perspective"] = "off"
     if args.perspective:
         pts = detect_quad(rgb_small)
-        if pts is not None:
+        if pts is None:
+            report["perspective"] = "none"
+        else:
             area = 0.5 * abs(
                 pts[0][0] * pts[1][1] - pts[1][0] * pts[0][1]
                 + pts[1][0] * pts[2][1] - pts[2][0] * pts[1][1]
@@ -630,13 +637,16 @@ def process_one(path: Path, outdir: Path, args):
                 + pts[3][0] * pts[0][1] - pts[0][0] * pts[3][1]
             )
             fill = area / float(rgb_small.shape[0] * rgb_small.shape[1])
-            if fill >= 0.92:
-                report["perspective"] = f"skipped (sheet fills frame, {fill:.0%})"
+            ink_before = int(ink_mask(flatten(rgb_small)).sum())
+            warped = warp_quad(rgb_small, pts)
+            ink_after = int(ink_mask(flatten(warped)).sum())
+            if ink_before and ink_after < 0.95 * ink_before:
+                report["perspective"] = f"skipped (would drop {100 - 100 * ink_after / ink_before:.0f}% of the ink)"
             else:
-                report["perspective"] = "quad"
+                report["perspective"] = f"quad ({fill:.0%} of frame)"
                 fx = rgb_full.shape[1] / float(rgb_small.shape[1])
                 fy = rgb_full.shape[0] / float(rgb_small.shape[0])
-                rgb_small = warp_quad(rgb_small, pts)
+                rgb_small = warped
                 rgb_full = warp_quad(rgb_full, pts * np.array([fx, fy], dtype=np.float32))
 
     # 2. coarse rotation
@@ -776,7 +786,9 @@ def main(argv=None) -> int:
                     help="whiten everything that is not the sheet (default on)")
     ap.add_argument("--no-mask", dest="mask_outside", action="store_false",
                     help="keep pixels outside the sheet")
-    ap.add_argument("--perspective", dest="perspective", action="store_true", default=True)
+    ap.add_argument("--perspective", dest="perspective", action="store_true", default=False,
+                    help="enable the 4-corner perspective warp (off by default: it can lock onto "
+                         "the table border and crop the page margins, page number included)")
     ap.add_argument("--no-perspective", dest="perspective", action="store_false")
     ap.add_argument("--png", action="store_true", help="also write a lossless PNG")
     ap.add_argument("--pdf", default=None, help="combine every page into this PDF")
