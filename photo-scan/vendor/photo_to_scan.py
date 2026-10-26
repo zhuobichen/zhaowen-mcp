@@ -368,6 +368,11 @@ def warp_quad(rgb: np.ndarray, pts: np.ndarray):
         import cv2
     except Exception:
         return rgb
+    # Pad the quad by ~2%: a four-point warp is exact only if the corners are
+    # exactly the sheet corners, and a couple of pixels of error silently eats
+    # the left stroke of the first glyph on edge-aligned lines ("4.2" -> "1.2").
+    centre = pts.mean(axis=0, keepdims=True)
+    pts = centre + (pts - centre) * 1.02
     width = int(max(np.linalg.norm(pts[0] - pts[1]), np.linalg.norm(pts[2] - pts[3])))
     height = int(max(np.linalg.norm(pts[0] - pts[3]), np.linalg.norm(pts[1] - pts[2])))
     if width < 200 or height < 200:
@@ -563,6 +568,7 @@ def paper_mask(img: np.ndarray, thresh: float = 0.55) -> np.ndarray:
     if sizes[k] < 0.15 * bright.size:
         return np.ones(luma.shape, bool)
     blob = lab == k
+    grow = max(3, size // 20)
     try:
         import cv2
 
@@ -572,8 +578,13 @@ def paper_mask(img: np.ndarray, thresh: float = 0.55) -> np.ndarray:
             hull = cv2.convexHull(max(contours, key=cv2.contourArea))
             mask = np.zeros(blob.shape, np.uint8)
             cv2.fillPoly(mask, [hull], 1)
-            # a few pixels inside the silhouette: the page-edge shadow stays out
-            mask = cv2.erode(mask, np.ones((5, 5), np.uint8))
+            # Grow, do not shrink. The box filter that finds the sheet is diluted
+            # by whatever lies outside it, so the silhouette is systematically
+            # ~size/2 smaller than the sheet along every edge — and shrinking it
+            # further cut the first character of left-aligned lines ("4.2" -> "2").
+            # The stray page-edge shadow this pulls in is removed right after by
+            # the tight page_box crop; erasing real ink is not recoverable.
+            mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=grow)
             if mask.mean() > 0.15:
                 return mask.astype(bool)
     except Exception:
@@ -605,16 +616,28 @@ def process_one(path: Path, outdir: Path, args):
     rgb_full = as_float(im)
     rgb_small = as_float(resize_long(im, ANALYSIS_SIDE))
 
-    # 1. perspective, only when every page corner is inside the frame
+    # 1. perspective, only when the sheet is clearly smaller than the frame:
+    #    if the photo is filled edge to edge there is nothing to correct, and a
+    #    quad fitted to an inner table border would crop the page margins away
     report["perspective"] = "none"
     if args.perspective:
         pts = detect_quad(rgb_small)
         if pts is not None:
-            report["perspective"] = "quad"
-            fx = rgb_full.shape[1] / float(rgb_small.shape[1])
-            fy = rgb_full.shape[0] / float(rgb_small.shape[0])
-            rgb_small = warp_quad(rgb_small, pts)
-            rgb_full = warp_quad(rgb_full, pts * np.array([fx, fy], dtype=np.float32))
+            area = 0.5 * abs(
+                pts[0][0] * pts[1][1] - pts[1][0] * pts[0][1]
+                + pts[1][0] * pts[2][1] - pts[2][0] * pts[1][1]
+                + pts[2][0] * pts[3][1] - pts[3][0] * pts[2][1]
+                + pts[3][0] * pts[0][1] - pts[0][0] * pts[3][1]
+            )
+            fill = area / float(rgb_small.shape[0] * rgb_small.shape[1])
+            if fill >= 0.92:
+                report["perspective"] = f"skipped (sheet fills frame, {fill:.0%})"
+            else:
+                report["perspective"] = "quad"
+                fx = rgb_full.shape[1] / float(rgb_small.shape[1])
+                fy = rgb_full.shape[0] / float(rgb_small.shape[0])
+                rgb_small = warp_quad(rgb_small, pts)
+                rgb_full = warp_quad(rgb_full, pts * np.array([fx, fy], dtype=np.float32))
 
     # 2. coarse rotation
     if args.orient == "auto":
