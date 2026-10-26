@@ -1,0 +1,13 @@
+{
+  "name": "photo-scan-mcp",
+  "version": "1.0.0",
+  "description": "手机拍纸页转扫描件（自动转正/纠偏/去阴影，出多页 PDF）；MCP 只做协议适配，算法在 vendor/photo_to_scan.py",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}

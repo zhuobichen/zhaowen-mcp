@@ -68,6 +68,19 @@
       ]
     },
     {
+      "name": "photo-scan",
+      "path": "photo-scan/",
+      "package": "photo-scan-mcp",
+      "version": "1.0.0",
+      "entrypoint": "index.ts",
+      "status": "active",
+      "tools": [
+        "photo_to_scan",
+        "photo_to_scan_preview",
+        "photo_to_scan_doctor"
+      ]
+    },
+    {
       "name": "weather-mcp",
       "path": "weather-mcp/",
       "package": "weather-mcp",

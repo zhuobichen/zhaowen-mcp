@@ -30,6 +30,8 @@
 
 | [`cloudmusic-desktop-mcp/`](./cloudmusic-desktop-mcp) | 网易云音乐桌面控制（**vendored 第三方，Python**） | `get_netease_status` 通道自检 · `get_netease_queue` 读当前曲/队列/模式/音量 · `set_netease_queue`/`add_to_netease_queue`/`search_and_set_netease_queue` 建队列 · `set_netease_play_mode` 顺序/列表循环/单曲循环/随机 · `set_netease_volume` 调音量 · `control_netease` 播放暂停/上下首/静音 · `search_music`/`search_and_play`/`play_netease_item` 搜索与点播 · `set_desktop_lyrics`/`set_desktop_lyrics_theme` 桌面歌词 · `send_netease_shortcut` 白名单快捷键 · `launch_netease_music` 带调试端口启动客户端。**上游 `Seraph310/cloudmusic-desktop-mcp`（MIT）**；本地改动与坑见该目录 `VENDOR-NOTES.md` —— 原版把 webpack 模块号写死（store=12），本机 3.1.41 上是 8，已改成运行时自解析；**必须用带调试端口的方式启动客户端**，否则 CDP 那半边全废。这是本仓库唯一一个 **Python** 服务，`publish_mcp` 的校验只认 JS/TS，所以它是手动发上来的 |
 
+| [`photo-scan/`](./photo-scan) | 手机拍纸页 → 扫描件（**vendored Python 引擎，本层只做协议**） | `photo_to_scan` 单页或整目录转平直扫描件（自动判 0/90/180/270、纠偏、去阴影黑边、裁 A4 比例，出 JPG/PNG/多页 PDF，红章与手写保留） · `photo_to_scan_preview` 只出 2×2 四向对照图，先看方向再动手 · `photo_to_scan_doctor` 自检 Python/依赖/加速件，并比对 vendor 与 skill 版引擎是否同源。**算法一行都不在这层**：全部在 `vendor/photo_to_scan.py`（与 [zhaowen-skill/photo-to-scan](https://github.com/zhuobichen/zhaowen-skill/tree/main/photo-to-scan) 是同一个文件，改算法只改 skill 那份再 `cp` 过来）；Python 侧需 numpy/scipy/pillow，可选 opencv/rapidocr/pymupdf，解释器可用 `PHOTO_SCAN_PYTHON` 指定 |
+
 ### 外部服务（非本仓库代码）
 
 以下 MCP **来自第三方**，代码不在本仓库，通过 npm 包或远程 URL 接入。列在这里是为了让「我在用哪些 MCP」有一份完整记录 —— 一致性检查脚本会跳过它们的「本地目录」比对（catalog 里标了 `external: true`）。
