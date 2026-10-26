@@ -1,0 +1,15 @@
+{
+  "photo-scan": {
+    "type": "stdio",
+    "command": "npx",
+    "args": [
+      "tsx",
+      "photo-scan/index.ts"
+    ],
+    "cwd": "<本仓库路径>",
+    "env": {
+      "PHOTO_SCAN_PYTHON": "<可选：Python 解释器绝对路径，缺省用 python / python3>",
+      "PHOTO_SCAN_TIMEOUT_MS": "600000"
+    }
+  }
+}
