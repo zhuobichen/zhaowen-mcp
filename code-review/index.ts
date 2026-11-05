@@ -13,8 +13,9 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { existsSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { reviewCode, getReviewConfig } from "./review.js";
+import { resolveAllowedPath } from "./path-guard.js";
 
 const MAX_FILE_SIZE = 200 * 1024; // 200KB 上限
 
@@ -34,7 +35,8 @@ async function main() {
       {
         name: "review_file",
         description:
-          "审阅指定代码文件，返回按严重程度分级的代码问题与改进建议。传入文件绝对路径。",
+          "审阅指定代码文件，返回按严重程度分级的代码问题与改进建议。传入文件绝对路径。" +
+          "（注意：文件内容会被发送到外部模型 API；仅允许 REVIEW_ALLOWED_DIRS 内的普通文件，凭据类文件会被拒绝）",
         inputSchema: {
           type: "object",
           properties: {
@@ -83,12 +85,12 @@ async function main() {
     try {
       switch (name) {
         case "review_file": {
-          const filePath = String(args.file_path);
-          if (!existsSync(filePath)) {
-            return {
-              content: [{ type: "text", text: `错误: 文件不存在: ${filePath}` }],
-            };
+          const requested = String(args.file_path);
+          const guard = resolveAllowedPath(requested);
+          if (!guard.ok) {
+            return { content: [{ type: "text", text: `错误: ${guard.error}` }] };
           }
+          const filePath = guard.path!;
 
           const raw = readFileSync(filePath, "utf-8");
           if (raw.length > MAX_FILE_SIZE) {
@@ -108,7 +110,12 @@ async function main() {
           });
 
           return {
-            content: [{ type: "text", text: `[代码审阅] ${filePath}:\n\n${result}` }],
+            content: [
+              {
+                type: "text",
+                text: `[代码审阅] ${filePath}\n（已将文件内容发送到外部模型：${getReviewConfig().apiUrl}）\n\n${result}`,
+              },
+            ],
           };
         }
 
