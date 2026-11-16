@@ -219,6 +219,19 @@
       ]
     },
     {
+      "name": "minimax-image-mcp",
+      "path": "minimax-image-mcp/",
+      "package": "minimax-image-mcp",
+      "version": "0.1.0",
+      "entrypoint": "src/index.ts",
+      "status": "active",
+      "tools": [
+        "generate_image",
+        "generate_image_url",
+        "image_config"
+      ]
+    },
+    {
       "name": "onehub-monitor",
       "path": "onehub-monitor/",
       "package": "onehub-monitor-mcp",

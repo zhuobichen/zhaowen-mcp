@@ -1,0 +1,36 @@
+{
+  "name": "minimax-image-mcp",
+  "version": "0.1.0",
+  "description": "MiniMax image-01 文生图 MCP server —— 纯 HTTP、可并发、可指定比例、产物无水印，供 DSH / Claude Code 等 MCP 客户端调用",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "minimax-image-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "minimax",
+    "image-generation",
+    "text-to-image",
+    "image-01"
+  ],
+  "license": "MIT"
+}
