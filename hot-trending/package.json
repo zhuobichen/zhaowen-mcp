@@ -1,5 +1,6 @@
 {
   "name": "hot-trending-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "MCP Server for Chinese platform hot lists (Bilibili / Weibo / Tieba / Zhihu)",
   "type": "module",

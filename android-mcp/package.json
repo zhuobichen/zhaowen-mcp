@@ -1,5 +1,6 @@
 {
   "name": "android-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "用 ADB + 模拟器在本机测试安卓 App：起 AVD、装包、截图、读界面层级、按文字点击、logcat 调试、一条命令构建 APK。",
   "type": "module",

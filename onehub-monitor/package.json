@@ -1,5 +1,6 @@
 {
   "name": "onehub-monitor-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "MCP Server for monitoring one-hub API usage (total/daily/monthly)",
   "type": "module",

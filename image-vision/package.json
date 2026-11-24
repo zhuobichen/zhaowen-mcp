@@ -1,5 +1,6 @@
 {
   "name": "image-vision-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "MCP Server for image recognition via vision API",
   "type": "module",

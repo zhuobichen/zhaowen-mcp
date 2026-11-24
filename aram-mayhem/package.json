@@ -1,5 +1,6 @@
 {
     "name": "aram-mayhem-mcp",
+  "license": "MIT",
     "version": "1.0.0",
     "description": "MCP Server for LoL 海克斯大乱斗（ARAM Mayhem）: 符文图鉴/搜索、羁绊推算、英雄推荐、版本对比",
     "type": "module",

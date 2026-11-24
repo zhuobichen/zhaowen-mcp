@@ -1,5 +1,6 @@
 {
   "name": "jd-price-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "MCP Server for reading JD.com item info and current price (SKU based)",
   "type": "module",

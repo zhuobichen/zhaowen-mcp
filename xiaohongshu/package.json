@@ -1,5 +1,6 @@
 {
   "name": "xiaohongshu-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "小红书 MCP Server：代理本机小红书引擎，并在发布前把关标题/标签/图片",
   "type": "module",

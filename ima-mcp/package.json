@@ -1,5 +1,6 @@
 {
   "name": "ima-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "腾讯 ima 知识库 / 笔记 官方 OpenAPI 的 MCP Server",
   "type": "module",

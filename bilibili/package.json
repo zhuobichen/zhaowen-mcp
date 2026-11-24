@@ -1,5 +1,6 @@
 {
   "name": "bilibili-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "MCP Server for Bilibili: video info, search, popular, comments, like",
   "type": "module",

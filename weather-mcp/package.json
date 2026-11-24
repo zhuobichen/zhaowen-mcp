@@ -1,5 +1,6 @@
 {
   "name": "weather-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "逐小时天气预报（Open-Meteo，免费无需 key）：查某地某天的降水/温度/风，找出无雨时间窗，供出行与骑行决策。",
   "type": "module",

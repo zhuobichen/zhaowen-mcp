@@ -141,3 +141,12 @@ npm run typecheck
 npm test
 npm audit
 ```
+
+## 许可证
+
+**MIT**，见 [`LICENSE`](LICENSE)（Copyright (c) 2026 zhuobichen）。可以自由使用、修改、再分发，保留版权声明与许可文本即可。
+
+各子包的 `package.json` 也标了 `"license": "MIT"`，方便单独取用。
+
+**例外**：`cloudmusic-desktop-mcp/` 与 `file-manager/` 是别人的项目，各自保留上游 `LICENSE`，
+**不适用根目录的 MIT**，出处与本地改动见 [`THIRD_PARTY.md`](THIRD_PARTY.md)。

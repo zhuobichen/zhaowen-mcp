@@ -1,5 +1,6 @@
 {
   "name": "qqmail-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "只读查询 QQ 邮箱（mail.qq.com）：列文件夹、列最近邮件、按关键词搜索、读正文与附件清单。不发信、不删信、不改状态。",
   "type": "module",

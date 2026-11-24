@@ -1,5 +1,6 @@
 {
   "name": "meme-finder-mcp",
+  "license": "MIT",
   "version": "1.0.0",
   "description": "找表情包：按主题词搜 GitHub 上的表情包仓库与图集目录，返回可直连的图片地址，并把找到的合集登记到本地清单。",
   "type": "module",
